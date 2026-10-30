@@ -1,0 +1,368 @@
+import type {
+  BoardState,
+  DieFace,
+  DiceRoll,
+  Move,
+  MoveSource,
+  MoveTarget,
+  PlayerColor,
+  Point,
+  PointIndex,
+  PointValue,
+} from '@/types/game'
+
+/**
+ * The rules engine. 100% pure: no React, no DOM, no store, and randomness injected so every
+ * branch is testable. Everything here works on plain `BoardState` values and returns new ones.
+ *
+ * Conventions (see `types/game.ts` for the numbering this board renders):
+ *
+ * |                  | light (White, bottom) | dark (Black, top) |
+ * | ---------------- | --------------------- | ----------------- |
+ * | sign in `points` | positive              | negative          |
+ * | direction        | decreasing, 24 to 1   | increasing, 1 to 24|
+ * | home board       | 1-6                   | 19-24             |
+ * | bar entry for d  | 25 - d                | d                 |
+ * | pips off from p  | p                     | 25 - p            |
+ */
+
+export const POINT_COUNT = 24
+export const CHECKERS_PER_PLAYER = 15
+
+/** Which way a player's checkers travel, in point-number terms. */
+export const DIRECTION: Record<PlayerColor, 1 | -1> = { light: -1, dark: 1 }
+
+/**
+ * The virtual point just beyond each player's home board. Stepping off it means bearing off,
+ * and it doubles as the entry reference for checkers on the bar.
+ */
+export const BAR_OUTSIDE: Record<PlayerColor, number> = { light: 25, dark: 0 }
+
+/** Inclusive range of points a player must occupy before bearing off is allowed. */
+export const HOME_BOARD: Record<PlayerColor, readonly [PointIndex, PointIndex]> = {
+  light: [1, 6],
+  dark: [19, 24],
+}
+
+/** +1 for light, -1 for dark: the sign carried by `BoardState.points`. */
+export function sign(player: PlayerColor): 1 | -1 {
+  return player === 'light' ? 1 : -1
+}
+
+export function otherPlayer(player: PlayerColor): PlayerColor {
+  return player === 'light' ? 'dark' : 'light'
+}
+
+/** Injectable so dice can be made deterministic in tests. */
+export type RandomSource = () => number
+
+function toDie(value: number): DieFace {
+  const face = Math.floor(value * 6) + 1
+  return (face < 1 ? 1 : face > 6 ? 6 : face) as DieFace
+}
+
+/** Two dice, consuming exactly two draws from `rng`. */
+export function rollPair(rng: RandomSource = Math.random): DiceRoll {
+  return [toDie(rng()), toDie(rng())]
+}
+
+/** Pure: the raw pair, expanded to the dice that must be played (4 when doubles). */
+export function expandRoll(roll: DiceRoll): DieFace[] {
+  const [first, second] = roll
+  return first === second ? [first, first, first, first] : [first, second]
+}
+
+/** The dice to play this turn: two values, or four of a kind on doubles. */
+export function rollDice(rng: RandomSource = Math.random): DieFace[] {
+  return expandRoll(rollPair(rng))
+}
+
+/** Raw signed count on a point (0 when empty or out of range). */
+export function pointValue(board: BoardState, index: PointIndex): PointValue {
+  return board.points[index - 1] ?? 0
+}
+
+/** How many checkers sit on a point, regardless of owner. */
+export function checkerCountAt(board: BoardState, index: PointIndex): number {
+  return Math.abs(pointValue(board, index))
+}
+
+/** `null` when the point is empty or out of range. */
+export function ownerOf(board: BoardState, index: PointIndex): PlayerColor | null {
+  const value = pointValue(board, index)
+  if (value > 0) return 'light'
+  if (value < 0) return 'dark'
+  return null
+}
+
+export function isHomePoint(player: PlayerColor, index: PointIndex): boolean {
+  const [first, last] = HOME_BOARD[player]
+  return index >= first && index <= last
+}
+
+/** Pips a checker still needs to reach the bear-off tray. */
+export function pipsToBearOff(player: PlayerColor, index: PointIndex): number {
+  return player === 'light' ? index : 25 - index
+}
+
+/**
+ * True when every remaining checker of the player is in its home board and none is on the bar.
+ * Already-borne-off checkers are excluded from the required count.
+ */
+export function isInHomeBoard(board: BoardState, player: PlayerColor): boolean {
+  if (board.bar[player] > 0) {
+    return false
+  }
+
+  const [first, last] = HOME_BOARD[player]
+  let inHome = 0
+  for (let index = first; index <= last; index += 1) {
+    if (ownerOf(board, index) === player) {
+      inHome += checkerCountAt(board, index)
+    }
+  }
+
+  return inHome === CHECKERS_PER_PLAYER - board.off[player]
+}
+
+/** Where a checker lands, or `'off'` when the step leaves the board. */
+export function destinationFor(player: PlayerColor, from: MoveSource, die: DieFace): MoveTarget {
+  const raw = from === 'bar' ? BAR_OUTSIDE[player] + DIRECTION[player] * die : from + DIRECTION[player] * die
+  return raw < 1 || raw > POINT_COUNT ? 'off' : raw
+}
+
+/** Empty, friendly, or a single enemy blot (which can be hit). */
+export function isEnterable(board: BoardState, player: PlayerColor, to: MoveTarget): boolean {
+  if (to === 'off') {
+    return false
+  }
+
+  const value = pointValue(board, to)
+  if (value === 0 || value * sign(player) > 0) {
+    return true
+  }
+  return Math.abs(value) === 1
+}
+
+export function getWinner(board: BoardState): PlayerColor | null {
+  if (board.off.light >= CHECKERS_PER_PLAYER) return 'light'
+  if (board.off.dark >= CHECKERS_PER_PLAYER) return 'dark'
+  return null
+}
+
+/** Thrown by `applyMove` when a move cannot be reconciled with the board it was given. */
+export class IllegalMoveError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'IllegalMoveError'
+  }
+}
+
+function moveKey(move: Move): string {
+  return `${move.from}|${move.to}|${move.die}`
+}
+
+/**
+ * Is any checker of the player farther from the tray than `index`? If so, a die larger than the
+ * distance may not be spent on that checker — the standard bear-off restriction.
+ */
+function hasCheckerFarther(board: BoardState, player: PlayerColor, index: PointIndex): boolean {
+  const pips = pipsToBearOff(player, index)
+
+  for (let candidate = 1; candidate <= POINT_COUNT; candidate += 1) {
+    if (ownerOf(board, candidate) === player && pipsToBearOff(player, candidate) > pips) {
+      return true
+    }
+  }
+
+  return false
+}
+
+/**
+ * Every single-die move available right now, deduplicated (four equal dice still offer each
+ * destination once).
+ *
+ * Deliberately move-at-a-time rather than full sequences: `applyMove` re-derives the options
+ * after every step, which is what click-to-move needs. Two sequence-level rules are therefore
+ * NOT enforced yet — playing the maximum number of pips when a choice exists, and preferring the
+ * larger die when only one is playable. See README "Known rules gaps".
+ */
+export function getLegalMoves(
+  board: BoardState,
+  player: PlayerColor,
+  dice: readonly DieFace[],
+): Move[] {
+  if (board.phase === 'finished' || board.winner !== null || dice.length === 0) {
+    return []
+  }
+
+  const uniqueDice = [...new Set(dice)]
+  const moves: Move[] = []
+
+  // Checkers on the bar have priority: nothing else may be moved until they re-enter.
+  if (board.bar[player] > 0) {
+    for (const die of uniqueDice) {
+      const to = destinationFor(player, 'bar', die)
+      if (to !== 'off' && isEnterable(board, player, to)) {
+        moves.push({ from: 'bar', to, die })
+      }
+    }
+    return moves
+  }
+
+  const mayBearOff = isInHomeBoard(board, player)
+
+  for (const die of uniqueDice) {
+    for (let index = 1; index <= POINT_COUNT; index += 1) {
+      if (ownerOf(board, index) !== player) {
+        continue
+      }
+
+      const to = destinationFor(player, index, die)
+
+      if (to === 'off') {
+        if (!mayBearOff) {
+          continue
+        }
+
+        const pips = pipsToBearOff(player, index)
+        if (pips === die || (die > pips && !hasCheckerFarther(board, player, index))) {
+          moves.push({ from: index, to: 'off', die })
+        }
+        continue
+      }
+
+      if (isEnterable(board, player, to)) {
+        moves.push({ from: index, to, die })
+      }
+    }
+  }
+
+  const seen = new Set<string>()
+  return moves.filter((move) => {
+    const key = moveKey(move)
+    if (seen.has(key)) {
+      return false
+    }
+    seen.add(key)
+    return true
+  })
+}
+
+/** Does the player have any move at all with these dice? If not, the turn passes. */
+export function canPlay(board: BoardState, player: PlayerColor, dice: readonly DieFace[]): boolean {
+  return getLegalMoves(board, player, dice).length > 0
+}
+
+/** Hands the turn over: flips `turn`, discards unplayed dice, puts the game in play. */
+export function endTurn(board: BoardState): BoardState {
+  return { ...board, turn: otherPlayer(board.turn), dice: [], phase: 'playing' }
+}
+
+/**
+ * Returns a new board with the move applied — handles hitting, bearing off, spending exactly one
+ * die, and passing the turn when the last die is used. The input is never mutated.
+ *
+ * Structural checks only. Callers that need full rule validation compare against `getLegalMoves`
+ * first (the store does), because legality is a set question, not a per-field one.
+ */
+export function applyMove(board: BoardState, move: Move, player: PlayerColor): BoardState {
+  if (board.phase === 'finished' || board.winner !== null) {
+    throw new IllegalMoveError('The game is already finished')
+  }
+  if (board.turn !== player) {
+    throw new IllegalMoveError(`It is ${board.turn}'s turn, not ${player}'s`)
+  }
+
+  const diceIndex = board.dice.indexOf(move.die)
+  if (diceIndex === -1) {
+    throw new IllegalMoveError(`Die ${move.die} is not available`)
+  }
+
+  const points = [...board.points]
+  const bar = { ...board.bar }
+  const off = { ...board.off }
+
+  if (move.from === 'bar') {
+    if (bar[player] < 1) {
+      throw new IllegalMoveError(`No ${player} checker on the bar`)
+    }
+    bar[player] -= 1
+  } else {
+    if (ownerOf(board, move.from) !== player) {
+      throw new IllegalMoveError(`Point ${move.from} does not belong to ${player}`)
+    }
+    points[move.from - 1] = pointValue(board, move.from) - sign(player)
+  }
+
+  if (move.to === 'off') {
+    // Judged on the board as it was before the move, exactly like move generation.
+    if (!isInHomeBoard(board, player)) {
+      throw new IllegalMoveError('Cannot bear off until every checker is in the home board')
+    }
+    off[player] += 1
+  } else {
+    if (!isEnterable(board, player, move.to)) {
+      throw new IllegalMoveError(`Point ${move.to} is blocked`)
+    }
+
+    let landing = pointValue(board, move.to)
+    if (landing !== 0 && landing * sign(player) < 0) {
+      // Exactly one enemy checker (isEnterable already ruled out 2+): send the blot to the bar.
+      landing = 0
+      bar[otherPlayer(player)] += 1
+    }
+    points[move.to - 1] = landing + sign(player)
+  }
+
+  const dice = [...board.dice]
+  dice.splice(diceIndex, 1)
+
+  const next: BoardState = { ...board, points, bar, off, dice }
+
+  if (off[player] >= CHECKERS_PER_PLAYER) {
+    return { ...next, phase: 'finished', winner: player, dice: [] }
+  }
+
+  return dice.length === 0 ? endTurn(next) : next
+}
+
+/** View model for the board components: 24 triangles with unsigned counts and owners. */
+export function toPointViews(board: BoardState): Point[] {
+  return board.points.map((value, position): Point => ({
+    index: position + 1,
+    checkers: Math.abs(value),
+    owner: value > 0 ? 'light' : value < 0 ? 'dark' : null,
+  }))
+}
+
+/** The standard opening layout: 2 / 5 / 3 / 5 per side, mirrored around the bar. */
+export function getInitialBoardState(): BoardState {
+  const points: PointValue[] = Array.from({ length: POINT_COUNT }, () => 0)
+
+  const place = (index: PointIndex, player: PlayerColor, count: number): void => {
+    points[index - 1] = sign(player) * count
+  }
+
+  // Each side puts 2 on its 24-point, 5 on its 13-point, 3 on its 8-point and 5 on its 6-point,
+  // expressed in this board's absolute numbering (light runs 24 -> 1, dark runs 1 -> 24).
+  place(24, 'light', 2)
+  place(13, 'light', 5)
+  place(8, 'light', 3)
+  place(6, 'light', 5)
+
+  place(1, 'dark', 2)
+  place(12, 'dark', 5)
+  place(17, 'dark', 3)
+  place(19, 'dark', 5)
+
+  return {
+    points,
+    bar: { light: 0, dark: 0 },
+    off: { light: 0, dark: 0 },
+    turn: 'light',
+    dice: [],
+    phase: 'idle',
+    winner: null,
+  }
+}

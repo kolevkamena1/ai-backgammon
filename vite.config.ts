@@ -1,7 +1,9 @@
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
-import { defineConfig } from 'vite'
+// defineConfig from vitest/config is Vite's, widened with the `test` block, so the alias below
+// stays the single source of truth for both the app and the test run.
+import { defineConfig } from 'vitest/config'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -23,5 +25,10 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+  },
+  test: {
+    // The rules engine is pure, so no DOM environment (and no jsdom dependency) is needed.
+    environment: 'node',
+    include: ['src/**/*.test.ts'],
   },
 })
