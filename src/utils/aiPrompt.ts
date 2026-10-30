@@ -1,0 +1,112 @@
+import type { BoardState, Move, PlayerColor } from '@/types/game'
+import { HOME_BOARD, otherPlayer } from '@/utils/gameLogic'
+
+/**
+ * Every word the AI sees, in one file, so the prompt can be tuned without touching transport or
+ * rules. Pure string building: no fetch, no store, no side effects.
+ *
+ * The anti-hallucination lever is that the model is handed the **already validated** legal-move
+ * list and only has to pick an entry from it, so it can never invent coordinates that the rules
+ * engine would reject.
+ */
+
+/** The JSON contract quoted in the system prompt. */
+export const AI_JSON_CONTRACT =
+  '{"from": <point number or "bar">, "to": <point number or "off">, "die": <1-6>}'
+
+export interface AiPrompt {
+  system: string
+  user: string
+}
+
+const SEAT_NAME: Record<PlayerColor, string> = { light: 'White', dark: 'Black' }
+const POINTS_PER_ROW = 6
+
+/** `bar -> 19 using die 6`, `13 -> 8 using die 5`, `3 -> off (bear off) using die 3`. */
+export function describeMove(move: Move): string {
+  const from = move.from === 'bar' ? 'bar' : `point ${move.from}`
+  const to = move.to === 'off' ? 'off (bear off)' : `point ${move.to}`
+  return `${from} -> ${to} using die ${move.die}`
+}
+
+/**
+ * All 24 points as signed counts, six per line. `+` is White, `-` is Black, bare `0` is empty
+ * (see `types/game.ts` for why the array is signed).
+ */
+export function renderPoints(board: BoardState): string {
+  const cells = board.points.map(
+    (value, position) => `${position + 1}:${value > 0 ? `+${value}` : `${value}`}`,
+  )
+
+  const rows: string[] = []
+  for (let start = 0; start < cells.length; start += POINTS_PER_ROW) {
+    rows.push(`  ${cells.slice(start, start + POINTS_PER_ROW).join('  ')}`)
+  }
+
+  return rows.join('\n')
+}
+
+/** The position, the dice in hand and the numbered menu of legal moves. */
+export function renderPosition(
+  board: BoardState,
+  player: PlayerColor,
+  legalMoves: readonly Move[],
+): string {
+  const [first, last] = HOME_BOARD[player]
+  const toward =
+    player === 'light'
+      ? '24 -> 1, bearing off past point 1'
+      : '1 -> 24, bearing off past point 24'
+
+  const menu =
+    legalMoves.length === 0
+      ? '  (none - the turn passes)'
+      : legalMoves.map((move, index) => `  ${index + 1}. ${describeMove(move)}`).join('\n')
+
+  return [
+    `Turn: ${SEAT_NAME[player]} (${player}). Choose one move for ${SEAT_NAME[player]}.`,
+    `Your direction of travel is ${toward}. Your home board is points ${first}-${last}.`,
+    `Dice still to play: ${board.dice.length === 0 ? 'none' : board.dice.join(', ')}.`,
+    `On the bar - White ${board.bar.light}, Black ${board.bar.dark}.`,
+    `Borne off - White ${board.off.light}, Black ${board.off.dark}.`,
+    'Points (index:count, + is White, - is Black, 0 is empty):',
+    renderPoints(board),
+    `Opponent: ${SEAT_NAME[otherPlayer(player)]}.`,
+    '',
+    `Legal moves - pick exactly one of these ${legalMoves.length} numbered options:`,
+    menu,
+  ].join('\n')
+}
+
+export function buildSystemPrompt(player: PlayerColor): string {
+  return [
+    `You are a backgammon engine playing ${SEAT_NAME[player]}. Reply with exactly one move.`,
+    'Numbering runs 1 to 24. Positive counts on a point are White checkers, negative are Black.',
+    'A checker on the bar must be re-entered before anything else may move.',
+    'Bearing off is written as "to": "off".',
+    '',
+    'The position comes with a numbered list of legal moves already validated by the rules engine.',
+    'Choose exactly one entry from that list. Never invent a move, a point or a die value.',
+    'Prefer sound strategy: keep blots out of range, hit when it gains tempo, advance to your home board.',
+    '',
+    'Return ONLY a single JSON object, no prose, no explanation, no markdown fences. Either',
+    AI_JSON_CONTRACT,
+    'or, more simply,',
+    '{"choice": <the move number from the list, 1-based>}',
+  ].join('\n')
+}
+
+/**
+ * The full request for one move. `legalMoves` must come from `getLegalMoves()` for the same
+ * board, so the menu shown here and the validation in `aiClient.ts` can never disagree.
+ */
+export function buildMovePrompt(
+  board: BoardState,
+  player: PlayerColor,
+  legalMoves: readonly Move[],
+): AiPrompt {
+  return {
+    system: buildSystemPrompt(player),
+    user: `${renderPosition(board, player, legalMoves)}\n\nChoose one now. Reply with the JSON object only.`,
+  }
+}

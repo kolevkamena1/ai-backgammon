@@ -17,6 +17,9 @@
     "jsx": "react-jsx",
 
     /* Linting */
+    // Required for the `AiResult` / `BoardState | null` unions in this codebase to narrow at all:
+    // without strictNullChecks, `success: true` and `success: false` both widen to `boolean`.
+    "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
