@@ -1,0 +1,21 @@
+# Line endings are a repository property, not a machine one.
+#
+# Without this file the LF content in the object store depends on each clone's `core.autocrlf`:
+# Windows defaults it to true, so every checked-out file arrives CRLF while the blob stays LF.
+# Nothing in this toolchain breaks on that, but it makes diffs noisy on a fresh clone and it means
+# `dist/_headers` and `dist/_redirects` - which Cloudflare Pages parses verbatim - are byte-different
+# per machine. Pinning `eol=lf` makes the checkout, the diff and the deployed payload identical
+# everywhere, and it survives a teammate who has `core.autocrlf` set the other way.
+* text=auto eol=lf
+
+# Never attempt a conversion on a payload that is not text, however git's heuristic reads it.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.gz binary
