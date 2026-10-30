@@ -121,12 +121,6 @@ const GameSetupModal = ({ onClose }: GameSetupModalProps) => {
   const plan = planSeats(settings, { mode, aiMatchType, opponent: draft })
   const personalProblems = validateEngine(settings)
 
-  /**
-   * Production has no inference client, so an AI-vs-AI setup can be saved but not started.
-   * `import.meta.env.PROD` is a build-time constant: in dev this is always false, which is
-   * what lets you step an AI-vs-AI match through by hand while Phase 3 is still unbuilt.
-   */
-  const needsPhase3 = mode === 'aiVsAi' && import.meta.env.PROD
 
   const handleSave = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
@@ -140,15 +134,11 @@ const GameSetupModal = ({ onClose }: GameSetupModalProps) => {
     try {
       saveSetup(setup)
 
-      if (!needsPhase3) {
-        if (!game.startNewGame(setup, settings)) {
-          setError('Both seats need an API key before a game can start.')
-          return
-        }
-        logger.info('game started', { mode, aiMatchType, seatPlanReady: plan.ready })
-      } else {
-        logger.info('game setup saved', { mode, aiMatchType, seatPlanReady: plan.ready })
+      if (!game.startNewGame(setup, settings)) {
+        setError('Both seats need an API key before a game can start.')
+        return
       }
+      logger.info('game started', { mode, aiMatchType, seatPlanReady: plan.ready })
 
       onClose()
     } catch (saveError) {
@@ -271,12 +261,6 @@ const GameSetupModal = ({ onClose }: GameSetupModalProps) => {
           </p>
         ) : null}
 
-        {needsPhase3 ? (
-          <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-            AI vs AI can be saved, but automated moves arrive with the inference client in
-            Phase 3. Run <code>npm run dev</code> to start one and roll for both seats by hand.
-          </p>
-        ) : null}
 
         {error ? (
           <p
@@ -297,7 +281,7 @@ const GameSetupModal = ({ onClose }: GameSetupModalProps) => {
             className={cn(BUTTON, 'bg-sky-600 text-white hover:bg-sky-500')}
           >
             <Check className="size-4" aria-hidden />
-            {needsPhase3 ? 'Save setup' : 'Start game'}
+            Start game
           </button>
         </div>
       </form>

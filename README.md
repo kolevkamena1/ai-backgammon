@@ -2,11 +2,12 @@
 
 AI-powered (BYOK) Backgammon.
 
-**Current status: Phase 2 — rules engine, game store and turn flow.**
+**Current status: Phase 3 — rules, turn flow and BYOK inference.**
 Rolling, legal moves, hitting, bar re-entry and bearing off are real and covered by tests, and a
-human can play a full game by clicking a checker then a highlighted triangle. There is **no** AI
-inference yet: AI seats are configured but silent (Phase 3), and under `npm run dev` you can roll
-and move for them by hand to step an AI-vs-AI match through.
+human can play a full game by clicking a checker then a highlighted triangle. AI seats play
+themselves: every move is requested from your own key over native `fetch`, chosen from the legal
+move menu, and re-validated by the rules engine before it touches the board. In `npm run dev` you
+can still roll and move for any seat by hand.
 
 ## Tech stack
 
@@ -16,6 +17,7 @@ and move for them by hand to step an AI-vs-AI match through.
 | Styling     | Tailwind CSS 4 via `@tailwindcss/vite` (no `tailwind.config.js`) |
 | Client state| Zustand 5 + `persist` middleware |
 | Icons       | lucide-react |
+| Inference   | Native `fetch` per provider — OpenAI, Anthropic, Google, any OpenAI-compatible endpoint. No SDK. |
 | Testing     | Vitest 5 — `environment: 'node'` for the pure rules engine, jsdom for the
 |             | one interactive component test |
 | Hosting     | Cloudflare Pages (static assets, no Functions yet) |
@@ -29,7 +31,7 @@ npm install          # install dependencies
 npm run dev          # dev server on http://localhost:5173
 npm run typecheck    # tsc -b (no emit) — 0 errors required
 npm run lint         # eslint .
-npm run test         # vitest run (55 tests: rules engine, seat planning, click-to-move)
+npm run test         # vitest run (121 tests: rules, seats, click-to-move, AI client, AI turn driver)
 npm run test:watch   # vitest in watch mode
 npm run build        # typecheck + production bundle into dist/
 npm run preview      # serve the built dist/ locally
@@ -55,10 +57,9 @@ what will run.
 
 *New game* now **starts** the match: the CTA reads "Start game", which saves the setup and then
 snapshots `planSeats()` into the game store — so editing settings mid-game cannot swap a player
-out from under the board. A production build can still *save* an AI-vs-AI setup but not start it
-(the button says "Save setup" and explains that the inference client arrives in Phase 3); under
-`npm run dev` it starts, and the roll button reads "Roll for White"/"Roll for Black" so a match can
-be stepped through by hand. The CTA stays disabled while any AI seat is missing a key (or a Base
+out from under the board. Every mode starts now, AI vs AI included: when the seat to act is an
+AI, `useAiTurn` drives the whole turn — roll, then one request per die — until the turn is handed
+over. The CTA stays disabled while any AI seat is missing a key (or a Base
 URL for a custom endpoint), and each seat card lists exactly what is missing.
 
 ## Playing the game
@@ -88,8 +89,65 @@ whole sequence are therefore not enforced yet:
 * playing the **maximum number of pips** when the dice offer a choice;
 * preferring the larger die when only a single move fits.
 
-Both are flagged in `getLegalMoves()` and are the first thing to fix in Phase 3, when the engine
-loop needs full turn sequencing. Undo, the doubling cube and match scoring are also absent.
+Both are flagged in `getLegalMoves()` and are the next thing to fix: a model that obeys them can
+be steered into a turn the engine considers worse. Undo, the doubling cube and match scoring are
+also absent.
+
+## AI inference
+
+Three files, none of which knows about React:
+
+| File | Role |
+| --- | --- |
+| `src/utils/aiPrompt.ts` | Every word the model sees. Pure string building. |
+| `src/utils/aiClient.ts` | `getAiMove()` routes to one handler per provider over native `fetch`. |
+| `src/state/gameStore.ts` | `runAiTurn()` sequences roll, request, validate, apply. |
+
+### The menu is the whole trick
+
+The prompt carries the position **and the numbered list of legal moves from `getLegalMoves()`**, so
+the model only has to pick an entry it cannot get wrong. The reply is parsed leniently (markdown
+fences, prose around the JSON, stringified numbers, or `{"choice": n}` instead of coordinates), but
+the parser returns a move **only if it appears in that menu**. Whatever a model hallucinates, it
+cannot reach `applyMove`.
+
+### Providers
+
+| Provider | Endpoint | Auth | Default model |
+| --- | --- | --- | --- |
+| OpenAI | `https://api.openai.com/v1/chat/completions` | `Authorization: Bearer` | `gpt-4o-mini` |
+| Anthropic | `https://api.anthropic.com/v1/messages` | `x-api-key` + `anthropic-version` + `anthropic-dangerous-direct-browser-access` | `claude-3-5-haiku-latest` |
+| Google | `.../v1beta/models/<model>:generateContent` | `x-goog-api-key` | `gemini-2.0-flash` |
+| Custom | `<baseUrl>/chat/completions` (`/v1` appended when absent) | `Authorization: Bearer` | none — you must set one |
+
+Requests use `temperature: 0` and a small output cap. `response_format: json_object` goes to OpenAI
+and Google but **not** to custom gateways, which often reject the field. The Anthropic browser-access
+header is required, or the call is refused outright from a page.
+
+### Failure handling
+
+`getAiMove` never throws. Every path resolves to an `AiResult`: success with a legal `Move`, or
+failure with a human message plus an `AiErrorCode` — `unauthorized`, `rate-limited`, `not-found`,
+`server-error`, `network`, `timeout`, `aborted`, `bad-response`, `illegal-move`, `missing-key`,
+`missing-endpoint`, `missing-model`, `unsupported-provider`.
+
+* **Timeout**: 20 s by default (`AI_TIMEOUT_MS`), through an internal `AbortController` that also
+  relays a caller signal.
+* **Retry**: exactly one, and only for transient codes (429, 5xx, network, timeout), honouring
+  `Retry-After`. Auth and protocol errors are never retried.
+* **Stop, do not guess**: a failed request ends the turn and shows a banner with Retry / Dismiss
+  (plus Open Settings for credential-shaped codes). Nothing falls back to a random legal move,
+  because a silent fallback hides a broken key.
+* **Pacing**: `aiMoveDelayMs` (400 ms) between moves, so a human can follow an AI turn.
+* **Stale replies**: a turn counter plus an abort make a reply that lands after `resetGame` or a new
+  game a no-op, instead of moving pieces on a different board.
+* **Single flight**: two triggers cannot spend one turn, which is what makes a StrictMode
+  double-mount harmless.
+* **Cost**: a turn is at most 4 requests and a game a few hundred, all billed to your own key.
+
+Endpoints must allow CORS from this origin. `http://localhost` counts as trustworthy from an https
+page, but a LAN address such as `http://192.168.0.12:11434` is blocked as mixed content — tunnel the
+gateway or add a Pages Function proxy if you need it.
 
 ## Layout
 
@@ -102,11 +160,12 @@ src/
 │   ├── GameControls.tsx   turn status, dice in hand, roll/pass and winner notices
 │   ├── SettingsModal.tsx    personal BYOK
 │   └── GameSetupModal.tsx   mode + match type + opponent BYOK + roster preview
-├── hooks/          useGame, useSettings, useGameConfig, useByokDraft, useEscapeKey
+├── hooks/          useAiTurn, useGame, useSettings, useGameConfig, useByokDraft, useEscapeKey
 ├── lib/logger.ts   console wrapper that redacts credential-shaped fields
-├── state/          createSafeStorage.ts, settingsStore.ts, gameConfigStore.ts, gameStore.ts
-├── types/          game.ts, settings.ts (AiEngineConfig), gameConfig.ts
-└── utils/          gameConfig.ts, gameLogic.ts, cn.ts, formatSecret.ts (+ __tests__/)
+├── state/          createSafeStorage.ts, settingsStore.ts, gameConfigStore.ts, gameStore.ts (+ __tests__/)
+├── types/          game.ts, settings.ts (AiEngineConfig), gameConfig.ts, ai.ts
+└── utils/          gameConfig.ts, gameLogic.ts, aiClient.ts, aiPrompt.ts, cn.ts,
+                  formatSecret.ts (+ __tests__/)
 ```
 
 Path alias `@/…` maps to `src/…` and is declared in **both** `vite.config.ts` (`resolve.alias`)
@@ -123,6 +182,9 @@ and `tsconfig.app.json` (`compilerOptions.paths`) so Vite and `tsc -b` agree.
   credentials. Refresh the page and the game is gone; the two entries above are not.
 * A **mirror match stores no second credential**: `planSeats()` hands the same engine object to
   both seats, so there is nothing to keep in sync and no extra copy of your key.
+* `aiClient` sends a key only to the endpoint of the provider you selected: `baseUrl` is honoured
+  **only** for `provider: 'custom'`, so an OpenAI or Anthropic key can never be posted to a host
+  you did not choose (a test pins that down). Prompts, log lines and UI errors carry no credential.
 * Keys live in the browser in plain text. That is inherent to a client-only BYOK app: anyone with
   access to this device (or an XSS bug) can read them. Use dedicated, revocable keys, and add a
   Pages Function proxy later if that trade-off stops being acceptable.
@@ -174,8 +236,9 @@ only once the production CSS pipeline is stable.
 1. **Phase 2 — game core: done.** `src/utils/gameLogic.ts` holds the rules (not the `dice.ts`
    first sketched), `src/state/gameStore.ts` sequences them, `src/hooks/useGame.ts` feeds the
    components, and Vitest covers the engine, the seat planning and click-to-move.
-2. **Phase 3 — BYOK engine:** per-provider clients fed from the snapshotted `seatPlan` (one
-   engine for mirror, two for custom), full turn sequencing to close the "Known rules gaps",
-   move explanations streamed into the side panel, optional Pages Function proxy.
+2. **Phase 3 — BYOK engine: done.** `aiClient.ts` covers OpenAI, Anthropic, Google and any
+   OpenAI-compatible endpoint and is fed from the snapshotted `seatPlan`; `aiPrompt.ts` holds the
+   wording; `runAiTurn` + `useAiTurn` drive a turn. Still open: move explanations in the side panel
+   and a Pages Function proxy for endpoints that cannot serve CORS.
 3. **Phase 4 — polish:** spectator controls for AI vs AI, drag-and-drop, animations,
    accessibility pass, persistence of games.

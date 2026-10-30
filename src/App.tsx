@@ -4,6 +4,7 @@ import GameControls from '@/components/GameControls'
 import GameSetupModal from '@/components/GameSetupModal'
 import SettingsModal from '@/components/SettingsModal'
 import { useGame } from '@/hooks/useGame'
+import { useAiTurn } from '@/hooks/useAiTurn'
 import { useGameConfig } from '@/hooks/useGameConfig'
 import { useSettings } from '@/hooks/useSettings'
 import type { SeatAssignment } from '@/types/gameConfig'
@@ -29,6 +30,9 @@ const App = () => {
   const { config, isSetupOpen, openSetup, closeSetup } = useGameConfig()
   const game = useGame()
 
+  // Exactly one AI driver for the whole app; the store itself guards single-flight.
+  useAiTurn()
+
   // The saved config is a preview; a started game keeps its own snapshot so later edits cannot
   // swap the player out from under the board.
   const previewPlan = planSeats(settings, config)
@@ -49,7 +53,7 @@ const App = () => {
               <Dices className="size-5 text-amber-400" aria-hidden />
               AI Backgammon
             </h1>
-            <p className="text-sm text-slate-400">Bring-your-own-key inference. Rules and turns are live.</p>
+            <p className="text-sm text-slate-400">Bring-your-own-key inference. Rules, turns and live AI seats.</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -142,13 +146,7 @@ const App = () => {
                     : 'Both seats are configured. Start a game to roll.'}
             </p>
 
-            <button
-              type="button"
-              disabled
-              className="mt-3 inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-500"
-            >
-              Ask the AI (coming soon)
-            </button>
+
           </div>
         </section>
       </main>

@@ -113,7 +113,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
 
     if (result.success === false) {
       set({ lastAiError: { message: result.error, code: result.code } })
-      logger.warn('ai move failed', { code: result.code, provider: engine.provider, seat: color })
+      logger.error('ai move failed', { code: result.code, provider: engine.provider, seat: color })
       return 'stop'
     }
 
@@ -126,7 +126,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           code: 'illegal-move',
         },
       })
-      logger.warn('ai move rejected by the rules engine', { seat: color })
+      logger.error('ai move rejected by the rules engine', { seat: color })
       return 'stop'
     }
 

@@ -9,7 +9,16 @@ import type { GameConfigSnapshot } from '@/types/gameConfig'
 import { getInitialBoardState } from '@/utils/gameLogic'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { getAiMove } from '@/utils/aiClient'
+
+// The transport is stubbed: these tests must never reach a real provider.
+vi.mock('@/utils/aiClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/aiClient')>()
+  return { ...actual, getAiMove: vi.fn() }
+})
+
+const mockedGetAiMove = vi.mocked(getAiMove)
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -136,6 +145,65 @@ describe('GameControls', () => {
 
     act(() => root.render(<WiredBoard />))
     expect(buttons()).toHaveLength(0)
+  })
+})
+
+describe('AI turn feedback', () => {
+  const startMirror = (): void => {
+    expect(
+      useGameStore.getState().startNewGame(aiVsAi, personal),
+    ).toBe(true)
+    useGameStore.setState({ aiMoveDelayMs: 0 })
+  }
+
+  it('shows a thinking indicator and suspends interaction while the engine is asked', () => {
+    startMirror()
+    useGameStore.setState({ board: { ...getInitialBoardState(), dice: [5], phase: 'playing' }, isAiThinking: true })
+    act(() => root.render(<GameControls />))
+
+    expect(text()).toContain('Asking the engine')
+    expect(text()).toContain('OpenAI')
+    expect(text()).not.toContain('Roll for White')
+
+    act(() => root.render(<WiredBoard />))
+    // Even in dev, no triangle is clickable while a chain is moving pieces.
+    expect(buttons()).toHaveLength(0)
+  })
+
+  it('surfaces a credential failure with a route to Settings and can dismiss it', () => {
+    startMirror()
+    useGameStore.setState({
+      lastAiError: { code: 'unauthorized', message: 'Invalid API key. Check Settings.' },
+    })
+    act(() => root.render(<GameControls />))
+
+    expect(text()).toContain('Invalid API key. Check Settings.')
+    expect(labelled('Open Settings')).toBeTruthy()
+
+    click(labelled('Dismiss'))
+    expect(useGameStore.getState().lastAiError).toBeNull()
+    expect(text()).not.toContain('Invalid API key')
+  })
+
+  it('re-requests a move from the Retry button', async () => {
+    startMirror()
+    useGameStore.setState({
+      board: { ...getInitialBoardState(), dice: [5], phase: 'playing' },
+      lastAiError: { code: 'network', message: 'Could not reach the provider.' },
+    })
+    mockedGetAiMove.mockResolvedValue({ success: false, error: 'still down', code: 'network', retryAfterMs: null })
+    act(() => root.render(<GameControls />))
+    expect(labelled('Open Settings')).toBeUndefined()
+
+    click(labelled('Retry'))
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(useGameStore.getState().isAiThinking).toBe(false)
+        expect(useGameStore.getState().lastAiError?.message).toBe('still down')
+      })
+    })
+
+    expect(text()).toContain('still down')
   })
 })
 

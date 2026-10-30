@@ -2,17 +2,30 @@ import type { PlayerColor } from '@/types/game'
 import type { SeatAssignment } from '@/types/gameConfig'
 import { BUTTON } from '@/components/ui/controls'
 import { useGame } from '@/hooks/useGame'
+import { useSettings } from '@/hooks/useSettings'
 import { describeEngine } from '@/utils/gameConfig'
 import { cn } from '@/utils/cn'
-import { Dices, RotateCcw } from 'lucide-react'
+import { Dices, RefreshCw, RotateCcw, TriangleAlert, X } from 'lucide-react'
 import Checker from './Checker'
 import Die from './Die'
+
+const SEAT_NAME: Record<PlayerColor, string> = { light: 'White', dark: 'Black' }
 
 const PANEL = 'flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-4'
 const HEADING = 'text-sm font-semibold text-slate-100'
 const SUBTLE = 'text-xs text-slate-400'
 const PRIMARY = cn(BUTTON, 'bg-sky-600 text-white hover:bg-sky-500')
 const SECONDARY = cn(BUTTON, 'border border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700')
+const GHOST = cn(BUTTON, 'px-2 py-1 text-xs text-slate-300 hover:bg-slate-800')
+
+/** Codes that mean "your credentials are wrong", so the banner can point at Settings. */
+const CREDENTIAL_CODES: ReadonlySet<string> = new Set([
+  'unauthorized',
+  'forbidden',
+  'missing-key',
+  'missing-endpoint',
+  'missing-model',
+])
 
 /** Why a turn ended without a move, in the player's words. */
 const PASS_COPY: Record<string, string> = {
@@ -30,12 +43,14 @@ function seatSummary(seat: SeatAssignment): string {
 }
 
 /**
- * Turn status, the dice in hand and the roll action. All mutation goes through `useGame`, which
- * forwards to the store; this component holds no state of its own.
+ * Turn status, the dice in hand, the AI's progress and the roll action. All mutation goes through
+ * `useGame`, which forwards to the store; this component holds no state of its own.
  */
 const GameControls = () => {
   const game = useGame()
-  const { board, currentSeat, lastRoll, history, selectedFrom, turnPassed } = game
+  const { openSettings } = useSettings()
+  const { board, currentSeat, lastRoll, history, selectedFrom, turnPassed, isAiThinking, lastAiError } =
+    game
 
   if (board === null || currentSeat === null) {
     return (
@@ -50,12 +65,14 @@ const GameControls = () => {
   }
 
   const seat: PlayerColor = board.turn
-  const seatName = seat === 'light' ? 'White' : 'Black'
+  const seatName = SEAT_NAME[seat]
+  const providerName =
+    currentSeat.kind === 'ai' ? describeEngine(currentSeat.engine).providerName : null
 
   /**
-   * Phase 2 ships no inference client, so this is the manual stand-in. `import.meta.env.DEV` is
-   * statically false in a production build, which folds the `Roll for ...` label away and leaves
-   * the plain one plus the Phase 3 notice.
+   * Dev-only convenience: with an engine failing, `useAiTurn` stops retrying, and this button lets
+   * you step the match past that seat by hand. `import.meta.env.DEV` is statically false in a
+   * production build, so the `Roll for ...` label folds away and only the plain one ships.
    */
   const devStepping = import.meta.env.DEV && game.isHumanTurn === false
   const rollLabel = devStepping ? `Roll for ${seatName}` : 'Roll dice'
@@ -77,7 +94,11 @@ const GameControls = () => {
       <div className="flex items-center gap-2">
         <Checker owner={seat} />
         <p className="text-sm font-medium text-slate-100">
-          {game.isFinished ? 'Game over' : `${seatName} to ${game.awaitingRoll ? 'roll' : 'move'}`}
+          {game.isFinished
+            ? 'Game over'
+            : isAiThinking
+              ? `${seatName} is working`
+              : `${seatName} to ${game.awaitingRoll ? 'roll' : 'move'}`}
         </p>
         <span className={SUBTLE}>· {seatSummary(currentSeat)}</span>
       </div>
@@ -103,9 +124,19 @@ const GameControls = () => {
         ) : null}
       </div>
 
+      {isAiThinking ? (
+        <p className="flex items-center gap-2 text-sm text-sky-300" aria-live="polite">
+          <span className="relative flex size-2.5" aria-hidden>
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-sky-400 opacity-75" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-sky-500" />
+          </span>
+          Asking the engine{providerName ? ` (${providerName})` : ''} for a move…
+        </p>
+      ) : null}
+
       {game.isFinished && board.winner !== null ? (
         <p className="text-sm font-semibold text-emerald-300">
-          {board.winner === 'light' ? 'White' : 'Black'} bore off all 15 checkers and wins.
+          {SEAT_NAME[board.winner]} bore off all 15 checkers and wins.
         </p>
       ) : null}
 
@@ -113,13 +144,36 @@ const GameControls = () => {
         <p className="text-sm text-amber-300">{PASS_COPY[turnPassed] ?? 'The turn passed.'}</p>
       ) : null}
 
-      {game.canInteract === false && !game.isFinished ? (
-        <p className={SUBTLE}>
-          {seatName} is an AI seat. Automated moves arrive with the inference client in Phase 3.
-        </p>
+      {lastAiError ? (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2"
+        >
+          <TriangleAlert className="size-4 shrink-0 text-red-400" aria-hidden />
+          <p className="min-w-40 flex-1 text-xs text-red-200">
+            {seatName} move failed: {lastAiError.message}
+          </p>
+          <div className="flex items-center gap-1">
+            {CREDENTIAL_CODES.has(lastAiError.code) ? (
+              <button type="button" onClick={openSettings} className={GHOST}>
+                Open Settings
+              </button>
+            ) : null}
+            <button type="button" onClick={game.retryAiTurn} className={cn(PRIMARY, 'px-2 py-1 text-xs')}>
+              <RefreshCw className="size-3.5" aria-hidden />
+              Retry
+            </button>
+            <button type="button" onClick={game.dismissAiError} className={GHOST}>
+              <X className="size-3.5" aria-hidden />
+              Dismiss
+            </button>
+          </div>
+        </div>
       ) : null}
 
-      {!game.isFinished && !game.awaitingRoll ? <p className={SUBTLE}>{sourceHint}</p> : null}
+      {!game.isFinished && !game.awaitingRoll && game.canInteract ? (
+        <p className={SUBTLE}>{sourceHint}</p>
+      ) : null}
 
       <button type="button" onClick={game.resetGame} className={cn(SECONDARY, 'self-start py-1.5 text-xs')}>
         <RotateCcw className="size-3.5" aria-hidden />
