@@ -1,0 +1,4 @@
+# Single-page-app fallback: any unknown path serves the app shell (status 200, no redirect).
+# Cloudflare Pages parses this file and never serves it as an asset.
+# Ignored while a Pages Function handles the same route — none exist in this phase.
+/*    /index.html   200

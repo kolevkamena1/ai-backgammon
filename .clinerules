@@ -1,0 +1,69 @@
+# Cline Architecture Rules
+
+# Project Rules for Cline
+
+## 1. Project Overview & Tech Stack
+- **Frontend:** React 18, Next.js 14 (App Router), TypeScript (Strict Mode).
+- **Styling:** Tailwind CSS, shadcn/ui components.
+- **Backend/DB:** Node.js, Prisma ORM, PostgreSQL.
+- **State Management:** Zustand (client), React Server Components (server).
+- **Validation:** Zod.
+
+## 2. Architecture & Directory Structure
+- `src/app/`: Next.js App router pages, layouts, and Server Actions.
+- `src/components/`: Reusable UI components. Keep them small and single-responsibility.
+- `src/components/ui/`: Base shadcn/ui components. DO NOT modify these directly; wrap them instead.
+- `src/lib/`: Utility functions, API clients, and third-party integrations.
+- `src/services/`: Business logic and database queries. *Rule: Never call Prisma directly from UI components or Server Actions. All DB calls must go through `src/services`.*
+
+## 3. Coding Standards & Conventions
+- **TypeScript:** Strict mode. NEVER use `any`. Use `interface` for object shapes and `type` for unions/primitives.
+- **Components:** Use functional components with arrow functions. Extract complex logic into custom hooks.
+- **Naming:** 
+  - React Components: PascalCase (e.g., `UserProfile.tsx`)
+  - Utilities/Hooks: camelCase (e.g., `useAuth.ts`, `formatDate.ts`)
+- **Error Handling:** Always use try/catch in Server Actions. Log errors using the custom `logger` utility in `src/lib/logger.ts`. Never expose raw database error messages to the client.
+- **Imports:** Use absolute imports starting with `@/` (e.g., `import { Button } from '@/components/ui/button'`).
+
+## 4. Cline-Specific Behavioral Instructions
+- **Context First:** Before modifying a file, ALWAYS read its dependencies and the files that import it to ensure you don't break downstream code.
+- **No Console Logs:** Never use `console.log` for debugging in final code. Use the `logger` utility or remove it.
+- **Terminal Commands:** 
+  - Run tests: `npm run test`
+  - Check types: `npm run typecheck`
+  - Lint: `npm run lint`
+- **Auto-fix:** If you spot a linting or type error while writing code, fix it immediately before moving on to the next task.
+- **Step-by-Step:** For complex tasks, break your work into small steps and ask for my approval before executing terminal commands that alter the database or deploy.
+
+## 5. Code Review & PR Standards
+When reviewing code or generating PR descriptions, enforce the following:
+- Check for N+1 query issues in Prisma calls (ensure `include` or `select` is used properly).
+- Ensure all new API routes and Server Actions have Zod validation for request bodies/parameters.
+- Verify that sensitive environment variables are not hardcoded and are prefixed with `NEXT_PUBLIC_` only if strictly necessary for the client.
+- Always suggest adding unit tests (using Vitest) for new functions in `src/services/`.
+
+## When in PLAN MODE:
+- You are a Senior Architect. 
+- DO NOT write code or execute terminal commands.
+- Output a strict Markdown implementation plan.
+- Include a checklist of files to create/modify, database schema changes, and potential edge cases.
+- Keep context lean: Only request to read files that are strictly necessary for the architecture.
+
+## When in ACT MODE:
+- You are an Elite Developer executing a plan.
+- DO NOT output conversational text or explanations.
+- Immediately output file edits (diffs) and terminal commands.
+- Ensure 100% deterministic TypeScript/Node.js syntax.
+- If a terminal command fails, read the error, fix the code, and retry immediately without asking for permission.
+
+## Handover Protocol
+- If the previous messages contain a Markdown implementation plan, assume the role of the Executor.
+- Do not re-evaluate or change the architecture. 
+- Immediately begin executing the first step of the plan using file edits and terminal commands.
+- Keep your responses strictly to tool calls. No conversational filler.
+
+## Mobile Notifications
+When you have completed a task, or when you are pausing to ask for my approval, you MUST execute the following terminal command to notify my phone:
+`curl -d "Cline: Task complete / Needs approval" ntfy.sh/kk-cline-alerts-w11-sv`
+
+

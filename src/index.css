@@ -1,0 +1,31 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens. Tailwind CSS v4 has no tailwind.config.js: values declared here become
+ * utilities automatically (--color-point-light -> bg-point-light, text-point-light, ...).
+ */
+@theme {
+  --color-board-frame: #3f2a16;
+  --color-board-field: #0c3b2c;
+  --color-bar: #0b1220;
+  --color-point-light: #f2dcb4;
+  --color-point-dark: #b5502a;
+  --color-checker-light: #f8fafc;
+  --color-checker-dark: #111827;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background-color: var(--color-slate-950);
+    color: var(--color-slate-100);
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}

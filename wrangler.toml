@@ -1,0 +1,7 @@
+# Cloudflare Pages configuration — this file is the source of truth for the project settings.
+# Docs: https://developers.cloudflare.com/pages/functions/wrangler-configuration/
+# Requires the Pages V2 build system. Deploy with: npm run pages:deploy (after `npx wrangler login`)
+"$schema" = "./node_modules/wrangler/config-schema.json"
+name = "ai-backgammon"
+pages_build_output_dir = "./dist"
+compatibility_date = "2026-10-30"

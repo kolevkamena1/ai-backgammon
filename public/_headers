@@ -1,0 +1,8 @@
+# Applied by Cloudflare Pages to every asset response.
+# Kept deliberately conservative: a strict CSP is documented in README.md but not enabled
+# here, because Tailwind injects inline <style> tags during Vite dev/HMR.
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
