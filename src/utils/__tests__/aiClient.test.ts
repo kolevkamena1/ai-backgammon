@@ -249,6 +249,45 @@ describe('provider routing', () => {
     expect(body.response_format).toBeUndefined()
   })
 
+  it('turns thinking off for DashScope, whose Qwen3 models otherwise reason for a minute', async () => {
+    const { calls } = await ask({
+      provider: 'custom',
+      baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+      model: 'qwen-plus',
+    })
+
+    expect(targetOf(calls[0])).toBe('https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions')
+
+    const body = innerBody(calls[0]) as Record<string, unknown>
+    expect(body.enable_thinking).toBe(false)
+    // Pinned as a literal: 220 was spendable entirely on reasoning_content, leaving no move to parse.
+    expect(body.max_tokens).toBe(2048)
+  })
+
+  it('still accepts the newer workspace hosts', async () => {
+    const { calls } = await ask({
+      provider: 'custom',
+      baseUrl: 'https://llm-demo.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',
+      model: 'qwen-plus',
+    })
+
+    expect((innerBody(calls[0]) as Record<string, unknown>).enable_thinking).toBe(false)
+  })
+
+  it('withholds the non-standard thinking flag from OpenAI and from other custom gateways', async () => {
+    const openai = await ask({ provider: 'openai' })
+    expect((innerBody(openai.calls[0]) as Record<string, unknown>).enable_thinking).toBeUndefined()
+
+    // Ollama, vLLM and LM Studio reject unknown fields the same way they reject response_format.
+    const ollama = await ask({ provider: 'custom', baseUrl: 'http://localhost:11434', model: 'qwen2.5:7b' })
+    expect((innerBody(ollama.calls[0]) as Record<string, unknown>).enable_thinking).toBeUndefined()
+  })
+
+  it('does not mistake a look-alike host for DashScope', async () => {
+    const { calls } = await ask({ provider: 'custom', baseUrl: 'https://aliyuncs.com.attacker.test/v1', model: 'm' })
+    expect((innerBody(calls[0]) as Record<string, unknown>).enable_thinking).toBeUndefined()
+  })
+
   it('puts the legal menu in the user prompt', async () => {
     const { calls } = await ask()
     const body = innerBody(calls[0]) as { messages: Array<{ content: string }> }

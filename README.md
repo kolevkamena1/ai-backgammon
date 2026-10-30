@@ -122,11 +122,14 @@ cannot reach `applyMove`.
 | Google | `.../v1beta/models/<model>:generateContent` | `x-goog-api-key` | `gemini-2.0-flash` |
 | Custom | `<baseUrl>/chat/completions` (`/v1` appended when absent) | `Authorization: Bearer` | none — you must set one |
 
-Requests use `temperature: 0` and a small output cap. `response_format: json_object` goes to OpenAI
-and Google but **not** to custom gateways, which often reject the field. The Anthropic browser-access
-header is required, or the call is refused outright from a page. The relay forwards every header in
-that table, so a provider's own contract does not change because the call is relayed rather than
-made from the page.
+Requests use `temperature: 0` and a 2048-token output cap (`AI_MAX_TOKENS`) — deliberately generous,
+because a reasoning model bills its `reasoning_content` against that same budget and 220 tokens could
+be consumed entirely by thinking before any move was emitted. `response_format: json_object` goes to
+OpenAI and Google but **not** to custom gateways, which often reject the field, and
+`enable_thinking: false` goes only to DashScope hosts, for the same reason. The Anthropic
+browser-access header is required, or the call is refused outright from a page. The relay forwards
+every header in that table, so a provider's own contract does not change because the call is relayed
+rather than made from the page.
 
 ### Failure handling
 
@@ -288,6 +291,21 @@ code change, and **no environment variable to set** because both of its hosts ar
    * **API key** — the one from step 1.
 3. Start a game. Each request goes to `/api/ai-proxy`, and the relay posts
    `Authorization: Bearer sk-…` to `https://dashscope-…/compatible-mode/v1/chat/completions`.
+
+**Qwen3 thinks until you tell it not to.** A Qwen3 model in mixed-thinking mode reasons first, and
+DashScope bills those tokens against `max_tokens`, so a small cap can be spent before a move exists
+and a synchronous call that keeps reasoning is indistinguishable from a hang. `chatBody` therefore
+sends `enable_thinking: false` — a documented DashScope body field, **not** an OpenAI one, which an
+OpenAI SDK has to pass through `extra_body` — whenever the Base URL host is `aliyuncs.com` or a real
+sub-domain of it, and never otherwise: OpenAI, Ollama, vLLM and LM Studio reject unknown fields, which
+is the same reason `response_format` is withheld from custom gateways. Thinking-only models such as
+`qwq-*` cannot disable reasoning, so choose a mixed-mode model like `qwen-plus` for this app. Either
+way the move arrives in `content`, because `extractChatText` never reads `reasoning_content`.
+
+Newer accounts are directed at workspace hosts of the form
+`https://<workspaceId>.<region>.maas.aliyuncs.com/compatible-mode/v1`. The client sends the flag to
+those too, but the **relay** refuses them as un-allowlisted until you add that exact host to
+`AI_PROXY_ALLOWED_HOSTS` — the allowlist matches host names exactly and has no wildcard.
 
 `normalizeBaseUrl` makes step 2 forgiving: a trailing slash is stripped, `…/compatible-mode` gets
 `/v1` appended, and a pasted `…/v1/chat/completions` is reduced to its root and re-suffixed — all

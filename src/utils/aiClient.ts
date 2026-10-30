@@ -38,7 +38,11 @@ export const AI_PROXY_PATH = '/api/ai-proxy'
 // Kept below the relay's upstream ceiling (`RELAY_TIMEOUT_MS` in `shared/aiProxy.ts`) so that when a
 // turn runs out of time it is the client that says so, with `timeout`, not the proxy.
 export const AI_TIMEOUT_MS = 60_000
-export const AI_MAX_TOKENS = 220
+// 2048, not 220. A reasoning model spends completion tokens on `reasoning_content` before it emits
+// the move, and DashScope bills those against this same cap - 220 was exhausted by thinking alone.
+// The reply this app actually needs is a short JSON object, so the number is headroom for the model
+// to finish, never a target it is expected to approach.
+export const AI_MAX_TOKENS = 2048
 export const AI_MOVE_DELAY_MS = 400
 export const AI_TRANSIENT_RETRIES = 1
 export const AI_RETRY_BASE_MS = 800
@@ -421,8 +425,11 @@ function readString(root: unknown, key: string): string | null {
   return typeof value === 'string' ? value : null
 }
 
-/** OpenAI-compatible chat body; `jsonMode` is off for custom gateways that reject the field. */
-function chatBody(ctx: MoveContext, jsonMode: boolean): Record<string, unknown> {
+/**
+ * OpenAI-compatible chat body. `jsonMode` is off for custom gateways that reject the field, and
+ * `thinkingOff` is set only for the host that defines `enable_thinking`.
+ */
+function chatBody(ctx: MoveContext, jsonMode: boolean, thinkingOff: boolean): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: ctx.model,
     messages: [
@@ -435,6 +442,13 @@ function chatBody(ctx: MoveContext, jsonMode: boolean): Record<string, unknown> 
 
   if (jsonMode) {
     body.response_format = { type: 'json_object' }
+  }
+
+  // `enable_thinking` is not a standard OpenAI parameter - DashScope documents it as a top-level
+  // body field that an OpenAI SDK has to smuggle through `extra_body`. Strict gateways answer 400
+  // for fields they do not know, which is exactly why it is sent only where it is defined.
+  if (thinkingOff) {
+    body.enable_thinking = false
   }
 
   return body
@@ -518,13 +532,27 @@ async function requestText(
   return ok(move, choice)
 }
 
+/**
+ * True for DashScope's own domains - `dashscope.aliyuncs.com`, `dashscope-intl.aliyuncs.com` and the
+ * newer workspace hosts such as `<id>.ap-southeast-1.maas.aliyuncs.com`. The suffix has to be a real
+ * sub-domain boundary, so `aliyuncs.com.attacker.test` does not qualify.
+ */
+function isDashScopeUrl(baseUrl: string): boolean {
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase()
+    return host === 'aliyuncs.com' || host.endsWith('.aliyuncs.com')
+  } catch {
+    return false
+  }
+}
+
 /** `openai` and `custom` share this request shape; only the host and JSON mode differ. */
 export function fetchOpenAiMove(ctx: MoveContext, baseUrl: string, jsonMode: boolean): Promise<AiResult> {
   return requestText(
     {
       url: `${baseUrl}/chat/completions`,
       headers: { authorization: `Bearer ${ctx.apiKey}` },
-      body: chatBody(ctx, jsonMode),
+      body: chatBody(ctx, jsonMode, isDashScopeUrl(baseUrl)),
       extract: extractChatText,
     },
     ctx,
