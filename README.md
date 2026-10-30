@@ -31,7 +31,7 @@ npm install          # install dependencies
 npm run dev          # dev server on http://localhost:5173
 npm run typecheck    # tsc -b (no emit) — 0 errors required
 npm run lint         # eslint .
-npm run test         # vitest run (158 passed + 5 skipped: rules, seats, click-to-move, AI client,
+npm run test         # vitest run (163 passed + 5 skipped: rules, seats, click-to-move, AI client,
                      # AI turn driver, proxy core — the 5 skipped are the opt-in relay e2e suite)
 npm run test:watch   # vitest in watch mode
 npm run build        # typecheck + production bundle into dist/
@@ -187,7 +187,7 @@ SDKs. A caller hands in a structural `{ method, headers.get(), text() }` and ada
 places, what lets `tsconfig.node.json` typecheck `shared/` and `functions/` with no Workers-specific
 config (`@cloudflare/workers-types` is deliberately not a dependency), and what makes the core
 unit-testable without a network: `handleProxyRequest` takes `fetch` as its third argument, so
-`shared/__tests__/aiProxy.test.ts` covers the policy and the relay paths in 24 tests.
+`shared/__tests__/aiProxy.test.ts` covers the policy and the relay paths in 25 tests.
 
 The envelope is `{ targetUrl, headers, body }` (`ProxyEnvelope`) — **the credential travels inside
 this object**. The relay never reads the incoming request's own `Authorization` header, so a key put
