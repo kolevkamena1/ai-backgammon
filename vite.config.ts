@@ -29,6 +29,6 @@ export default defineConfig({
   test: {
     // The rules engine is pure, so no DOM environment (and no jsdom dependency) is needed.
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.{ts,tsx}'],
   },
 })

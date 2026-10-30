@@ -4,12 +4,19 @@ import Checker from './Checker'
 
 type PointOrientation = 'top' | 'bottom'
 
+/** How a point participates in the current click-to-move selection. */
+export type PointState = 'none' | 'selectable' | 'selected' | 'target'
+
 interface PointProps {
   index: PointIndex
   /** `top` = apex points down towards the bar; `bottom` = apex points up. */
   orientation: PointOrientation
   checkers?: number
   owner?: PlayerColor | null
+  /** Overlay hint; `target` marks a legal destination, `selected` the active source. */
+  state?: PointState
+  /** When provided the point becomes a real button; otherwise it stays a static graphic. */
+  onSelect?: () => void
 }
 
 const CLIP_PATH: Record<PointOrientation, string> = {
@@ -29,21 +36,39 @@ const LABEL_ANCHOR: Record<PointOrientation, string> = {
   bottom: 'bottom-0',
 }
 
+/**
+ * Tints are painted on a second clipped layer rather than a ring, because `clip-path` also clips
+ * outlines and box-shadows away.
+ */
+const OVERLAY: Record<PointState, string | null> = {
+  none: null,
+  selectable: 'bg-sky-300/25',
+  selected: 'bg-sky-300/60',
+  target: 'bg-emerald-300/60',
+}
+
 /** Past this the triangle gets cluttered; the remainder is summarised as "+n". */
 const MAX_VISIBLE_CHECKERS = 6
 
-const Point = ({ index, orientation, checkers = 0, owner = null }: PointProps) => {
+const Point = ({
+  index,
+  orientation,
+  checkers = 0,
+  owner = null,
+  state = 'none',
+  onSelect,
+}: PointProps) => {
   // Alternates within a row and stays continuous across the bar.
   const isDarkPoint = (index + (orientation === 'top' ? 1 : 0)) % 2 === 0
   const visible = Math.min(checkers, MAX_VISIBLE_CHECKERS)
   const overflow = checkers - visible
-  const description =
-    checkers === 0
-      ? 'empty'
-      : `${checkers} ${owner ?? 'unowned'} checker${checkers === 1 ? '' : 's'}`
+  const description = `Point ${index}, ${
+    checkers === 0 ? 'empty' : `${checkers} ${owner ?? 'unowned'} checker${checkers === 1 ? '' : 's'}`
+  }`
+  const overlay = OVERLAY[state]
 
-  return (
-    <div role="img" aria-label={`Point ${index}, ${description}`} className="relative h-full w-full">
+  const inner = (
+    <>
       <div
         className={cn(
           'absolute inset-0',
@@ -51,6 +76,8 @@ const Point = ({ index, orientation, checkers = 0, owner = null }: PointProps) =
           isDarkPoint ? 'bg-point-dark' : 'bg-point-light',
         )}
       />
+
+      {overlay ? <div className={cn('absolute inset-0', CLIP_PATH[orientation], overlay)} /> : null}
 
       <span
         className={cn(
@@ -85,6 +112,27 @@ const Point = ({ index, orientation, checkers = 0, owner = null }: PointProps) =
           ) : null}
         </div>
       ) : null}
+    </>
+  )
+
+  const layout = 'relative h-full w-full'
+
+  if (onSelect) {
+    return (
+      <button
+        type="button"
+        aria-label={description}
+        onClick={onSelect}
+        className={cn(layout, 'cursor-pointer appearance-none border-0 bg-transparent p-0 text-left')}
+      >
+        {inner}
+      </button>
+    )
+  }
+
+  return (
+    <div role="img" aria-label={description} className={layout}>
+      {inner}
     </div>
   )
 }

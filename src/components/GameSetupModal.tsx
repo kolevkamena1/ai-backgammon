@@ -2,6 +2,7 @@ import ByokFields from '@/components/ByokFields'
 import { BUTTON, CARD } from '@/components/ui/controls'
 import Modal from '@/components/ui/Modal'
 import { useByokDraft } from '@/hooks/useByokDraft'
+import { useGame } from '@/hooks/useGame'
 import { useGameConfig } from '@/hooks/useGameConfig'
 import { useSettings } from '@/hooks/useSettings'
 import { logger } from '@/lib/logger'
@@ -101,12 +102,14 @@ const SeatCard = ({ seat }: { seat: SeatAssignment }) => {
 
 /**
  * Picks who plays each seat. Mode, match type and the opponent credential are all drafts that
- * reach the store only on "Save setup" — the same commit-on-submit semantics as SettingsModal.
+ * reach the store only on submit — the same commit-on-submit semantics as SettingsModal — and
+ * starting a game snapshots those seats into the (never-persisted) game store.
  * The roster preview uses planSeats(), i.e. the exact function the engine loop will consume.
  */
 const GameSetupModal = ({ onClose }: GameSetupModalProps) => {
   const { config, opponentConfigured, maskedOpponentKey, saveSetup, clearOpponent } = useGameConfig()
   const { settings } = useSettings()
+  const game = useGame()
 
   const [mode, setLocalMode] = useState<GameMode>(config.mode)
   const [aiMatchType, setLocalMatchType] = useState<AiMatchType>(config.aiMatchType)
@@ -118,6 +121,13 @@ const GameSetupModal = ({ onClose }: GameSetupModalProps) => {
   const plan = planSeats(settings, { mode, aiMatchType, opponent: draft })
   const personalProblems = validateEngine(settings)
 
+  /**
+   * Production has no inference client, so an AI-vs-AI setup can be saved but not started.
+   * `import.meta.env.PROD` is a build-time constant: in dev this is always false, which is
+   * what lets you step an AI-vs-AI match through by hand while Phase 3 is still unbuilt.
+   */
+  const needsPhase3 = mode === 'aiVsAi' && import.meta.env.PROD
+
   const handleSave = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
 
@@ -125,9 +135,21 @@ const GameSetupModal = ({ onClose }: GameSetupModalProps) => {
       return
     }
 
+    const setup = { mode, aiMatchType, opponent: commit() }
+
     try {
-      saveSetup({ mode, aiMatchType, opponent: commit() })
-      logger.info('game setup saved', { mode, aiMatchType, seatPlanReady: plan.ready })
+      saveSetup(setup)
+
+      if (!needsPhase3) {
+        if (!game.startNewGame(setup, settings)) {
+          setError('Both seats need an API key before a game can start.')
+          return
+        }
+        logger.info('game started', { mode, aiMatchType, seatPlanReady: plan.ready })
+      } else {
+        logger.info('game setup saved', { mode, aiMatchType, seatPlanReady: plan.ready })
+      }
+
       onClose()
     } catch (saveError) {
       setError('This browser refused to store the setup (private mode, or full quota?).')
@@ -249,6 +271,13 @@ const GameSetupModal = ({ onClose }: GameSetupModalProps) => {
           </p>
         ) : null}
 
+        {needsPhase3 ? (
+          <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            AI vs AI can be saved, but automated moves arrive with the inference client in
+            Phase 3. Run <code>npm run dev</code> to start one and roll for both seats by hand.
+          </p>
+        ) : null}
+
         {error ? (
           <p
             role="alert"
@@ -268,7 +297,7 @@ const GameSetupModal = ({ onClose }: GameSetupModalProps) => {
             className={cn(BUTTON, 'bg-sky-600 text-white hover:bg-sky-500')}
           >
             <Check className="size-4" aria-hidden />
-            Save setup
+            {needsPhase3 ? 'Save setup' : 'Start game'}
           </button>
         </div>
       </form>
