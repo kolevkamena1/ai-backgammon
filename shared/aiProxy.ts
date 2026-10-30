@@ -115,7 +115,11 @@ const RELAY_RESPONSE_HEADERS: readonly string[] = ['content-type', 'retry-after'
  */
 const NO_STORE = 'no-store'
 
-/** Headers a caller may ask to be forwarded to the provider. Everything else is dropped. */
+/**
+ * Headers a caller may ask to be forwarded to the provider. Everything else is dropped.
+ * The entries double as the canonical output spelling, so they are kept lower-case: an incoming
+ * name is matched after `toLowerCase()`, which is how RFC 9110 says header fields match.
+ */
 const RELAY_REQUEST_HEADERS: readonly string[] = [
   'authorization',
   'content-type',
@@ -232,8 +236,16 @@ export function classifyTarget(
 function readEnvelopeHeaders(headers: Record<string, unknown>): Record<string, string> {
   const out: Record<string, string> = {}
 
-  for (const name of RELAY_REQUEST_HEADERS) {
-    const value = headers[name]
+  // Header field names are case-insensitive, so `Authorization` and `authorization` name the same
+  // field and both have to reach the provider. Matching on the raw key silently dropped a
+  // capitalised credential, and the provider then reported it as missing. The canonical lower-case
+  // form is what goes upstream, because HTTP/2 requires it and it keeps the default check below
+  // meaningful. A later duplicate wins, matching plain-object spread semantics.
+  for (const [rawName, value] of Object.entries(headers)) {
+    const name = rawName.toLowerCase()
+    if (!RELAY_REQUEST_HEADERS.includes(name)) {
+      continue
+    }
     if (typeof value === 'string' && value.length > 0) {
       out[name] = value
     }

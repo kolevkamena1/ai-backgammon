@@ -110,6 +110,81 @@ describe('relay happy path', () => {
     expect(sent['content-type']).toBe('application/json')
   })
 
+  it('forwards an allowlisted header whatever case the caller used', async () => {
+    const spy = upstream(() => reply({}))
+    await relay(
+      envelope({
+        headers: {
+          Authorization: `Bearer ${SECRET}`,
+          'Content-Type': 'application/json',
+          'X-Api-Key': 'anthropic-key',
+          'X-Goog-Api-Key': 'google-key',
+          'ANTHROPIC-VERSION': '2023-06-01',
+        },
+      }),
+      spy.fetchImpl,
+    )
+
+    const sent = spy.calls[0].init.headers
+    // These lookups used to be case-sensitive: a capitalised key was dropped in silence and the
+    // provider answered "You didn't provide an API key" for a perfectly valid credential.
+    expect(sent.authorization).toBe(`Bearer ${SECRET}`)
+    expect(sent['x-api-key']).toBe('anthropic-key')
+    expect(sent['x-goog-api-key']).toBe('google-key')
+    expect(sent['anthropic-version']).toBe('2023-06-01')
+    // Everything upstream is in the canonical lower-case form, which HTTP/2 requires anyway. Order
+    // follows the envelope's own key order, so compare the set rather than the sequence.
+    expect(sent.Authorization).toBeUndefined()
+    expect(Object.keys(sent).sort()).toEqual([
+      'anthropic-version',
+      'authorization',
+      'content-type',
+      'x-api-key',
+      'x-goog-api-key',
+    ])
+  })
+
+  it('still drops a header that is not allowlisted, in every case', async () => {
+    const spy = upstream(() => reply({}))
+    await relay(
+      envelope({
+        headers: {
+          Cookie: 'session=hijacked',
+          COOKIE: 'session=also-hijacked',
+          'X-Forwarded-For': '10.0.0.1',
+          HOST: 'evil.example',
+          'X-AI-Proxy-Error': 'forged',
+          // A computed key really is an own property, so it survives JSON.stringify and JSON.parse.
+          ['__proto__']: 'polluted',
+        },
+      }),
+      spy.fetchImpl,
+    )
+
+    const sent = spy.calls[0].init.headers
+    for (const name of ['cookie', 'x-forwarded-for', 'host', 'x-ai-proxy-error']) {
+      expect(sent[name]).toBeUndefined()
+    }
+    // Reading `__proto__` off a plain object yields the prototype, never undefined, so ownership is
+    // the question worth asking: the allowlisted-name check must have refused to assign it.
+    expect(Object.hasOwn(sent, '__proto__')).toBe(false)
+    // Case-insensitive matching must not have widened the allowlist: the default content type is
+    // the only thing that survived, exactly as before.
+    expect(Object.keys(sent)).toEqual(['content-type'])
+  })
+
+  it('resolves one header written several ways deterministically, last one winning', async () => {
+    const spy = upstream(() => reply({}))
+    await relay(
+      envelope({
+        headers: { authorization: 'Bearer first', Authorization: 'Bearer second', AUTHORIZATION: 'Bearer third' },
+      }),
+      spy.fetchImpl,
+    )
+
+    expect(spy.calls[0].init.headers.authorization).toBe('Bearer third')
+  })
+
   it('relays retry-after but strips transport headers', async () => {
     const spy = upstream(() =>
       reply({

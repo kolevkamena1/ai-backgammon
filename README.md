@@ -181,14 +181,20 @@ SDKs. A caller hands in a structural `{ method, headers.get(), text() }` and ada
 places, what lets `tsconfig.node.json` typecheck `shared/` and `functions/` with no Workers-specific
 config (`@cloudflare/workers-types` is deliberately not a dependency), and what makes the core
 unit-testable without a network: `handleProxyRequest` takes `fetch` as its third argument, so
-`shared/__tests__/aiProxy.test.ts` covers the policy and the relay paths in 21 tests.
+`shared/__tests__/aiProxy.test.ts` covers the policy and the relay paths in 24 tests.
 
-The envelope is `{ targetUrl, headers, body }` (`ProxyEnvelope`). Only six request headers are ever
-forwarded and everything else is dropped: `authorization`, `content-type`, `x-api-key`,
-`x-goog-api-key`, `anthropic-version`, `anthropic-dangerous-direct-browser-access`. Only
-`content-type`, `retry-after` and `x-request-id` come back, so a provider's `Retry-After` survives
-the hop and the client's 429 handling still works; a provider's status and body otherwise pass
-through untouched, which is what keeps `mapHttpError` reading real provider answers.
+The envelope is `{ targetUrl, headers, body }` (`ProxyEnvelope`) — **the credential travels inside
+this object**. The relay never reads the incoming request's own `Authorization` header, so a key put
+on the call to `/api/ai-proxy` is not forwarded, by design.
+
+Only six request headers are ever forwarded and everything else is dropped: `authorization`,
+`content-type`, `x-api-key`, `x-goog-api-key`, `anthropic-version`,
+`anthropic-dangerous-direct-browser-access`. Names are matched case-insensitively, because that is
+how header fields work, and are always sent upstream in that canonical lower-case form; one header
+written two ways resolves last-one-wins. Only `content-type`, `retry-after` and `x-request-id` come
+back, so a provider's `Retry-After` survives the hop and the client's 429 handling still works; a
+provider's status and body otherwise pass through untouched, which is what keeps `mapHttpError`
+reading real provider answers.
 
 ### Dev and production are the same code under different policies
 
@@ -302,7 +308,9 @@ which headers crossed the relay — `authorization` present but `x-forwarded-for
 DashScope URL and key to exercise the real provider the same way. Then read the codes as a diagnosis
 rather than noise: `proxy-blocked` is the policy refusing the target (edit the Base URL), `network`
 is the relay or the provider being unreachable (check the endpoint and the region), and
-`unauthorized` came from the provider itself — which means the relay worked.
+`unauthorized` came from the provider itself — which means the relay worked. Worth reading closely:
+an `unauthorized` whose provider message says *you didn't provide an API key* means no credential
+arrived at all, so check the envelope's `headers` object rather than the key you pasted.
 
 ## Layout
 
