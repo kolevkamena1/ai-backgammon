@@ -6,3 +6,8 @@
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: geolocation=(), microphone=(), camera=()
+
+# The relay answers with whatever a provider said, including 401/429 bodies that describe an
+# account state, so nothing here may be cached by a browser or a Pages edge node.
+/api/*
+  Cache-Control: no-store
