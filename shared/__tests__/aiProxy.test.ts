@@ -127,6 +127,17 @@ describe('relay happy path', () => {
     expect(outcome.headers['content-encoding']).toBeUndefined()
     expect(outcome.headers['content-type']).toBe('application/json')
   })
+
+  it('never lets a relayed answer be cached, on either path', async () => {
+    const spy = upstream(() => reply({ headers: { 'cache-control': 'public, max-age=600' } }))
+    const outcome = await relay(envelope(), spy.fetchImpl)
+
+    // `cache-control` is not in RELAY_RESPONSE_HEADERS, so a provider's own directive cannot survive.
+    expect(outcome.headers['cache-control']).toBe('no-store')
+
+    const refusal = await relay(envelope(), upstream(() => reply({})).fetchImpl, PRODUCTION_POLICY, 'GET')
+    expect(refusal.headers['cache-control']).toBe('no-store')
+  })
 })
 
 describe('request guards', () => {

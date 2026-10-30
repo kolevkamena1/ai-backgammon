@@ -48,7 +48,11 @@ function aiProxyDevMiddleware(): Plugin {
               res.end(outcome.body)
             })
             .catch(() => {
-              res.writeHead(500, { 'content-type': 'application/json', 'x-ai-proxy-error': 'bad-gateway' })
+              res.writeHead(500, {
+                'content-type': 'application/json',
+                'cache-control': 'no-store',
+                'x-ai-proxy-error': 'bad-gateway',
+              })
               res.end(JSON.stringify({ error: { code: 'bad-gateway', message: 'The local AI proxy failed.' } }))
             })
         })
