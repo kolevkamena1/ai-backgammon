@@ -2,12 +2,12 @@
 
 AI-powered (BYOK) Backgammon.
 
-**Current status: Phase 3 — rules, turn flow and BYOK inference.**
+**Current status: Phase 3.1 — rules, turn flow, BYOK inference and the CORS relay.**
 Rolling, legal moves, hitting, bar re-entry and bearing off are real and covered by tests, and a
 human can play a full game by clicking a checker then a highlighted triangle. AI seats play
-themselves: every move is requested from your own key over native `fetch`, chosen from the legal
-move menu, and re-validated by the rules engine before it touches the board. In `npm run dev` you
-can still roll and move for any seat by hand.
+themselves: every move is requested with your own key, relayed through the same-origin
+`/api/ai-proxy` endpoint, chosen from the legal move menu, and re-validated by the rules engine
+before it touches the board. In `npm run dev` you can still roll and move for any seat by hand.
 
 ## Tech stack
 
@@ -17,10 +17,10 @@ can still roll and move for any seat by hand.
 | Styling     | Tailwind CSS 4 via `@tailwindcss/vite` (no `tailwind.config.js`) |
 | Client state| Zustand 5 + `persist` middleware |
 | Icons       | lucide-react |
-| Inference   | Native `fetch` per provider — OpenAI, Anthropic, Google, any OpenAI-compatible endpoint. No SDK. |
-| Testing     | Vitest 5 — `environment: 'node'` for the pure rules engine, jsdom for the
-|             | one interactive component test |
-| Hosting     | Cloudflare Pages (static assets, no Functions yet) |
+| Inference   | Native `fetch` per provider — OpenAI, Anthropic, Google, any OpenAI-compatible endpoint (DashScope included). No SDK. |
+| Relay       | One runtime-agnostic core, `shared/aiProxy.ts`, mounted twice: a Vite dev middleware and a Cloudflare Pages Function. |
+| Testing     | Vitest 5 — `environment: 'node'` for the pure rules engine, the seat planning and the proxy core, jsdom for the component tests |
+| Hosting     | Cloudflare Pages — static assets plus one Pages Function under `functions/api/ai-proxy/` |
 
 Node 22 is required (`.nvmrc`, `package.json` `engines`): `nvm use`.
 
@@ -31,11 +31,13 @@ npm install          # install dependencies
 npm run dev          # dev server on http://localhost:5173
 npm run typecheck    # tsc -b (no emit) — 0 errors required
 npm run lint         # eslint .
-npm run test         # vitest run (121 tests: rules, seats, click-to-move, AI client, AI turn driver)
+npm run test         # vitest run (153 passed + 5 skipped: rules, seats, click-to-move, AI client,
+                     # AI turn driver, proxy core — the 5 skipped are the opt-in relay e2e suite)
 npm run test:watch   # vitest in watch mode
 npm run build        # typecheck + production bundle into dist/
-npm run preview      # serve the built dist/ locally
-npm run pages:local  # build + serve through wrangler pages dev (Cloudflare-like)
+npm run preview      # serve the built dist/ locally — carries no relay, see "CORS relay" below
+npm run mock:provider# stand-in OpenAI-compatible provider on 127.0.0.1:4111 for the relay e2e suite
+npm run pages:local  # build + serve through wrangler pages dev (Cloudflare-like, mounts functions/)
 npm run pages:deploy # build + publish to Cloudflare Pages (needs `npx wrangler login`)
 ```
 
@@ -100,7 +102,7 @@ Three files, none of which knows about React:
 | File | Role |
 | --- | --- |
 | `src/utils/aiPrompt.ts` | Every word the model sees. Pure string building. |
-| `src/utils/aiClient.ts` | `getAiMove()` routes to one handler per provider over native `fetch`. |
+| `src/utils/aiClient.ts` | `getAiMove()` routes to one handler per provider, then POSTs the call to the relay. |
 | `src/state/gameStore.ts` | `runAiTurn()` sequences roll, request, validate, apply. |
 
 ### The menu is the whole trick
@@ -122,17 +124,20 @@ cannot reach `applyMove`.
 
 Requests use `temperature: 0` and a small output cap. `response_format: json_object` goes to OpenAI
 and Google but **not** to custom gateways, which often reject the field. The Anthropic browser-access
-header is required, or the call is refused outright from a page.
+header is required, or the call is refused outright from a page. The relay forwards every header in
+that table, so a provider's own contract does not change because the call is relayed rather than
+made from the page.
 
 ### Failure handling
 
 `getAiMove` never throws. Every path resolves to an `AiResult`: success with a legal `Move`, or
 failure with a human message plus an `AiErrorCode` — `unauthorized`, `rate-limited`, `not-found`,
 `server-error`, `network`, `timeout`, `aborted`, `bad-response`, `illegal-move`, `missing-key`,
-`missing-endpoint`, `missing-model`, `unsupported-provider`.
+`missing-endpoint`, `missing-model`, `unsupported-provider`, `proxy-blocked`.
 
 * **Timeout**: 20 s by default (`AI_TIMEOUT_MS`), through an internal `AbortController` that also
-  relays a caller signal.
+  relays a caller signal. The relay has its own cap on top of that — 60 s in dev, 25 s at the edge —
+  and reports it as `gateway-timeout`, which the client maps back to `timeout`.
 * **Retry**: exactly one, and only for transient codes (429, 5xx, network, timeout), honouring
   `Retry-After`. Auth and protocol errors are never retried.
 * **Stop, do not guess**: a failed request ends the turn and shows a banner with Retry / Dismiss
@@ -145,13 +150,167 @@ failure with a human message plus an `AiErrorCode` — `unauthorized`, `rate-lim
   double-mount harmless.
 * **Cost**: a turn is at most 4 requests and a game a few hundred, all billed to your own key.
 
-Endpoints must allow CORS from this origin. `http://localhost` counts as trustworthy from an https
-page, but a LAN address such as `http://192.168.0.12:11434` is blocked as mixed content — tunnel the
-gateway or add a Pages Function proxy if you need it.
+## CORS relay (`/api/ai-proxy`)
+
+DashScope answers a chat completion perfectly and sends **no CORS headers at all**, so a browser
+call to it dies in the preflight — before the key is ever sent. The relay removes that whole class of
+failure: the client posts its provider call to a same-origin path and something outside the browser
+makes the call. Same-origin takes CORS out of the conversation entirely, which is why **no
+`Access-Control-Allow-Origin` header is emitted anywhere**. A wildcard would hand every website the
+visitor happens to open a relay for that visitor's own keys, and that is not a trade-off worth the
+convenience.
+
+### One core, two mounts
+
+```
+browser                                    relay (same origin)              provider
+
+aiClient.postJson   --POST /api/ai-proxy-->  handleProxyRequest  --fetch-->  api.openai.com
+  { targetUrl, headers, body }              shared/aiProxy.ts               DashScope, ...
+                                            <-- status + body, unchanged ---
+```
+
+| Mount | Where | Answers on |
+| --- | --- | --- |
+| `aiProxyDevMiddleware()` | `vite.config.ts`, `apply: 'serve'` | `npm run dev` (port 5173) |
+| `onRequest` | `functions/api/ai-proxy/[[path]].ts` | `npm run pages:local` (8788) and any deployed Pages site |
+
+`shared/aiProxy.ts` knows nothing about either runtime: no `node:*` import, no Workers types, no
+SDKs. A caller hands in a structural `{ method, headers.get(), text() }` and adapts the returned
+`ProxyOutcome` to its own response type. That single decision is what lets one file serve both
+places, what lets `tsconfig.node.json` typecheck `shared/` and `functions/` with no Workers-specific
+config (`@cloudflare/workers-types` is deliberately not a dependency), and what makes the core
+unit-testable without a network: `handleProxyRequest` takes `fetch` as its third argument, so
+`shared/__tests__/aiProxy.test.ts` covers the policy and the relay paths in 21 tests.
+
+The envelope is `{ targetUrl, headers, body }` (`ProxyEnvelope`). Only six request headers are ever
+forwarded and everything else is dropped: `authorization`, `content-type`, `x-api-key`,
+`x-goog-api-key`, `anthropic-version`, `anthropic-dangerous-direct-browser-access`. Only
+`content-type`, `retry-after` and `x-request-id` come back, so a provider's `Retry-After` survives
+the hop and the client's 429 handling still works; a provider's status and body otherwise pass
+through untouched, which is what keeps `mapHttpError` reading real provider answers.
+
+### Dev and production are the same code under different policies
+
+| | `DEV_POLICY` — Vite middleware | `PRODUCTION_POLICY` — Pages Function |
+| --- | --- | --- |
+| Plain `http` targets | allowed | refused, https only |
+| Loopback / private targets | allowed | refused |
+| Host allowlist | not enforced | enforced, exact match |
+| Upstream timeout | 60 s | 25 s |
+| Envelope / response cap | 64 KB / 1 MB | 64 KB / 1 MB |
+
+Dev is your own machine, already reachable from your own browser, so the host list is not a security
+boundary there, and the generous timeout stops a slow local model load from turning into a proxy
+failure stacked on top of a client failure. The Pages Function always uses `PRODUCTION_POLICY`.
+
+Two consequences worth knowing: `npm run preview` **serves no relay at all** — the middleware is
+`apply: 'serve'`, so a previewed `dist/` has no `/api/ai-proxy` and every AI seat fails with
+`network`; and a LAN gateway such as `http://192.168.0.12:11434` works in dev and is refused at the
+edge, where that address is either private or not on the allowlist.
+
+### Allowlist
+
+`DEFAULT_ALLOWED_HOSTS` in `shared/aiProxy.ts` is `api.openai.com`, `api.anthropic.com`,
+`generativelanguage.googleapis.com`, `dashscope.aliyuncs.com` and `dashscope-intl.aliyuncs.com`.
+`AI_PROXY_ALLOWED_HOSTS` is **merged over** those defaults by `parseAllowedHosts` — comma or space
+separated, lower-cased, de-duplicated — never instead of them, so adding your own gateway cannot
+silently un-list OpenAI. Hosts are matched exactly, because a suffix match would accept
+`api.openai.com.attacker.test`. Private and loopback targets stay blocked whatever is listed. The dev
+middleware ignores the variable and always uses `DEV_POLICY`.
+
+Set it in the Pages dashboard under *Settings → Environment variables* (production and preview are
+separate), or locally in `.env` for `npm run pages:local`. Wrangler also reads `.dev.vars`; pick one,
+because when a `.dev.vars` file exists wrangler ignores `.env` files entirely. Neither file needs a
+secret — this variable only names hosts, which is why `.env.example` documents it in plain sight.
+
+### What the relay refuses, and why
+
+The endpoint is public. Without the rules below it would be an open SSRF relay that anyone could
+drive through this project's Cloudflare account, so `classifyTarget()` and `handleProxyRequest()`
+refuse:
+
+* a `targetUrl` that is not an absolute URL, has no host, or carries `user:password@` credentials;
+* plain `http` at the edge;
+* IP literals (`127.0.0.1`, `[::1]`, anything containing `:`) and every range `isPrivateHost()`
+  knows: `localhost` and `*.localhost`, `::`, `127.`, `10.`, `192.168.`, `169.254.` — the cloud
+  metadata address — `0.`, `172.16.0.0/12`, `fc00::/7` and `fe80::/10`;
+* any host not exactly on the allowlist;
+* **redirects, never followed**: the upstream call is made with `redirect: 'manual'` and a 3xx answer
+  is refused outright, because following one would let an allowlisted host hop to an internal one;
+* an envelope over 64 KB, a provider answer over 1 MB, a non-`POST`, and any `content-type` that is
+  not JSON.
+
+Every refusal carries `x-ai-proxy-error`, and that header is stripped from pass-through responses, so
+its presence means *the relay* said no rather than the provider. Nothing in `shared/` logs a reason:
+the module is bundled for the edge, where `src/lib/logger.ts` does not exist, and a message string
+could be echoed back to a caller. `Cache-Control: no-store` rides on every outcome, set inside
+`shared/aiProxy.ts` — it cannot live in `public/_headers`, because Cloudflare documents that
+`_headers` rules are not applied to responses generated by Pages Functions.
+
+| `x-ai-proxy-error` | HTTP | Becomes `AiErrorCode` | Retried |
+| --- | --- | --- | --- |
+| `bad-request` | 400 | `proxy-blocked` | never |
+| `method-not-allowed` | 405 | `proxy-blocked` | never |
+| `target-not-allowed` | 403 | `proxy-blocked` | never |
+| `request-too-large` / `response-too-large` | 413 | `proxy-blocked` | never |
+| `bad-gateway` | 502 | `network` | once |
+| `gateway-timeout` | 504 | `timeout` | once |
+
+`proxy-blocked` is deliberately not transient — retrying a refusal cannot help, only Settings can —
+so the banner shows **Open Settings** beside Retry instead of burning a second request. A rejection
+with no `x-ai-proxy-error` at all means the relay itself was unreachable: that is `network`, and it
+is the one code that can no longer mean "the provider refused CORS".
+
+### Alibaba Cloud DashScope, step by step
+
+DashScope publishes an OpenAI-compatible path, so it is just a `custom` provider: no dependency, no
+code change, and **no environment variable to set** because both of its hosts are already in
+`DEFAULT_ALLOWED_HOSTS`.
+
+1. Create a key in Alibaba Cloud **Model Studio** (Bailian) → *API Key*. It looks like `sk-…`.
+2. In the app, open *Settings* and set Provider to **Custom**, then:
+   * **Base URL** — `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` for the International
+     (Singapore) region, or `https://dashscope.aliyuncs.com/compatible-mode/v1` for mainland China.
+     Use the region that issued the key: a key created in one console is refused by the other.
+   * **Model** — `qwen-plus`, `qwen-turbo`, `qwen-max` or any model enabled for your account. This is
+     required: `custom` has no default, and an empty model fails with `missing-model` rather than a
+     guess.
+   * **API key** — the one from step 1.
+3. Start a game. Each request goes to `/api/ai-proxy`, and the relay posts
+   `Authorization: Bearer sk-…` to `https://dashscope-…/compatible-mode/v1/chat/completions`.
+
+`normalizeBaseUrl` makes step 2 forgiving: a trailing slash is stripped, `…/compatible-mode` gets
+`/v1` appended, and a pasted `…/v1/chat/completions` is reduced to its root and re-suffixed — all
+three land on the same `…/compatible-mode/v1/chat/completions`. `response_format: json_object` is
+**not** sent for a custom provider, because Qwen deployments reject that field inconsistently; the
+lenient parser (`{"choice": n}` or bare coordinates, markdown fences and surrounding prose
+tolerated) is what makes the reply usable, and `getLegalMoves()` still rejects anything not on the
+menu.
+
+You can prove the relay without opening the browser. With `npm run dev` and `npm run mock:provider`
+running:
+
+```bash
+curl -sS -i -X POST http://localhost:5173/api/ai-proxy \
+  -H 'content-type: application/json' \
+  -d '{"targetUrl":"http://127.0.0.1:4111/v1/chat/completions","headers":{"authorization":"Bearer sk-e2e-not-a-real-key","x-forwarded-for":"1.2.3.4"},"body":"{\"model\":\"probe\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"}'
+```
+
+That returns the mock's completion, and `/v1/echo` instead of `/v1/chat/completions` shows exactly
+which headers crossed the relay — `authorization` present but `x-forwarded-for` gone. Swap in your
+DashScope URL and key to exercise the real provider the same way. Then read the codes as a diagnosis
+rather than noise: `proxy-blocked` is the policy refusing the target (edit the Base URL), `network`
+is the relay or the provider being unreachable (check the endpoint and the region), and
+`unauthorized` came from the provider itself — which means the relay worked.
 
 ## Layout
 
 ```
+shared/
+└── aiProxy.ts        the relay core: policy, allowlist, SSRF rules, handleProxyRequest (+ __tests__/)
+functions/api/ai-proxy/
+└── [[path]].ts       Pages Function — reads AI_PROXY_ALLOWED_HOSTS, mounts the core at the edge
 src/
 ├── components/
 │   ├── ui/             Modal.tsx (dialog chrome), controls.ts (shared class tokens)
@@ -163,9 +322,14 @@ src/
 ├── hooks/          useAiTurn, useGame, useSettings, useGameConfig, useByokDraft, useEscapeKey
 ├── lib/logger.ts   console wrapper that redacts credential-shaped fields
 ├── state/          createSafeStorage.ts, settingsStore.ts, gameConfigStore.ts, gameStore.ts (+ __tests__/)
-├── types/          game.ts, settings.ts (AiEngineConfig), gameConfig.ts, ai.ts
+├── types/          game.ts, settings.ts (AiEngineConfig), gameConfig.ts, ai.ts (AiErrorCode)
 └── utils/          gameConfig.ts, gameLogic.ts, aiClient.ts, aiPrompt.ts, cn.ts,
-                  formatSecret.ts (+ __tests__/)
+                  formatSecret.ts (+ __tests__/, incl. the opt-in aiProxy.e2e.test.ts)
+public/             _headers (static assets only), _redirects, favicon.svg — copied into dist/
+scripts/            mockprovider.mjs — dev-only stand-in provider, never imported, bundled or deployed
+vite.config.ts      mounts the same relay core on /api/ai-proxy for `npm run dev`
+wrangler.toml       pages_build_output_dir = "./dist", compatibility_date
+.env.example        documents AI_PROXY_ALLOWED_HOSTS — a host list, not a secret
 ```
 
 Path alias `@/…` maps to `src/…` and is declared in **both** `vite.config.ts` (`resolve.alias`)
@@ -184,17 +348,23 @@ and `tsconfig.app.json` (`compilerOptions.paths`) so Vite and `tsc -b` agree.
   both seats, so there is nothing to keep in sync and no extra copy of your key.
 * `aiClient` sends a key only to the endpoint of the provider you selected: `baseUrl` is honoured
   **only** for `provider: 'custom'`, so an OpenAI or Anthropic key can never be posted to a host
-  you did not choose (a test pins that down). Prompts, log lines and UI errors carry no credential.
-* Keys live in the browser in plain text. That is inherent to a client-only BYOK app: anyone with
-  access to this device (or an XSS bug) can read them. Use dedicated, revocable keys, and add a
-  Pages Function proxy later if that trade-off stops being acceptable.
+  you did not choose (a test pins that down). The relay then checks that host again against its own
+  allowlist, so a wrong Base URL has to pass two independent gates before a key travels. Prompts,
+  log lines and UI errors carry no credential.
+* The relay does **not** hide a key. The browser still holds it in plain text in `localStorage` and
+  the relay forwards `Authorization` verbatim, so anyone with access to this device (or an XSS bug)
+  can still read it. What the relay buys is CORS-free providers, one place to enforce which hosts a
+  key may be sent to, and no provider request made from the page itself. Use dedicated, revocable
+  keys; a server-side key store would be a different app, not a flag in this one.
 * Every persisted store shares `createSafeStorage`, which swallows and logs storage failures
   (private mode, storage disabled, quota exceeded) instead of crashing — settings then stay in
   memory for the session.
 * `src/lib/logger.ts` masks any context field matching
   `api[-_]?key|authorization|token|secret|password`; UI surfaces show only the last four
   characters (`maskSecret`).
-* `.env*` and `.dev.vars` are gitignored. No secret belongs in the repo — nothing here needs one.
+* `.env*` and `.dev.vars*` are gitignored. No secret belongs in the repo and nothing here needs one:
+  the only variable the app reads, `AI_PROXY_ALLOWED_HOSTS`, names hosts rather than credentials, and
+  `.env.example` documents it in plain sight.
 * Bump a store's persist `version` **only** for an incompatible shape change, and pair it with
   `migrate`: a version mismatch with no migrate makes Zustand discard the payload, silently
   wiping saved keys. Adding an optional field needs no bump.
@@ -225,9 +395,25 @@ npm run pages:deploy
 **Git integration** — create the Pages project from this repo, then set
 *Build command* `npm run build` and *Build output directory* `dist`.
 
+**Functions** need no configuration: Pages compiles the root `functions/` directory automatically, so
+both the direct upload (`npm run pages:deploy` bundles it alongside the `dist/` assets) and the Git
+integration serve `POST /api/ai-proxy`. Rules in `public/_redirects` are not applied to requests a
+Function serves, so the SPA fallback cannot swallow `/api/*` — verified locally, where `GET` on that
+path answers the relay's own 405 rather than an `index.html`.
+
+Set `AI_PROXY_ALLOWED_HOSTS` as a Pages environment variable if you need a host beyond the five
+defaults; production and preview are configured separately. `npm run pages:local` is the way to test
+all of this before deploying — it builds, then serves `dist/` through `wrangler pages dev`, mounting
+`functions/` and reading `.env` on port 8788. One wrangler quirk to expect in that output: it reports
+`/* /index.html 200` as an infinite loop and logs `Parsed 0 valid redirect rules`, yet still serves
+the app shell for an unknown path. Pages production parses the file itself, so check the rule once on
+the first preview deployment; it never affects `/api/*` either way, because Functions win.
+
 `public/_redirects` (`/* /index.html 200`) provides the single-page fallback and
 `public/_headers` sets `nosniff`, `DENY` framing, a strict referrer policy and a locked-down
-permissions policy. Both are copied into `dist/` by Vite. A CSP is deliberately **not** enabled:
+permissions policy. Both are copied into `dist/` by Vite. Those rules cover **static assets only**:
+Pages does not apply `_headers` to a Functions response, which is why the relay attaches
+`Cache-Control: no-store` in code. A CSP is deliberately **not** enabled:
 Tailwind injects inline `<style>` tags during dev/HMR, so add one with `style-src 'unsafe-inline'`
 only once the production CSS pipeline is stable.
 
@@ -238,7 +424,10 @@ only once the production CSS pipeline is stable.
    components, and Vitest covers the engine, the seat planning and click-to-move.
 2. **Phase 3 — BYOK engine: done.** `aiClient.ts` covers OpenAI, Anthropic, Google and any
    OpenAI-compatible endpoint and is fed from the snapshotted `seatPlan`; `aiPrompt.ts` holds the
-   wording; `runAiTurn` + `useAiTurn` drive a turn. Still open: move explanations in the side panel
-   and a Pages Function proxy for endpoints that cannot serve CORS.
-3. **Phase 4 — polish:** spectator controls for AI vs AI, drag-and-drop, animations,
+   wording; `runAiTurn` + `useAiTurn` drive a turn.
+3. **Phase 3.1 — CORS relay: done.** `shared/aiProxy.ts` answers on `/api/ai-proxy` from a Vite
+   middleware in dev and a Pages Function at the edge, so DashScope and any OpenAI-compatible
+   gateway work through one same-origin path under an allowlisted, SSRF-hardened policy. Still open
+   from Phase 3: move explanations in the side panel.
+4. **Phase 4 — polish:** spectator controls for AI vs AI, drag-and-drop, animations,
    accessibility pass, persistence of games.
