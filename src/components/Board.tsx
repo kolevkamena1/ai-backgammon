@@ -34,7 +34,18 @@ const RIGHT_TOP: readonly PointIndex[] = [19, 20, 21, 22, 23, 24]
 const LEFT_BOTTOM: readonly PointIndex[] = [12, 11, 10, 9, 8, 7]
 const RIGHT_BOTTOM: readonly PointIndex[] = [6, 5, 4, 3, 2, 1]
 
-const QUADRANT = 'grid h-28 grid-cols-6 gap-1 sm:h-32'
+/**
+ * Triangle height, and the number that decides how big a checker can be. A point shows at most
+ * `MAX_VISIBLE_CHECKERS` discs plus a `+n` label, inside a column that starts below the point
+ * number (`pt-5`/`pb-5`, 20 px):
+ *
+ *   6 × size-4 (16 px) + 5 × gap-0.5 (2 px) = 106 px, ~120 px with the overflow label
+ *   h-36 (144 px) − 20 px = 124 px on a phone, h-40 (160 px) − 20 px = 140 px from `sm` up
+ *
+ * `h-28`/`sm:h-32` gave 92/108 px, which the old 14 px discs already spilled on a phone. Anything
+ * that enlarges `Checker` has to raise these numbers with it, or the stack paints past the apex.
+ */
+const QUADRANT = 'grid h-36 grid-cols-6 gap-1 sm:h-40'
 
 /** Display-only names; the domain colour is `light` / `dark`. */
 const SEAT_NAMES: Record<PlayerColor, string> = { light: 'White', dark: 'Black' }

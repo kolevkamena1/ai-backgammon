@@ -24,7 +24,10 @@ const CLIP_PATH: Record<PointOrientation, string> = {
   bottom: '[clip-path:polygon(50%_0%,100%_100%,0%_100%)]',
 }
 
-/** Checkers stack from the wide base towards the apex. */
+/**
+ * Checkers stack from the wide base towards the apex. The gap is `gap-0.5` because the stack has to
+ * fit a full six discs inside the triangle: see the arithmetic in `Board.tsx`'s `QUADRANT`.
+ */
 const CHECKER_STACK: Record<PointOrientation, string> = {
   top: 'justify-start pt-5',
   bottom: 'justify-end pb-5',
@@ -92,7 +95,7 @@ const Point = ({
       {owner !== null && visible > 0 ? (
         <div
           className={cn(
-            'relative flex h-full w-full flex-col items-center gap-1 px-1',
+            'relative flex h-full w-full flex-col items-center gap-0.5 px-1',
             CHECKER_STACK[orientation],
           )}
         >

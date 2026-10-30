@@ -404,9 +404,10 @@ functions/api/ai-proxy/
 src/
 ├── components/
 │   ├── ui/             Modal.tsx (dialog chrome), controls.ts (shared class tokens)
-│   ├── ByokFields.tsx  provider / key / model / conditional Base URL — reused twice
+│   ├── ByokFields.tsx  provider / difficulty / key / model / conditional Base URL — reused twice
 │   ├── Board.tsx  Point.tsx  Checker.tsx  Die.tsx
 │   ├── GameControls.tsx   turn status, dice in hand, roll/pass and winner notices
+│   ├── AiThoughtPanel.tsx what the engine said about the move it made
 │   ├── SettingsModal.tsx    personal BYOK
 │   └── GameSetupModal.tsx   mode + match type + opponent BYOK + roster preview
 ├── hooks/          useAiTurn, useGame, useSettings, useGameConfig, useByokDraft, useEscapeKey
@@ -428,10 +429,9 @@ and `tsconfig.app.json` (`compilerOptions.paths`) so Vite and `tsc -b` agree.
 ## BYOK configuration and security
 
 * Two `localStorage` entries: **`ai-backgammon:settings`** (your provider, key, model, base URL and
-  difficulty) and
-  **`ai-backgammon:game-config`** (mode, match type and the opponent's key/model/base URL). Both
-  are written by Zustand's `persist` middleware, and both use `partialize` so modal visibility
-  and store actions never reach disk.
+  difficulty) and **`ai-backgammon:game-config`** (mode, match type and the opponent's
+  key/model/base URL). Both are written by Zustand's `persist` middleware, and both use `partialize`
+  so modal visibility and store actions never reach disk.
 * The board in progress is **never** persisted: `gameStore` holds the resolved `seatPlan`, which
   contains the engines API keys, so writing it out would create a third copy of your
   credentials. Refresh the page and the game is gone; the two entries above are not.
@@ -468,6 +468,16 @@ There is no `tailwind.config.js` or PostCSS config. Theme tokens live in `src/in
 Tailwind arbitrary `[clip-path:...]` properties in `Point.tsx`, and the selectable mode cards use
 the `has-[:checked]:` variant over visually-hidden radios (`sr-only`) so they stay real form
 controls.
+
+**Checkers are rimmed against the point they stand on, not against each other.** A `#f8fafc` disc on
+the `#f2dcb4` cream triangle needs a near-black edge to be readable, and a `#111827` disc on the
+`#b5502a` terracotta one needs a near-white edge, so `Checker.tsx` uses `border-slate-900` and
+`border-slate-50` with `shadow-md shadow-black/45` for lift. The rim is a `border-2` rather than a
+`ring`, because a ring sits outside the disc and steals width from 16 px of checker. Those three
+numbers are coupled by arithmetic — six visible discs at `size-4` plus `gap-0.5` must fit under the
+point label inside `QUADRANT`'s height — and `src/components/__tests__/CheckerContrast.test.tsx`
+pins the class contract, because jsdom applies no CSS and the mismatch only becomes visible as
+checkers painted past the apex.
 
 ## Deploying to Cloudflare Pages
 
