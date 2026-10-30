@@ -8,7 +8,8 @@ import { useMemo } from 'react'
 /**
  * Everything the UI needs about the active game: the board, whose turn it is according to the
  * snapshotted seat plan, the legal moves derived from it, and the click handling that drives
- * selection and execution. Components stay presentational.
+ * selection and execution. Components stay presentational, and the AI chain is driven by
+ * `useAiTurn` rather than anything in here.
  */
 export function useGame() {
   const board = useGameStore((state) => state.board)
@@ -18,29 +19,37 @@ export function useGame() {
   const history = useGameStore((state) => state.history)
   const selectedFrom = useGameStore((state) => state.selectedFrom)
   const turnPassed = useGameStore((state) => state.turnPassed)
+  const isAiThinking = useGameStore((state) => state.isAiThinking)
+  const lastAiError = useGameStore((state) => state.lastAiError)
   const startNewGame = useGameStore((state) => state.startNewGame)
   const roll = useGameStore((state) => state.roll)
   const makeMove = useGameStore((state) => state.makeMove)
   const selectPoint = useGameStore((state) => state.selectPoint)
   const passTurn = useGameStore((state) => state.passTurn)
   const resetGame = useGameStore((state) => state.resetGame)
+  const aiMakeMove = useGameStore((state) => state.aiMakeMove)
+  const runAiTurn = useGameStore((state) => state.runAiTurn)
+  const dismissAiError = useGameStore((state) => state.dismissAiError)
+  const retryAiTurn = useGameStore((state) => state.retryAiTurn)
 
-  const currentSeat: SeatAssignment | null = board && seatPlan ? seatPlan[board.turn] : null
+  const currentSeat: SeatAssignment | null =
+    board !== null && seatPlan !== null ? seatPlan[board.turn] : null
   const isHumanTurn = currentSeat !== null && currentSeat.kind === 'human'
   const isFinished = board?.phase === 'finished'
 
   /**
-   * Dev-only override so an AI-vs-AI match can be stepped through by hand until the inference
-   * client exists. Vite statically replaces `import.meta.env.DEV`, so the extra branch is
-   * dead-code-eliminated from production bundles rather than shipped.
+   * A human may always click on their own turn. In dev that is extended to AI seats so a match can
+   * be stepped through by hand, and it is suspended while an AI chain is moving pieces. Vite
+   * statically replaces `import.meta.env.DEV`, so production bundles keep only the human branch.
    */
-  const canInteract = isHumanTurn || import.meta.env.DEV
+  const canInteract = (isHumanTurn || import.meta.env.DEV) && isAiThinking === false
 
-  // Gated on canInteract so production AI turns render no highlighted triangles that would then
-  // refuse the click; in dev this is always true, which is what makes manual stepping possible.
+  // Gated on canInteract so a turn nobody may act on renders no highlighted triangles.
   const allLegalMoves = useMemo<Move[]>(
     () =>
-      board && board.phase !== 'finished' && canInteract ? getLegalMoves(board, board.turn, board.dice) : [],
+      board && board.phase !== 'finished' && canInteract
+        ? getLegalMoves(board, board.turn, board.dice)
+        : [],
     [board, canInteract],
   )
 
@@ -62,6 +71,8 @@ export function useGame() {
   )
 
   const awaitingRoll = board !== null && board.dice.length === 0 && isFinished === false
+  /** True when a chain is running for a seat the player may not act on: Roll should stay hidden. */
+  const aiSeatThinking = isAiThinking && isHumanTurn === false
 
   const handlePointClick = (target: MoveSource | MoveTarget): void => {
     if (board === null || isFinished || canInteract === false) {
@@ -101,6 +112,8 @@ export function useGame() {
     history,
     selectedFrom,
     turnPassed,
+    isAiThinking,
+    lastAiError,
     currentSeat,
     allLegalMoves,
     selectedMoves,
@@ -110,6 +123,7 @@ export function useGame() {
     canInteract,
     isFinished,
     awaitingRoll,
+    aiSeatThinking,
     active: board !== null,
     handlePointClick,
     startNewGame,
@@ -118,5 +132,10 @@ export function useGame() {
     selectPoint,
     passTurn,
     resetGame,
+    aiMakeMove,
+    runAiTurn,
+    dismissAiError,
+    retryAiTurn,
   }
 }
+
