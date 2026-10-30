@@ -33,7 +33,11 @@ import { validateEngine } from '@/utils/gameConfig'
 export const AI_PROXY_PATH = '/api/ai-proxy'
 
 /** Tuning knobs, all in one place. */
-export const AI_TIMEOUT_MS = 20_000
+// The budget for one move, and it covers the single retry too: the abort timer starts before
+// `withTransientRetry`, so a request plus its backoff plus the second attempt must all fit inside it.
+// Kept below the relay's upstream ceiling (`RELAY_TIMEOUT_MS` in `shared/aiProxy.ts`) so that when a
+// turn runs out of time it is the client that says so, with `timeout`, not the proxy.
+export const AI_TIMEOUT_MS = 60_000
 export const AI_MAX_TOKENS = 220
 export const AI_MOVE_DELAY_MS = 400
 export const AI_TRANSIENT_RETRIES = 1

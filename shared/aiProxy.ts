@@ -83,23 +83,35 @@ export const DEFAULT_ALLOWED_HOSTS: readonly string[] = [
 
 const KB = 1024
 
+/**
+ * How long the relay waits for a provider before giving up. This has to sit **above** the client's
+ * `AI_TIMEOUT_MS` (`src/utils/aiClient.ts`): if the relay aborts first, the player is told the proxy
+ * failed when the browser was still perfectly willing to wait, and the provider's own answer - which
+ * may be a 429 carrying a `Retry-After` - is thrown away. 5 s of headroom.
+ *
+ * 65 s is comfortably affordable at the edge: Cloudflare documents no hard wall-clock limit on an
+ * incoming HTTP request while the client stays connected, and awaiting a subrequest costs no CPU
+ * time, so a slow reasoning model does not bump into the CPU quota.
+ */
+const RELAY_TIMEOUT_MS = 65_000
+
 export const PRODUCTION_POLICY: ProxyPolicy = {
   allowedHosts: DEFAULT_ALLOWED_HOSTS,
   allowPrivateTargets: false,
-  timeoutMs: 25_000,
+  timeoutMs: RELAY_TIMEOUT_MS,
   maxRequestBytes: 64 * KB,
   maxResponseBytes: KB * KB,
 }
 
 /**
  * Dev is the user's own machine, already reachable from their browser, so the host list is not a
- * security boundary here. Keeping the timeout generous also means a slow local model load never
- * becomes a proxy failure on top of a client failure.
+ * security boundary here. The same generous ceiling also means a local model that needs 40 s to load
+ * a model into memory never turns into a proxy failure stacked on top of a client failure.
  */
 export const DEV_POLICY: ProxyPolicy = {
   allowedHosts: DEFAULT_ALLOWED_HOSTS,
   allowPrivateTargets: true,
-  timeoutMs: 60_000,
+  timeoutMs: RELAY_TIMEOUT_MS,
   maxRequestBytes: 64 * KB,
   maxResponseBytes: KB * KB,
 }

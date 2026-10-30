@@ -31,7 +31,7 @@ npm install          # install dependencies
 npm run dev          # dev server on http://localhost:5173
 npm run typecheck    # tsc -b (no emit) — 0 errors required
 npm run lint         # eslint .
-npm run test         # vitest run (153 passed + 5 skipped: rules, seats, click-to-move, AI client,
+npm run test         # vitest run (158 passed + 5 skipped: rules, seats, click-to-move, AI client,
                      # AI turn driver, proxy core — the 5 skipped are the opt-in relay e2e suite)
 npm run test:watch   # vitest in watch mode
 npm run build        # typecheck + production bundle into dist/
@@ -135,9 +135,12 @@ failure with a human message plus an `AiErrorCode` — `unauthorized`, `rate-lim
 `server-error`, `network`, `timeout`, `aborted`, `bad-response`, `illegal-move`, `missing-key`,
 `missing-endpoint`, `missing-model`, `unsupported-provider`, `proxy-blocked`.
 
-* **Timeout**: 20 s by default (`AI_TIMEOUT_MS`), through an internal `AbortController` that also
-  relays a caller signal. The relay has its own cap on top of that — 60 s in dev, 25 s at the edge —
-  and reports it as `gateway-timeout`, which the client maps back to `timeout`.
+* **Timeout**: 60 s by default (`AI_TIMEOUT_MS`), through an internal `AbortController` that also
+  relays a caller signal. That budget covers the retry as well, because the timer starts before
+  `withTransientRetry`. The relay waits slightly longer — 65 s, `RELAY_TIMEOUT_MS`, in dev and at the
+  edge — so a turn that runs out of time is reported by the client as `timeout` rather than as a
+  `gateway-timeout` from the proxy; the relay reports its own cap as `gateway-timeout`, which the
+  client maps back to `timeout` anyway.
 * **Retry**: exactly one, and only for transient codes (429, 5xx, network, timeout), honouring
   `Retry-After`. Auth and protocol errors are never retried.
 * **Stop, do not guess**: a failed request ends the turn and shows a banner with Retry / Dismiss
@@ -203,7 +206,7 @@ reading real provider answers.
 | Plain `http` targets | allowed | refused, https only |
 | Loopback / private targets | allowed | refused |
 | Host allowlist | not enforced | enforced, exact match |
-| Upstream timeout | 60 s | 25 s |
+| Upstream timeout | 65 s | 65 s (both sit above the client's 60 s) |
 | Envelope / response cap | 64 KB / 1 MB | 64 KB / 1 MB |
 
 Dev is your own machine, already reachable from your own browser, so the host list is not a security

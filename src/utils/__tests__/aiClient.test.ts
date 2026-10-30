@@ -3,6 +3,7 @@ import type { AiEngineConfig } from '@/types/settings'
 import type { BoardState, PlayerColor } from '@/types/game'
 import {
   AI_PROXY_PATH,
+  AI_TIMEOUT_MS,
   DEFAULT_MODELS,
   extractJsonObject,
   getAiMove,
@@ -11,6 +12,9 @@ import {
   normalizeBaseUrl,
   parseAiMove,
 } from '@/utils/aiClient'
+// The policies live outside `src` deliberately, but the ordering of the two timeout budgets is a
+// contract between the layers, so it is asserted here rather than only restated in a comment.
+import { DEV_POLICY, PRODUCTION_POLICY } from '../../../shared/aiProxy.ts'
 import { getInitialBoardState, getLegalMoves } from '@/utils/gameLogic'
 import { describe, expect, it } from 'vitest'
 
@@ -569,7 +573,7 @@ describe('CORS relay transport', () => {
   })
 
   it('maps a relay timeout to the timeout code', async () => {
-    const { result } = await ask({}, PLAYING, 'light', rejection(504, 'gateway-timeout', 'The provider did not answer within 25s.'))
+    const { result } = await ask({}, PLAYING, 'light', rejection(504, 'gateway-timeout', 'The provider did not answer in time.'))
     expect(result.success).toBe(false)
     if (!result.success) {
       expect(result.code).toBe('timeout')
@@ -625,5 +629,21 @@ describe('DEFAULT_MODELS', () => {
     expect(DEFAULT_MODELS.anthropic.length).toBeGreaterThan(0)
     expect(DEFAULT_MODELS.google.length).toBeGreaterThan(0)
     expect(DEFAULT_MODELS.custom).toBe('')
+  })
+})
+
+describe('timeout budgets across the layers', () => {
+  // The relay is what actually talks to the provider, so it has to be the one that gives up last.
+  // If its ceiling drops below the client's, a patient browser is told "the proxy timed out" while it
+  // was still waiting, and a provider 429 carrying a Retry-After is discarded on the way past.
+  it('lets the client run out of time before the relay does, in dev and at the edge', () => {
+    expect(AI_TIMEOUT_MS).toBeLessThan(DEV_POLICY.timeoutMs)
+    expect(AI_TIMEOUT_MS).toBeLessThan(PRODUCTION_POLICY.timeoutMs)
+  })
+
+  it('gives a slow reasoning model room to answer at all', () => {
+    // A turn is one request plus at most one retry inside this single budget, so it has to cover
+    // both attempts. 20 s was the original value and cut off real DashScope answers.
+    expect(AI_TIMEOUT_MS).toBeGreaterThanOrEqual(60_000)
   })
 })
