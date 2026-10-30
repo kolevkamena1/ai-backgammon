@@ -79,6 +79,11 @@ export const DEFAULT_ALLOWED_HOSTS: readonly string[] = [
   // Alibaba DashScope, China and International regions. Both are the OpenAI-compatible path.
   'dashscope.aliyuncs.com',
   'dashscope-intl.aliyuncs.com',
+  // Model Studio workspace hosts (`<name>.<region>.maas.aliyuncs.com`), which newer accounts are
+  // pointed at instead of the two above. This is one exact host, deliberately not a suffix: the
+  // allowlist is the only thing stopping a public Function from becoming an SSRF relay, and other
+  // tenants have their own hosts - that is what AI_PROXY_ALLOWED_HOSTS exists for.
+  'token-plan.ap-southeast-1.maas.aliyuncs.com',
 ]
 
 const KB = 1024

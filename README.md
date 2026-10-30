@@ -224,7 +224,8 @@ edge, where that address is either private or not on the allowlist.
 ### Allowlist
 
 `DEFAULT_ALLOWED_HOSTS` in `shared/aiProxy.ts` is `api.openai.com`, `api.anthropic.com`,
-`generativelanguage.googleapis.com`, `dashscope.aliyuncs.com` and `dashscope-intl.aliyuncs.com`.
+`generativelanguage.googleapis.com`, `dashscope.aliyuncs.com`, `dashscope-intl.aliyuncs.com` and the
+workspace host `token-plan.ap-southeast-1.maas.aliyuncs.com`.
 `AI_PROXY_ALLOWED_HOSTS` is **merged over** those defaults by `parseAllowedHosts` — comma or space
 separated, lower-cased, de-duplicated — never instead of them, so adding your own gateway cannot
 silently un-list OpenAI. Hosts are matched exactly, because a suffix match would accept
@@ -304,8 +305,9 @@ way the move arrives in `content`, because `extractChatText` never reads `reason
 
 Newer accounts are directed at workspace hosts of the form
 `https://<workspaceId>.<region>.maas.aliyuncs.com/compatible-mode/v1`. The client sends the flag to
-those too, but the **relay** refuses them as un-allowlisted until you add that exact host to
-`AI_PROXY_ALLOWED_HOSTS` — the allowlist matches host names exactly and has no wildcard.
+those, and `token-plan.ap-southeast-1.maas.aliyuncs.com` is allowlisted by default — but any *other*
+workspace host is refused by the **relay** until you add that exact host to
+`AI_PROXY_ALLOWED_HOSTS`, because the allowlist matches host names exactly and has no wildcard.
 
 `normalizeBaseUrl` makes step 2 forgiving: a trailing slash is stripped, `…/compatible-mode` gets
 `/v1` appended, and a pasted `…/v1/chat/completions` is reduced to its root and re-suffixed — all
@@ -430,7 +432,7 @@ integration serve `POST /api/ai-proxy`. Rules in `public/_redirects` are not app
 Function serves, so the SPA fallback cannot swallow `/api/*` — verified locally, where `GET` on that
 path answers the relay's own 405 rather than an `index.html`.
 
-Set `AI_PROXY_ALLOWED_HOSTS` as a Pages environment variable if you need a host beyond the five
+Set `AI_PROXY_ALLOWED_HOSTS` as a Pages environment variable if you need a host beyond the six
 defaults; production and preview are configured separately. `npm run pages:local` is the way to test
 all of this before deploying — it builds, then serves `dist/` through `wrangler pages dev`, mounting
 `functions/` and reading `.env` on port 8788. One wrangler quirk to expect in that output: it reports

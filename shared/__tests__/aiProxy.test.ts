@@ -1,4 +1,5 @@
 import {
+  DEFAULT_ALLOWED_HOSTS,
   DEV_POLICY,
   PRODUCTION_POLICY,
   classifyTarget,
@@ -263,8 +264,19 @@ describe('SSRF policy', () => {
   const policy = (host: string) => classifyTarget(`https://${host}/v1/chat/completions`, PRODUCTION_POLICY)
 
   it('allows exactly the default inference hosts', () => {
-    for (const host of ['api.openai.com', 'api.anthropic.com', 'generativelanguage.googleapis.com', 'dashscope.aliyuncs.com', 'dashscope-intl.aliyuncs.com']) {
+    for (const host of ['api.openai.com', 'api.anthropic.com', 'generativelanguage.googleapis.com', 'dashscope.aliyuncs.com', 'dashscope-intl.aliyuncs.com', 'token-plan.ap-southeast-1.maas.aliyuncs.com']) {
       expect(policy(host).ok).toBe(true)
+    }
+  })
+
+  it('lists only exact host names, never a wildcard, a URL or an address', () => {
+    // `classifyTarget` compares with `includes`, so a `*.maas.aliyuncs.com` entry would silently
+    // match nothing at all - and a real wildcard, if the comparison ever changed, would open every
+    // tenant in the namespace. Pinning the shape of the data keeps that from arriving by accident.
+    for (const host of DEFAULT_ALLOWED_HOSTS) {
+      expect(host).toBe(host.toLowerCase())
+      expect(host).not.toMatch(/[*\s:/]/)
+      expect(host).not.toMatch(/^\d+(\.\d+)+$/)
     }
   })
 
@@ -272,6 +284,9 @@ describe('SSRF policy', () => {
     expect(policy('api.openai.com.attacker.test').ok).toBe(false)
     expect(policy('openai.com').ok).toBe(false)
     expect(policy('evil.example').ok).toBe(false)
+    // One allowlisted workspace host must not admit the rest of the namespace it lives in.
+    expect(policy('token-plan.ap-southeast-1.maas.aliyuncs.com.attacker.test').ok).toBe(false)
+    expect(policy('another-team.ap-southeast-1.maas.aliyuncs.com').ok).toBe(false)
   })
 
   it('rejects non-https, userinfo, IP literals and metadata ranges in production', () => {
