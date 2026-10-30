@@ -2,6 +2,7 @@ import type { AiCallOptions, AiRequestInit, AiResponse, FetchLike } from '@/type
 import type { AiEngineConfig } from '@/types/settings'
 import type { BoardState, PlayerColor } from '@/types/game'
 import {
+  AI_PROXY_PATH,
   DEFAULT_MODELS,
   extractJsonObject,
   getAiMove,
@@ -28,6 +29,21 @@ interface Recorded {
   url: string
   init: AiRequestInit
 }
+
+/**
+ * Every provider call is wrapped in an envelope for the relay, so assertions read the inner request
+ * rather than the transport: `url` is always `/api/ai-proxy`, and the provider's own URL, headers
+ * and body live inside `init.body`.
+ */
+interface ProxyEnvelope {
+  targetUrl: string
+  headers: Record<string, string>
+  body: string
+}
+
+const envelopeOf = (call: Recorded): ProxyEnvelope => JSON.parse(call.init.body) as ProxyEnvelope
+const targetOf = (call: Recorded): string => envelopeOf(call).targetUrl
+const innerBody = (call: Recorded): unknown => JSON.parse(envelopeOf(call).body) as unknown
 
 function fakeResponse(input: {
   status?: number
@@ -162,10 +178,11 @@ describe('provider routing', () => {
   it('calls OpenAI with a bearer key, the default model and JSON mode', async () => {
     const { calls } = await ask({ provider: 'openai' })
     expect(calls).toHaveLength(1)
-    expect(calls[0].url).toBe('https://api.openai.com/v1/chat/completions')
-    expect(calls[0].init.headers.authorization).toBe(`Bearer ${KEY}`)
+    expect(calls[0].url).toBe(AI_PROXY_PATH)
+    expect(targetOf(calls[0])).toBe('https://api.openai.com/v1/chat/completions')
+    expect(envelopeOf(calls[0]).headers.authorization).toBe(`Bearer ${KEY}`)
 
-    const body = JSON.parse(calls[0].init.body) as Record<string, unknown>
+    const body = innerBody(calls[0]) as Record<string, unknown>
     expect(body.model).toBe(DEFAULT_MODELS.openai)
     expect(body.temperature).toBe(0)
     expect(body.response_format).toEqual({ type: 'json_object' })
@@ -174,7 +191,11 @@ describe('provider routing', () => {
 
   it('never sends an OpenAI key to the custom base URL', async () => {
     const { calls } = await ask({ provider: 'openai', baseUrl: 'http://attacker.example/v1' })
-    expect(calls[0].url).toBe('https://api.openai.com/v1/chat/completions')
+    // The relay is told to reach the built-in host, so the envelope says the same thing the
+    // pre-proxy client would have: an attacker-controlled base URL is never named.
+    expect(calls[0].url).toBe(AI_PROXY_PATH)
+    expect(targetOf(calls[0])).toBe('https://api.openai.com/v1/chat/completions')
+    expect(calls[0].init.body).not.toContain('attacker.example')
   })
 
   it('calls Anthropic with the version, key and browser-access headers', async () => {
@@ -185,13 +206,13 @@ describe('provider routing', () => {
       () => fakeResponse({ body: { content: [{ type: 'text', text: '{"choice": 2}' }] } }),
     )
 
-    expect(calls[0].url).toBe('https://api.anthropic.com/v1/messages')
-    expect(calls[0].init.headers['x-api-key']).toBe(KEY)
-    expect(calls[0].init.headers['anthropic-version']).toBe('2023-06-01')
-    expect(calls[0].init.headers['anthropic-dangerous-direct-browser-access']).toBe('true')
-    expect(calls[0].init.headers.authorization).toBeUndefined()
+    expect(targetOf(calls[0])).toBe('https://api.anthropic.com/v1/messages')
+    expect(envelopeOf(calls[0]).headers['x-api-key']).toBe(KEY)
+    expect(envelopeOf(calls[0]).headers['anthropic-version']).toBe('2023-06-01')
+    expect(envelopeOf(calls[0]).headers['anthropic-dangerous-direct-browser-access']).toBe('true')
+    expect(envelopeOf(calls[0]).headers.authorization).toBeUndefined()
 
-    const body = JSON.parse(calls[0].init.body) as Record<string, unknown>
+    const body = innerBody(calls[0]) as Record<string, unknown>
     expect(typeof body.system).toBe('string')
     expect(body.messages).toHaveLength(1)
   })
@@ -204,28 +225,29 @@ describe('provider routing', () => {
       () => fakeResponse({ body: { candidates: [{ content: { parts: [{ text: '{"choice": 1}' }] } }] } }),
     )
 
-    expect(calls[0].url).toBe(
+    expect(calls[0].url).toBe(AI_PROXY_PATH)
+    expect(targetOf(calls[0])).toBe(
       `https://generativelanguage.googleapis.com/v1beta/models/${DEFAULT_MODELS.google}:generateContent`,
     )
-    expect(calls[0].init.headers['x-goog-api-key']).toBe(KEY)
+    expect(envelopeOf(calls[0]).headers['x-goog-api-key']).toBe(KEY)
 
-    const body = JSON.parse(calls[0].init.body) as Record<string, unknown>
+    const body = innerBody(calls[0]) as Record<string, unknown>
     expect(body.generationConfig).toMatchObject({ responseMimeType: 'application/json', temperature: 0 })
     expect(body.systemInstruction).toBeDefined()
   })
 
   it('calls a custom gateway on the normalised URL and omits response_format', async () => {
     const { calls } = await ask({ provider: 'custom', baseUrl: 'http://localhost:11434', model: 'qwen2.5:7b' })
-    expect(calls[0].url).toBe('http://localhost:11434/v1/chat/completions')
+    expect(targetOf(calls[0])).toBe('http://localhost:11434/v1/chat/completions')
 
-    const body = JSON.parse(calls[0].init.body) as Record<string, unknown>
+    const body = innerBody(calls[0]) as Record<string, unknown>
     expect(body.model).toBe('qwen2.5:7b')
     expect(body.response_format).toBeUndefined()
   })
 
   it('puts the legal menu in the user prompt', async () => {
     const { calls } = await ask()
-    const body = JSON.parse(calls[0].init.body) as { messages: Array<{ content: string }> }
+    const body = innerBody(calls[0]) as { messages: Array<{ content: string }> }
     const legal = getLegalMoves(PLAYING, 'light', PLAYING.dice)
 
     expect(body.messages[1].content).toContain('Legal moves - pick exactly one')
@@ -380,15 +402,19 @@ describe('transport failures', () => {
     }
   })
 
-  it('reports CORS/network failures', async () => {
+  it('reports a relay that cannot be reached', async () => {
+    // Provider CORS is no longer a possible cause: the hop is same-origin, so a rejection means the
+    // relay itself was unreachable (dev server restarted, offline, or a preview build with no proxy).
     const { result } = await ask({}, PLAYING, 'light', () => {
       throw new TypeError('Failed to fetch')
     })
     expect(result.success).toBe(false)
     if (!result.success) {
       expect(result.code).toBe('network')
-      expect(result.error).toContain('CORS')
+      expect(result.error).toContain('AI proxy')
+      expect(result.error).not.toContain(KEY)
     }
+    expect(isTransient('network')).toBe(true)
   })
 
   it('reports a body that is not JSON', async () => {
@@ -449,6 +475,117 @@ describe('transport failures', () => {
       expect(result.code).toBe('aborted')
     }
     expect(spy.calls).toHaveLength(0)
+  })
+})
+
+describe('CORS relay transport', () => {
+  /** A relay rejection: our status, our `x-ai-proxy-error` marker, our message. */
+  const rejection =
+    (status: number, code: string, message: string) =>
+    (): AiResponse =>
+      fakeResponse({ status, headers: { 'x-ai-proxy-error': code }, body: { error: { code, message } } })
+
+  it('posts the envelope to the relay, keeping the key out of the transport headers', async () => {
+    const { calls } = await ask({ provider: 'openai' })
+
+    expect(calls[0].url).toBe(AI_PROXY_PATH)
+    expect(calls[0].init.headers).toEqual({ 'content-type': 'application/json' })
+    // The key belongs to the inner request the relay will forward. The same-origin hop carries only
+    // a content type, so nothing readable by the transport is a credential.
+    expect(envelopeOf(calls[0]).headers.authorization).toBe(`Bearer ${KEY}`)
+    expect(JSON.stringify(calls[0].init.headers)).not.toContain(KEY)
+  })
+
+  it('carries the provider payload through the envelope untouched', async () => {
+    const { calls } = await ask({ provider: 'openai' })
+    const inner = JSON.parse(envelopeOf(calls[0]).body) as Record<string, unknown>
+
+    expect(inner.model).toBe(DEFAULT_MODELS.openai)
+    expect(inner.response_format).toEqual({ type: 'json_object' })
+  })
+
+  it('reports a blocked host as proxy-blocked, not as a provider failure', async () => {
+    const { result } = await ask(
+      {},
+      PLAYING,
+      'light',
+      rejection(403, 'target-not-allowed', 'The host evil.example is not in the proxy allowlist.'),
+    )
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.code).toBe('proxy-blocked')
+      expect(result.error).toContain('allowlist')
+      // A 403 from our own relay must not read as "the provider refused this key".
+      expect(result.error).not.toContain('API key')
+    }
+  })
+
+  it('does not retry a blocked host', async () => {
+    const spy = recorder(rejection(403, 'target-not-allowed', 'blocked by the allowlist'))
+    const result = await getAiMove(engine(), PLAYING, 'light', { fetchImpl: spy.fetchImpl })
+
+    expect(result.success).toBe(false)
+    expect(spy.calls).toHaveLength(1)
+    expect(isTransient('proxy-blocked')).toBe(false)
+  })
+
+  it('maps a malformed envelope to proxy-blocked', async () => {
+    const { result } = await ask({}, PLAYING, 'light', rejection(400, 'bad-request', 'The request envelope is not valid JSON.'))
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.code).toBe('proxy-blocked')
+    }
+  })
+
+  it('maps an oversized payload to proxy-blocked', async () => {
+    const { result } = await ask({}, PLAYING, 'light', rejection(413, 'request-too-large', 'The request envelope is too large.'))
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.code).toBe('proxy-blocked')
+    }
+  })
+
+  it('keeps a relayed provider 401 as a credential problem', async () => {
+    const { result } = await ask({}, PLAYING, 'light', () => fakeResponse({ status: 401, body: { error: { message: 'bad key' } } }))
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.code).toBe('unauthorized')
+      expect(result.error).toContain('Invalid API key')
+    }
+  })
+
+  it('treats an unreachable upstream as retryable and asks again', async () => {
+    const spy = recorder((_call, index) =>
+      index === 0
+        ? fakeResponse({ status: 502, headers: { 'x-ai-proxy-error': 'bad-gateway' }, body: { error: { message: 'unreachable' } } })
+        : fakeResponse({ body: chatReply('{"choice": 1}') }),
+    )
+    const result = await getAiMove(engine(), PLAYING, 'light', { fetchImpl: spy.fetchImpl })
+
+    expect(spy.calls).toHaveLength(2)
+    expect(result.success).toBe(true)
+  })
+
+  it('maps a relay timeout to the timeout code', async () => {
+    const { result } = await ask({}, PLAYING, 'light', rejection(504, 'gateway-timeout', 'The provider did not answer within 25s.'))
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.code).toBe('timeout')
+    }
+  })
+
+  it('survives a rejection whose body is not JSON', async () => {
+    const { result } = await ask({}, PLAYING, 'light', () =>
+      fakeResponse({ status: 403, headers: { 'x-ai-proxy-error': 'target-not-allowed' }, notJson: true }),
+    )
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.code).toBe('proxy-blocked')
+      expect(result.error).toContain('proxy')
+    }
   })
 })
 

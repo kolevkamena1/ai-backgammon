@@ -21,6 +21,11 @@ export type AiErrorCode =
   | 'aborted'
   | 'bad-response'
   | 'illegal-move'
+  /**
+   * The `/api/ai-proxy` relay refused the target (allowlist, non-https, private address) or the
+   * envelope. Distinct from `network` on purpose: retrying will not help, only Settings will.
+   */
+  | 'proxy-blocked'
 
 /** The move the engine asked for, or why it could not be obtained. Never a thrown exception. */
 export interface AiMoveSuccess {

@@ -14,9 +14,23 @@ import { validateEngine } from '@/utils/gameConfig'
  * It is deliberately not a React module: no hooks, no store, no DOM. `fetchImpl` is injectable so
  * tests never stub globals.
  *
+ * Transport shape: every provider call is wrapped in an envelope and posted to the same-origin
+ * `/api/ai-proxy` relay (`shared/aiProxy.ts`, served by the Vite middleware in dev and by a Pages
+ * Function in production). Providers such as DashScope send no CORS headers, so a direct browser
+ * call dies in the preflight before the key is ever sent; relaying it removes that failure and gives
+ * one place to enforce which hosts may be reached. The relay passes a provider's status and body
+ * through unchanged, so the mapping below still sees real provider answers.
+ *
  * Security note: `baseUrl` is honoured **only** for `provider: 'custom'` (see `types/settings.ts`).
  * An OpenAI or Anthropic key is therefore never sent to a host the user did not choose.
  */
+
+/**
+ * Must match the Vite middleware mount point and `functions/api/ai-proxy/[[path]].ts`. Relative so
+ * it follows whatever origin the app is served from - same-origin is what keeps CORS out of the
+ * picture entirely, so no `Access-Control-Allow-Origin` is needed or wanted.
+ */
+export const AI_PROXY_PATH = '/api/ai-proxy'
 
 /** Tuning knobs, all in one place. */
 export const AI_TIMEOUT_MS = 20_000
@@ -98,6 +112,9 @@ function isResponseShaped(value: unknown): value is AiResponse {
 /**
  * POSTs JSON and maps transport-level failures. The caller owns the abort signal, so this can tell
  * "the page was abandoned" apart from "the provider was too slow".
+ *
+ * The provider request travels as the body of an envelope to the same-origin relay, so `url` and
+ * `headers` here are what the relay will use upstream - they never touch the network directly.
  */
 async function postJson(args: {
   url: string
@@ -107,28 +124,43 @@ async function postJson(args: {
   signal: AbortSignal
   timedOut: () => boolean
 }): Promise<{ data: unknown } | { failure: AiResult }> {
-  const init: AiRequestInit = {
-    method: 'POST',
+  const envelope = {
+    targetUrl: args.url,
     headers: args.headers,
     body: JSON.stringify(args.body),
+  }
+
+  const init: AiRequestInit = {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(envelope),
     signal: args.signal,
   }
 
   let response: unknown
 
   try {
-    response = await args.fetchImpl(args.url, init)
+    response = await args.fetchImpl(AI_PROXY_PATH, init)
   } catch (error) {
     if (args.signal.aborted) {
       const timeout = args.timedOut()
       return { failure: fail(timeout ? 'timeout' : 'aborted', timeout ? 'The provider took too long to answer.' : 'The request was cancelled.') }
     }
-    logger.warn('ai request failed at the network layer', { url: args.url, reason: String(error) })
-    return { failure: fail('network', 'Could not reach the provider (network or CORS blocked the request).') }
+    // A rejection now means the relay itself was unreachable: in dev the middleware is part of the
+    // dev server, in production it is the same origin as the page. Provider CORS cannot be it.
+    logger.warn('ai proxy request failed at the network layer', { target: args.url, reason: String(error) })
+    return { failure: fail('network', 'Could not reach the AI proxy. Reload the page, then check Settings.') }
   }
 
   if (!isResponseShaped(response)) {
-    return { failure: fail('bad-response', 'The provider returned an unreadable response.') }
+    return { failure: fail('bad-response', 'The AI proxy returned an unreadable response.') }
+  }
+
+  // Only our relay sets this header, and it is stripped from pass-through responses, so its
+  // presence means the request never reached the provider rather than the provider refusing it.
+  const proxyErrorCode = response.headers.get('x-ai-proxy-error')
+  if (proxyErrorCode !== null) {
+    return { failure: await mapProxyFailure(response, proxyErrorCode) }
   }
 
   if (!response.ok) {
@@ -139,6 +171,50 @@ async function postJson(args: {
     return { data: await response.json() }
   } catch {
     return { failure: fail('bad-response', 'The provider returned a body that was not JSON.') }
+  }
+}
+
+/**
+ * A relay rejection is not a provider answer, so it does not go through `mapHttpError`: a 403 from
+ * the allowlist must not read as "the provider refused this key". Timeouts and unreachable upstreams
+ * keep their existing codes so the retry policy still applies to them; everything else is
+ * `proxy-blocked`, which is not transient - only Settings can fix it.
+ */
+async function mapProxyFailure(response: AiResponse, proxyErrorCode: string): Promise<AiMoveFailure> {
+  const message = await readProxyMessage(response)
+
+  if (proxyErrorCode === 'gateway-timeout') {
+    return { success: false, error: message ?? 'The provider did not answer in time.', code: 'timeout', retryAfterMs: null }
+  }
+  if (proxyErrorCode === 'bad-gateway') {
+    return { success: false, error: message ?? 'The AI proxy could not reach the provider.', code: 'network', retryAfterMs: null }
+  }
+
+  return {
+    success: false,
+    error: message ?? 'The AI proxy blocked this endpoint. Check the Base URL in Settings.',
+    code: 'proxy-blocked',
+    retryAfterMs: null,
+  }
+}
+
+/** Reads `{ error: { message } }` from a rejection body, tolerating anything a proxy might return. */
+async function readProxyMessage(response: AiResponse): Promise<string | null> {
+  try {
+    const data = await response.json()
+    if (typeof data !== 'object' || data === null) {
+      return null
+    }
+
+    const error = (data as { error?: unknown }).error
+    if (typeof error === 'object' && error !== null) {
+      const message = (error as { message?: unknown }).message
+      return typeof message === 'string' && message.length > 0 ? message : null
+    }
+
+    return null
+  } catch {
+    return null
   }
 }
 
