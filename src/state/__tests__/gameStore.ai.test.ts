@@ -31,7 +31,7 @@ function startMirror(): void {
 const acceptAnyLegal = (): void => {
   mockedGetAiMove.mockImplementation(async (_config, board, player) => {
     const [move] = getLegalMoves(board, player, board.dice)
-    return { success: true, move, choice: 1 }
+    return { success: true, move, choice: 1, explanation: null }
   })
 }
 
@@ -97,7 +97,7 @@ describe('aiMakeMove', () => {
 
   it('stops when the rules engine rejects the chosen move', async () => {
     startMirror()
-    mockedGetAiMove.mockResolvedValue({ success: true, move: { from: 24, to: 1, die: 6 }, choice: 99 })
+    mockedGetAiMove.mockResolvedValue({ success: true, move: { from: 24, to: 1, die: 6 }, choice: 99, explanation: null })
     useGameStore.getState().roll()
 
     await expect(useGameStore.getState().aiMakeMove()).resolves.toBe(false)
@@ -121,13 +121,16 @@ describe('aiMakeMove', () => {
     await Promise.resolve()
 
     useGameStore.getState().resetGame()
-    release({ success: true, move: { from: 13, to: 8, die: 5 }, choice: 1 })
+    // Carries an explanation on purpose: a reply for an abandoned game must not leave its reason
+    // sitting in the panel of the game that replaced it.
+    release({ success: true, move: { from: 13, to: 8, die: 5 }, choice: 1, explanation: 'I bring a checker home.' })
     await running
 
     const state = useGameStore.getState()
     expect(state.board).toBeNull()
     expect(state.history).toHaveLength(0)
     expect(state.isAiThinking).toBe(false)
+    expect(state.aiThought).toBeNull()
     // The in-flight request was cancelled rather than left running.
     expect(mockedGetAiMove.mock.calls[0][3]?.signal?.aborted).toBe(true)
   })
@@ -217,5 +220,90 @@ describe('runAiTurn', () => {
 
     expect(useGameStore.getState().lastAiError).toBeNull()
     expect(mockedGetAiMove).not.toHaveBeenCalled()
+  })
+})
+
+describe('aiThought', () => {
+  const explained = (explanation: string | null): void => {
+    mockedGetAiMove.mockImplementation(async (_config, board, player) => {
+      const [move] = getLegalMoves(board, player, board.dice)
+      return { success: true, move, choice: 1, explanation }
+    })
+  }
+
+  it('keeps the sentence with the seat that said it', async () => {
+    startMirror()
+    explained('I make my five-point to shut Black in.')
+    useGameStore.getState().roll()
+
+    await expect(useGameStore.getState().aiMakeMove()).resolves.toBe(true)
+
+    // The seat matters as much as the text: in an AI vs AI match the two sides can justify
+    // contradictory plans, and a panel that says only "the AI thinks" would be unreadable.
+    expect(useGameStore.getState().aiThought).toEqual({
+      seat: 'light',
+      text: 'I make my five-point to shut Black in.',
+      phase: 'final',
+    })
+  })
+
+  it('shows nothing when the model gave no reason, but still plays the move', async () => {
+    startMirror()
+    explained(null)
+    useGameStore.getState().roll()
+
+    await expect(useGameStore.getState().aiMakeMove()).resolves.toBe(true)
+
+    expect(useGameStore.getState().history).toHaveLength(1)
+    expect(useGameStore.getState().aiThought).toBeNull()
+  })
+
+  it('drops the previous sentence when a later request fails', async () => {
+    startMirror()
+    explained('I hit your blot.')
+    useGameStore.getState().roll()
+    await useGameStore.getState().aiMakeMove()
+    expect(useGameStore.getState().aiThought).not.toBeNull()
+
+    rejectWith('network', 'Could not reach the provider.')
+    await useGameStore.getState().aiMakeMove()
+
+    expect(useGameStore.getState().lastAiError?.code).toBe('network')
+    expect(useGameStore.getState().aiThought).toBeNull()
+  })
+
+  it('is cleared by a human move, because the position it described is gone', async () => {
+    expect(useGameStore.getState().startNewGame(humanVsAi, personal)).toBe(true)
+    useGameStore.setState({ aiMoveDelayMs: 0 })
+    useGameStore.getState().roll()
+    useGameStore.setState({ aiThought: { seat: 'dark', text: 'I built a prime.', phase: 'final' } })
+
+    const board = useGameStore.getState().board
+    const legal = board === null ? [] : getLegalMoves(board, 'light', board.dice)
+    expect(legal.length).toBeGreaterThan(0)
+    const [move] = legal
+
+    expect(useGameStore.getState().makeMove(move)).toBe(true)
+    expect(useGameStore.getState().aiThought).toBeNull()
+  })
+
+  it('is replaced by a new sentence, and hides on demand or when the game is abandoned', async () => {
+    startMirror()
+    explained('I keep my builder safe.')
+    useGameStore.getState().roll()
+    await useGameStore.getState().aiMakeMove()
+    expect(useGameStore.getState().aiThought?.text).toBe('I keep my builder safe.')
+
+    // The dismiss button must not disturb the board: it hides a caption, not a move.
+    const board = useGameStore.getState().board
+    useGameStore.getState().clearAiThought()
+    expect(useGameStore.getState().aiThought).toBeNull()
+    expect(useGameStore.getState().board).toEqual(board)
+
+    // A thought left over from a finished or abandoned match would be attributed to a position the
+    // player can no longer see, so `resetGame` drops it on its way to nulling the board.
+    useGameStore.setState({ aiThought: { seat: 'dark', text: 'stale', phase: 'final' } })
+    useGameStore.getState().resetGame()
+    expect(useGameStore.getState().aiThought).toBeNull()
   })
 })

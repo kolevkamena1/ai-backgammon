@@ -21,6 +21,7 @@ export function useGame() {
   const turnPassed = useGameStore((state) => state.turnPassed)
   const isAiThinking = useGameStore((state) => state.isAiThinking)
   const lastAiError = useGameStore((state) => state.lastAiError)
+  const aiThought = useGameStore((state) => state.aiThought)
   const startNewGame = useGameStore((state) => state.startNewGame)
   const roll = useGameStore((state) => state.roll)
   const makeMove = useGameStore((state) => state.makeMove)
@@ -31,6 +32,7 @@ export function useGame() {
   const runAiTurn = useGameStore((state) => state.runAiTurn)
   const dismissAiError = useGameStore((state) => state.dismissAiError)
   const retryAiTurn = useGameStore((state) => state.retryAiTurn)
+  const clearAiThought = useGameStore((state) => state.clearAiThought)
 
   const currentSeat: SeatAssignment | null =
     board !== null && seatPlan !== null ? seatPlan[board.turn] : null
@@ -114,6 +116,7 @@ export function useGame() {
     turnPassed,
     isAiThinking,
     lastAiError,
+    aiThought,
     currentSeat,
     allLegalMoves,
     selectedMoves,
@@ -136,6 +139,7 @@ export function useGame() {
     runAiTurn,
     dismissAiError,
     retryAiTurn,
+    clearAiThought,
   }
 }
 

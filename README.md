@@ -138,6 +138,39 @@ A stored config from before this field has no `difficulty` key at all. `difficul
 — and the settings store's persist `version` stays at 1, because an optional field is a compatible
 change (see *BYOK configuration and security*).
 
+### Move explanations
+
+Alongside the move, the model is asked for one sentence saying why it chose it:
+
+```json
+{ "explanation": "I make my five-point to shut Black in.", "choice": 7 }
+```
+
+The field is requested **first** in the object, because the reply is streamed (see *Streaming*): a
+model that writes the choice before the reason would leave the player staring at a spinner until the
+last token. `explanation` is accepted from `explanation`, `reason` or `why`, is whitespace-collapsed
+and cut at 300 characters (`AI_EXPLANATION_MAX_CHARS`) with an ellipsis, and is typed
+`string | null`. The wording of the sentence follows the chosen level, via `EXPLANATION_HINTS`.
+
+What makes this safe to put on screen:
+
+* **It cannot affect the game.** `parseAiMove` returns the move only when it is on the legal menu,
+  exactly as before; the explanation rides along on `AiMoveSuccess` and is read only by the UI.
+* **Silence is not a failure.** A model that ignores the field, or fills it with a number, plays its
+  move and simply shows no panel. No fallback text is invented on its behalf.
+* **A reason is never shown for a move that did not happen.** A rejected or hallucinated choice, a
+  transport failure and a reply from an abandoned game all clear the panel instead of leaving a
+  justification pointing at a position that no longer exists.
+* **Nobody is trusted to be right about why.** The claim itself is not validated — only the move is.
+  A model that lies about its reasoning cannot change the board, and the panel is labelled as what
+  the engine *says*, not as an analysis.
+
+The sentence is held in `gameStore.aiThought` (`{ seat, text, phase }`) and rendered by
+`src/components/AiThoughtPanel.tsx` inside the game-controls panel. It is transient like the board:
+never persisted, cleared by a human move (its position is gone), by `resetGame`, and by the dismiss
+button. It names the **seat** that spoke, because in an AI vs AI match the two sides can justify
+contradictory plans.
+
 ### Providers
 
 | Provider | Endpoint | Auth | Default model |

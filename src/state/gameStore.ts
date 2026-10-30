@@ -19,6 +19,19 @@ import { create } from 'zustand'
 /** Why the last turn ended early, so the UI can explain it instead of looking broken. */
 export type TurnPassReason = 'unplayable-roll' | 'stranded-dice'
 
+/**
+ * What the engine said about its move. Transient by design — the store is never persisted, and a
+ * rationale about a position that no longer exists is worse than no rationale, so it is cleared on
+ * a human move, an abandoned game and a new game.
+ */
+export interface AiThought {
+  /** Which seat said it: in an AI vs AI match the two seats can say contradictory things. */
+  seat: PlayerColor
+  /** Live streamed text while `phase` is `streaming`, the model's sentence when it is `final`. */
+  text: string
+  phase: 'streaming' | 'final'
+}
+
 /** Four dice is the most one turn can hold; the spare guards against a runaway loop. */
 export const MAX_AI_MOVES_PER_TURN = 5
 
@@ -41,6 +54,8 @@ interface GameStoreState {
   isAiThinking: boolean
   /** The last inference failure, kept until dismissed, retried or superseded by a new roll. */
   lastAiError: AiErrorInfo | null
+  /** The engine's own words about the move it just made, or the text arriving for the next one. */
+  aiThought: AiThought | null
   /** Pacing between moves inside one AI turn, so a human can follow the board. Tests set 0. */
   aiMoveDelayMs: number
   startNewGame: (config: GameConfigSnapshot, personal: AiEngineConfig) => boolean
@@ -54,6 +69,8 @@ interface GameStoreState {
   runAiTurn: () => Promise<void>
   dismissAiError: () => void
   retryAiTurn: () => void
+  /** Hides the thought panel without touching the board. */
+  clearAiThought: () => void
   resetGame: () => void
 }
 
@@ -112,7 +129,9 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
     }
 
     if (result.success === false) {
-      set({ lastAiError: { message: result.error, code: result.code } })
+      // The failure banner replaces any earlier rationale: the position it described never got to
+      // happen, and two explanations on screen would read as one of them being a lie.
+      set({ lastAiError: { message: result.error, code: result.code }, aiThought: null })
       logger.error('ai move failed', { code: result.code, provider: engine.provider, seat: color })
       return 'stop'
     }
@@ -125,9 +144,17 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           message: 'The rules engine rejected the move the model chose.',
           code: 'illegal-move',
         },
+        aiThought: null,
       })
       logger.error('ai move rejected by the rules engine', { seat: color })
       return 'stop'
+    }
+
+    // Only after the move is on the board: a reason for a move that did not happen is worse than no
+    // reason at all. Silence (the model ignored the field, or filled it with junk) leaves the panel
+    // away rather than showing an empty speech bubble.
+    if (result.explanation !== null) {
+      set({ aiThought: { seat: color, text: result.explanation, phase: 'final' } })
     }
 
     return 'moved'
@@ -143,6 +170,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
     turnPassed: null,
     isAiThinking: false,
     lastAiError: null,
+    aiThought: null,
     aiMoveDelayMs: AI_MOVE_DELAY_MS,
 
     startNewGame: (config, personal) => {
@@ -167,6 +195,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         turnPassed: null,
         isAiThinking: false,
         lastAiError: null,
+        aiThought: null,
       })
       logger.debug('game started', { mode: config.mode, aiMatchType: config.aiMatchType })
       return true
@@ -231,6 +260,12 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       try {
         let next = applyMove(board, move, player)
 
+        // A human move ends the story the engine was telling: its last sentence describes a
+        // position that is now gone. The AI's own move keeps it, because `takeOneMove` writes the
+        // fresh sentence immediately after this call returns.
+        const actor = get().seatPlan?.[player]
+        const keepThought = actor !== undefined && actor.kind === 'ai'
+
         // Stranded dice: still our turn, dice left, but nothing can be played with them.
         const stranded =
           next.phase !== 'finished' && next.turn === player && next.dice.length > 0 &&
@@ -247,6 +282,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           selectedFrom: null,
           turnPassed: stranded ? 'stranded-dice' : null,
           lastAiError: null,
+          aiThought: keepThought ? get().aiThought : null,
         })
 
         if (next.phase === 'finished' && next.winner !== null) {
@@ -361,6 +397,10 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       void get().runAiTurn()
     },
 
+    clearAiThought: () => {
+      set({ aiThought: null })
+    },
+
     resetGame: () => {
       cancelAi()
       set({
@@ -373,6 +413,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         turnPassed: null,
         isAiThinking: false,
         lastAiError: null,
+        aiThought: null,
       })
     },
   }

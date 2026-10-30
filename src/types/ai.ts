@@ -33,6 +33,12 @@ export interface AiMoveSuccess {
   move: Move
   /** 1-based index into the legal list, when the model used the `{choice}` form. */
   choice: number | null
+  /**
+   * The model's one-sentence reason, already length-capped, or `null` when it said nothing usable.
+   * Purely presentational: a missing or absurd explanation never stops a legal move from playing,
+   * and it is never fed back into the rules engine.
+   */
+  explanation: string | null
 }
 
 export interface AiMoveFailure {

@@ -6,6 +6,7 @@ import { useSettings } from '@/hooks/useSettings'
 import { describeEngine, DIFFICULTY_LABELS } from '@/utils/gameConfig'
 import { cn } from '@/utils/cn'
 import { Dices, RefreshCw, RotateCcw, TriangleAlert, X } from 'lucide-react'
+import AiThoughtPanel from './AiThoughtPanel'
 import Checker from './Checker'
 import Die from './Die'
 
@@ -54,7 +55,7 @@ function seatSummary(seat: SeatAssignment): string {
 const GameControls = () => {
   const game = useGame()
   const { openSettings } = useSettings()
-  const { board, currentSeat, lastRoll, history, selectedFrom, turnPassed, isAiThinking, lastAiError } =
+  const { board, currentSeat, lastRoll, history, selectedFrom, turnPassed, isAiThinking, lastAiError, aiThought } =
     game
 
   if (board === null || currentSeat === null) {
@@ -138,6 +139,10 @@ const GameControls = () => {
           Asking the engine{providerName ? ` (${providerName})` : ''} for a move…
         </p>
       ) : null}
+
+      {/* The engine's own words. Rendered last of the three status lines so a failure banner, when
+          there is one, always sits underneath everything the player is still reading. */}
+      {aiThought !== null ? <AiThoughtPanel thought={aiThought} onDismiss={game.clearAiThought} /> : null}
 
       {game.isFinished && board.winner !== null ? (
         <p className="text-sm font-semibold text-emerald-300">

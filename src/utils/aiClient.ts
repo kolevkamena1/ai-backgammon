@@ -87,8 +87,8 @@ function fail(code: AiErrorCode, error: string, retryAfterMs: number | null = nu
   return { success: false, error, code, retryAfterMs }
 }
 
-function ok(move: Move, choice: number | null): AiResult {
-  return { success: true, move, choice }
+function ok(move: Move, choice: number | null, explanation: string | null): AiResult {
+  return { success: true, move, choice, explanation }
 }
 
 /** Worth another attempt: the request itself was fine, the provider was unavailable or busy. */
@@ -369,12 +369,48 @@ export function extractJsonObject(text: string): string | null {
 }
 
 /**
+ * What the UI is allowed to show as a reason. The prompt asks for 200 characters; this is wider, so
+ * a slightly long answer still reads instead of being dropped, and only a ramble gets cut.
+ */
+export const AI_EXPLANATION_MAX_CHARS = 300
+
+/**
+ * The `explanation` field, if there is one worth showing. Whitespace is collapsed (a model that
+ * emits a line break inside the string still fits on two lines of panel), the tail is cut with an
+ * ellipsis, and anything that is not a non-empty string yields `null`. Note what is NOT here: no
+ * validation of the claim itself. The move has already been checked against the menu; this text is
+ * decoration, and a model that lies about why it moved cannot change the board.
+ */
+export function parseExplanation(record: Record<string, unknown>): string | null {
+  const raw = record.explanation ?? record.reason ?? record.why
+  if (typeof raw !== 'string') {
+    return null
+  }
+
+  const collapsed = raw.replace(/\s+/g, ' ').trim()
+  if (collapsed.length === 0) {
+    return null
+  }
+
+  return collapsed.length > AI_EXPLANATION_MAX_CHARS
+    ? `${collapsed.slice(0, AI_EXPLANATION_MAX_CHARS - 1)}\u2026`
+    : collapsed
+}
+
+/** A parsed reply: the move only when it is on the menu, plus whatever reason came with it. */
+export interface ParsedAiReply {
+  move: Move | null
+  choice: number | null
+  explanation: string | null
+}
+
+/**
  * Model text to a legal move. Accepts the strict `{from,to,die}` object and the simpler
  * `{choice: n}` menu selection, coerces string numbers, and **only** returns a move that is in
  * `legal` — so an invented coordinate can never reach `applyMove`.
  */
-export function parseAiMove(text: string, legal: readonly Move[]): { move: Move | null; choice: number | null } {
-  const empty = { move: null, choice: null }
+export function parseAiMove(text: string, legal: readonly Move[]): ParsedAiReply {
+  const empty: ParsedAiReply = { move: null, choice: null, explanation: null }
   const json = extractJsonObject(text)
 
   if (json === null) {
@@ -393,12 +429,14 @@ export function parseAiMove(text: string, legal: readonly Move[]): { move: Move 
   }
 
   const record = parsed as Record<string, unknown>
+  const explanation = parseExplanation(record)
   const rawChoice = record.choice ?? record.index ?? record.moveNumber ?? record.move_number
   const choice = rawChoice === undefined ? null : toInt(rawChoice)
 
   if (choice !== null) {
     const move = legal[choice - 1]
-    return move === undefined ? empty : { move, choice }
+    // An explanation with no legal move behind it is not shown: the turn fails and says so instead.
+    return move === undefined ? empty : { move, choice, explanation }
   }
 
   const from = toSource(record.from)
@@ -412,7 +450,7 @@ export function parseAiMove(text: string, legal: readonly Move[]): { move: Move 
   const candidate: Move = { from, to, die }
   const match = legal.find((move) => moveKey(move) === moveKey(candidate))
 
-  return match === undefined ? { move: null, choice: null } : { move: match, choice }
+  return match === undefined ? empty : { move: match, choice, explanation }
 }
 
 /** Everything a single provider request needs, pre-resolved and credential-carrying. */
@@ -538,7 +576,7 @@ async function requestText(
     return fail('bad-response', 'The provider replied in a shape this app does not understand.')
   }
 
-  const { move, choice } = parseAiMove(text, ctx.legal)
+  const { move, choice, explanation } = parseAiMove(text, ctx.legal)
 
   if (move === null) {
     const preview = text.replace(/\s+/g, ' ').trim().slice(0, 160)
@@ -556,8 +594,9 @@ async function requestText(
     to: String(move.to),
     die: move.die,
     choice,
+    explained: explanation === null ? 'no' : 'yes',
   })
-  return ok(move, choice)
+  return ok(move, choice, explanation)
 }
 
 /**

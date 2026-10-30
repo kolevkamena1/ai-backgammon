@@ -662,6 +662,64 @@ describe('parseAiMove', () => {
   })
 })
 
+describe('explanations', () => {
+  const menu = getLegalMoves(PLAYING, 'light', [5])
+
+  it('reads the reason next to a menu choice', () => {
+    const parsed = parseAiMove('{"explanation": "I make my five-point.", "choice": 1}', menu)
+
+    expect(parsed.move).toBe(menu[0])
+    expect(parsed.choice).toBe(1)
+    expect(parsed.explanation).toBe('I make my five-point.')
+  })
+
+  it('reads it from a coordinate reply too, and from the aliases models invent', () => {
+    const [move] = menu
+    expect(
+      parseAiMove(`{"explanation": "Advancing.", "from": ${String(move.from)}, "to": ${String(move.to)}, "die": ${move.die}}`, menu)
+        .explanation,
+    ).toBe('Advancing.')
+    expect(parseAiMove('{"choice": 1, "reason": "Tempo."}', menu).explanation).toBe('Tempo.')
+    expect(parseAiMove('{"choice": 1, "why": "Safety."}', menu).explanation).toBe('Safety.')
+  })
+
+  it('never lets a reason rescue an illegal or unusable reply', () => {
+    const invented = parseAiMove('{"explanation": "I built a prime.", "choice": 999}', menu)
+    expect(invented.move).toBeNull()
+    expect(invented.explanation).toBeNull()
+
+    expect(parseAiMove('{"explanation": "I built a prime."}', menu).move).toBeNull()
+  })
+
+  it('collapses layout and cuts a ramble instead of dropping it', () => {
+    const wrapped = parseAiMove('{"choice": 1, "explanation": "I  hit\\n a blot \\t today. "}', menu)
+    expect(wrapped.explanation).toBe('I hit a blot today.')
+
+    const long = parseAiMove(`{"choice": 1, "explanation": "${'x'.repeat(900)}"}`, menu)
+    expect(long.explanation !== null && long.explanation.length).toBeLessThanOrEqual(300)
+    expect(long.explanation?.endsWith('\u2026')).toBe(true)
+  })
+
+  it('treats a non-string or an empty reason as silence, not as a failure', () => {
+    expect(parseAiMove('{"choice": 1, "explanation": 7}', menu).explanation).toBeNull()
+    expect(parseAiMove('{"choice": 1, "explanation": "   "}', menu).explanation).toBeNull()
+    expect(parseAiMove('{"choice": 1}', menu).explanation).toBeNull()
+    // The move still plays: the reason is decoration, and this is the assertion that pins that down.
+    expect(parseAiMove('{"choice": 1, "explanation": 7}', menu).move).toBe(menu[0])
+  })
+
+  it('hands the reason to the caller of getAiMove', async () => {
+    const { result } = await ask({}, PLAYING, 'light', () =>
+      fakeResponse({ body: chatReply('{"explanation": "I escape.", "choice": 2}') }),
+    )
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.explanation).toBe('I escape.')
+    }
+  })
+})
+
 describe('DEFAULT_MODELS', () => {
   it('covers every selectable provider except the deployment-specific one', () => {
     expect(DEFAULT_MODELS.openai.length).toBeGreaterThan(0)

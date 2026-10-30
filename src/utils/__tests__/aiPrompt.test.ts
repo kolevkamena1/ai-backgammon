@@ -1,6 +1,7 @@
 import type { BoardState, DieFace } from '@/types/game'
 import {
   AI_JSON_CONTRACT,
+  AI_REPLY_CONTRACT,
   buildMovePrompt,
   buildSystemPrompt,
   describeMove,
@@ -141,6 +142,22 @@ describe('renderPosition', () => {
 
 describe('buildMovePrompt', () => {
   const prompt = buildMovePrompt(OPENING, 'light', openingMoves)
+
+  it('asks for a reason before the move', () => {
+    const system = buildSystemPrompt('light')
+    expect(system).toContain(AI_REPLY_CONTRACT)
+    // Order is the whole point of the wording: streamed, an explanation written after the choice
+    // would arrive too late to show while the player waits.
+    expect(system.indexOf('explanation')).toBeLessThan(system.indexOf(AI_JSON_CONTRACT))
+    expect(system).toContain('no markdown fences')
+    expect(system).toContain('ONLY a single JSON object')
+  })
+
+  it('tailors the sentence to the level', () => {
+    expect(buildSystemPrompt('light', 'easy')).toContain('Say plainly which checker you moved')
+    expect(buildSystemPrompt('light', 'medium')).toContain('Name the tactic')
+    expect(buildSystemPrompt('light', 'hard')).toContain('the threat you are answering')
+  })
 
   it('returns both halves and ends with the JSON-only instruction', () => {
     expect(prompt.system.length).toBeGreaterThan(0)

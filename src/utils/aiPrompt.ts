@@ -15,6 +15,28 @@ import { HOME_BOARD, otherPlayer } from '@/utils/gameLogic'
 export const AI_JSON_CONTRACT =
   '{"from": <point number or "bar">, "to": <point number or "off">, "die": <1-6>}'
 
+/**
+ * What the model is actually asked for: a reason, then the move. `explanation` comes FIRST because
+ * the reply is streamed — a model that answers `choice` first would show the player nothing until
+ * the very last token. `AI_JSON_CONTRACT` and a bare `{"choice": n}` stay accepted, since a model
+ * that ignores the new wording must still be able to play.
+ */
+export const AI_REPLY_CONTRACT =
+  '{"explanation": "<one short sentence saying why this move is best>", "choice": <the move number from the list, 1-based>}'
+
+/** Asked of the model. The parser (`utils/aiClient.ts`) tolerates more than this, never less. */
+export const EXPLANATION_CHAR_BUDGET = 200
+
+/**
+ * How the sentence should read at each level. The strength line above it sets the play; this sets
+ * the register, so Hard explains a two-move idea and Easy just says what moved.
+ */
+export const EXPLANATION_HINTS: Record<AiDifficulty, string> = {
+  easy: 'Say plainly which checker you moved and where it landed.',
+  medium: 'Name the tactic: the point you made, the blot you hit, the builder you kept.',
+  hard: "Name the threat you are answering or the trap you are setting, in the opponent's terms.",
+}
+
 export interface AiPrompt {
   system: string
   user: string
@@ -107,10 +129,13 @@ export function buildSystemPrompt(player: PlayerColor, difficulty: AiDifficulty 
     'The position comes with a numbered list of legal moves already validated by the rules engine.',
     'Choose exactly one entry from that list. Never invent a move, a point or a die value.',
     '',
-    'Return ONLY a single JSON object, no prose, no explanation, no markdown fences. Either',
+    'Return ONLY a single JSON object, no prose around it, no markdown fences. Write the reason',
+    'first and then the move, so the sentence arrives before the choice:',
+    AI_REPLY_CONTRACT,
+    `The explanation is one sentence, under ${EXPLANATION_CHAR_BUDGET} characters, first person, and carries no`,
+    `double quotes inside it. ${EXPLANATION_HINTS[difficulty]}`,
+    'The move may be given in full instead as',
     AI_JSON_CONTRACT,
-    'or, more simply,',
-    '{"choice": <the move number from the list, 1-based>}',
   ].join('\n')
 }
 

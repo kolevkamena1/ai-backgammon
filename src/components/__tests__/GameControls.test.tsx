@@ -54,6 +54,7 @@ beforeEach(() => {
     history: [],
     selectedFrom: null,
     turnPassed: null,
+    aiThought: null,
   })
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -285,5 +286,64 @@ describe('click-to-move through the wired board', () => {
     expect(pointButton(13)).toBeTruthy()
     click(pointButton(13))
     expect(useGameStore.getState().selectedFrom).toBe(13)
+  })
+})
+
+describe('AI thought panel', () => {
+  const startMirror = (): void => {
+    expect(useGameStore.getState().startNewGame(aiVsAi, personal)).toBe(true)
+    useGameStore.setState({ aiMoveDelayMs: 0 })
+  }
+
+  const seed = (): void => {
+    startMirror()
+    useGameStore.setState({ board: { ...getInitialBoardState(), dice: [5], phase: 'playing' } })
+  }
+
+  it('says which seat said it', () => {
+    seed()
+    useGameStore.setState({ aiThought: { seat: 'dark', text: 'I block your 6-point.', phase: 'final' } })
+    act(() => root.render(<GameControls />))
+
+    expect(text()).toContain('Black says')
+    expect(text()).toContain('I block your 6-point.')
+    // The panel belongs to the seat that spoke, not the one to act: White is on roll here.
+    expect(text()).not.toContain('White says')
+  })
+
+  it('stays away when the engine gave no reason', () => {
+    seed()
+    act(() => root.render(<GameControls />))
+
+    expect(host.querySelector('[aria-label="AI reasoning"]')).toBeNull()
+    expect(text()).not.toContain('says')
+  })
+
+  it('marks itself busy while a sentence is still arriving', () => {
+    seed()
+    useGameStore.setState({ aiThought: { seat: 'light', text: 'I am building a prim', phase: 'streaming' } })
+    act(() => root.render(<GameControls />))
+
+    const live = host.querySelector('[aria-live="polite"]')
+    expect(live?.getAttribute('aria-busy')).toBe('true')
+    expect(text()).toContain('White is reasoning')
+    expect(text()).toContain('I am building a prim')
+  })
+
+  /** The panel's own dismiss control, found by label prefix because `aria()` matches exactly. */
+  const dismiss = (): HTMLElement | undefined =>
+    buttons().find((el) => (el.getAttribute('aria-label') ?? '').startsWith('Hide the engine'))
+
+  it('hides on dismiss without touching the board or the turn', () => {
+    seed()
+    const before = useGameStore.getState().board
+    useGameStore.setState({ aiThought: { seat: 'light', text: 'I hit your blot.', phase: 'final' } })
+    act(() => root.render(<GameControls />))
+
+    click(dismiss())
+    expect(useGameStore.getState().aiThought).toBeNull()
+    expect(text()).not.toContain('I hit your blot.')
+    expect(useGameStore.getState().board).toEqual(before)
+    expect(useGameStore.getState().board?.turn).toBe('light')
   })
 })
