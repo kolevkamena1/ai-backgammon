@@ -8,13 +8,17 @@ import { describe, expect, it } from 'vitest'
 /**
  * Live relay checks. Opt-in, because they need servers that a normal `npm run test` must not assume:
  *
- *   # 1. mock OpenAI-compatible provider   -> node mockprovider.mjs          (port 4111)
- *   # 2. dev relay                         -> npm run dev                    (port 5173)
- *   # 3. production relay                  -> npm run build && npx wrangler pages dev dist (8799)
- *   # then:
+ *   # 1. mock OpenAI-compatible provider   -> npm run mock:provider           (port 4111)
+ *   # 2. dev relay                         -> npm run dev                     (port 5173)
+ *   # 3. production relay                  -> npm run pages:local             (port 8788)
+ *   # then, from a fourth shell (bash syntax below; in PowerShell use $env:NAME = 'value'):
  *   AI_PROXY_E2E_ORIGIN=http://localhost:5173 \
- *   AI_PROXY_E2E_EDGE_ORIGIN=http://localhost:8799 \
+ *   AI_PROXY_E2E_EDGE_ORIGIN=http://localhost:8788 \
  *   npm run test -- src/utils/__tests__/aiProxy.e2e.test.ts
+ *
+ * Step 1 is `scripts/mockprovider.mjs`. Step 3 is `wrangler pages dev dist`, which mounts
+ * `functions/` and so answers with the production policy - that is what the last two cases check,
+ * and it is why they expect a private http target to be refused there while succeeding in dev.
  *
  * These are the only tests that exercise the real transport stack; everything else injects `fetch`.
  */

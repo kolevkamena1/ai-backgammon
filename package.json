@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview",
+    "mock:provider": "node scripts/mockprovider.mjs",
     "pages:deploy": "npm run build && wrangler pages deploy dist",
     "pages:local": "npm run build && wrangler pages dev dist"
   },
