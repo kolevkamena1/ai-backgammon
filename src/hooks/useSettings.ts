@@ -11,15 +11,16 @@ export function useSettings() {
   const apiKey = useSettingsStore((state) => state.apiKey)
   const model = useSettingsStore((state) => state.model)
   const baseUrl = useSettingsStore((state) => state.baseUrl)
+  const difficulty = useSettingsStore((state) => state.difficulty)
   const isSettingsOpen = useSettingsStore((state) => state.isSettingsOpen)
   const saveSettings = useSettingsStore((state) => state.saveSettings)
   const clearSettings = useSettingsStore((state) => state.clearSettings)
   const openSettings = useSettingsStore((state) => state.openSettings)
   const closeSettings = useSettingsStore((state) => state.closeSettings)
 
-  // baseUrl belongs here: SettingsModal seeds its draft from this object, so omitting it would
-  // silently reopen an empty field even though the value is stored.
-  const settings: AppSettings = { provider, apiKey, model, baseUrl }
+  // baseUrl and difficulty belong here: SettingsModal seeds its draft from this object, so omitting
+  // a field would silently reopen an empty or default control even though the value is stored.
+  const settings: AppSettings = { provider, apiKey, model, baseUrl, difficulty }
 
   return {
     settings,
@@ -27,6 +28,7 @@ export function useSettings() {
     apiKey,
     model,
     baseUrl,
+    difficulty,
     isSettingsOpen,
     /** Gates AI affordances until a key exists. */
     isConfigured: apiKey.trim().length > 0,

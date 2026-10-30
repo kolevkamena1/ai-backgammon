@@ -1,4 +1,5 @@
 import type { BoardState, Move, PlayerColor } from '@/types/game'
+import type { AiDifficulty } from '@/types/settings'
 import { HOME_BOARD, otherPlayer } from '@/utils/gameLogic'
 
 /**
@@ -21,6 +22,19 @@ export interface AiPrompt {
 
 const SEAT_NAME: Record<PlayerColor, string> = { light: 'White', dark: 'Black' }
 const POINTS_PER_ROW = 6
+
+/**
+ * The one lever that turns "any capable model" into a chosen playing strength, quoted verbatim so
+ * the three levels can be tuned without touching anything else. `hard` is the only level that asks
+ * for lookahead, and `utils/aiClient.ts` gives it a larger reply budget to match.
+ */
+export const DIFFICULTY_INSTRUCTIONS: Record<AiDifficulty, string> = {
+  easy: 'Play casually. Make standard moves without deep strategy.',
+  medium: 'Play strategically. Prioritize making points and hitting blots.',
+  // Double-quoted on purpose: the wording carries an apostrophe, and a single-quoted string would
+  // have to escape it twice over (here and in any copy of the text).
+  hard: "Play aggressively and defensively. Analyze the opponent's threats 2 moves ahead. Prioritize building primes and blocking the opponent's escape. Take calculated risks to win.",
+}
 
 /** `bar -> 19 using die 6`, `13 -> 8 using die 5`, `3 -> off (bear off) using die 3`. */
 export function describeMove(move: Move): string {
@@ -78,16 +92,20 @@ export function renderPosition(
   ].join('\n')
 }
 
-export function buildSystemPrompt(player: PlayerColor): string {
+/**
+ * The rules of the game plus the strength of play. `difficulty` defaults to the middle level so
+ * every existing caller (and every test) keeps working while the setup flow gains a selector.
+ */
+export function buildSystemPrompt(player: PlayerColor, difficulty: AiDifficulty = 'medium'): string {
   return [
     `You are a backgammon engine playing ${SEAT_NAME[player]}. Reply with exactly one move.`,
+    `Playing strength: ${difficulty}. ${DIFFICULTY_INSTRUCTIONS[difficulty]}`,
     'Numbering runs 1 to 24. Positive counts on a point are White checkers, negative are Black.',
     'A checker on the bar must be re-entered before anything else may move.',
     'Bearing off is written as "to": "off".',
     '',
     'The position comes with a numbered list of legal moves already validated by the rules engine.',
     'Choose exactly one entry from that list. Never invent a move, a point or a die value.',
-    'Prefer sound strategy: keep blots out of range, hit when it gains tempo, advance to your home board.',
     '',
     'Return ONLY a single JSON object, no prose, no explanation, no markdown fences. Either',
     AI_JSON_CONTRACT,
@@ -104,9 +122,10 @@ export function buildMovePrompt(
   board: BoardState,
   player: PlayerColor,
   legalMoves: readonly Move[],
+  difficulty: AiDifficulty = 'medium',
 ): AiPrompt {
   return {
-    system: buildSystemPrompt(player),
+    system: buildSystemPrompt(player, difficulty),
     user: `${renderPosition(board, player, legalMoves)}\n\nChoose one now. Reply with the JSON object only.`,
   }
 }

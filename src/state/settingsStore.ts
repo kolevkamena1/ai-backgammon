@@ -1,5 +1,6 @@
 import { createSafeStorage } from '@/state/createSafeStorage'
-import type { AiProvider, AppSettings } from '@/types/settings'
+import type { AiDifficulty, AiProvider, AppSettings } from '@/types/settings'
+import { DEFAULT_DIFFICULTY } from '@/utils/gameConfig'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
@@ -8,6 +9,7 @@ interface SettingsState extends AppSettings {
   isSettingsOpen: boolean
   setProvider: (provider: AiProvider) => void
   setApiKey: (apiKey: string) => void
+  setDifficulty: (difficulty: AiDifficulty) => void
   saveSettings: (settings: AppSettings) => void
   clearSettings: () => void
   openSettings: () => void
@@ -15,7 +17,7 @@ interface SettingsState extends AppSettings {
 }
 
 /** The exact subset mirrored to disk — actions and modal state never reach storage. */
-type PersistedSettings = Pick<SettingsState, 'provider' | 'apiKey' | 'model' | 'baseUrl'>
+type PersistedSettings = Pick<SettingsState, 'provider' | 'apiKey' | 'model' | 'baseUrl' | 'difficulty'>
 
 /** Shown when nothing has been saved yet — the AI engine stays disabled with an empty key. */
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -23,13 +25,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   apiKey: '',
   model: '',
   baseUrl: '',
+  difficulty: DEFAULT_DIFFICULTY,
 }
 
 /**
  * localStorage key. Only bump `version` for an INCOMPATIBLE shape change, and pair it with
  * `migrate`: a version mismatch with no migrate makes Zustand discard the stored payload,
- * silently wiping the saved key. Adding an optional field (like `baseUrl`) needs no bump —
- * the default shallow merge fills it from DEFAULT_SETTINGS.
+ * silently wiping the saved key. Adding an optional field (like `baseUrl`, or `difficulty`)
+ * needs no bump — the default shallow merge fills it from DEFAULT_SETTINGS.
  */
 export const SETTINGS_STORAGE_KEY = 'ai-backgammon:settings'
 
@@ -40,8 +43,9 @@ export const useSettingsStore = create<SettingsState>()(
       isSettingsOpen: false,
       setProvider: (provider) => set({ provider }),
       setApiKey: (apiKey) => set({ apiKey }),
-      saveSettings: ({ provider, apiKey, model, baseUrl }) =>
-        set({ provider, apiKey, model, baseUrl, isSettingsOpen: false }),
+      setDifficulty: (difficulty) => set({ difficulty }),
+      saveSettings: ({ provider, apiKey, model, baseUrl, difficulty }) =>
+        set({ provider, apiKey, model, baseUrl, difficulty, isSettingsOpen: false }),
       clearSettings: () => set({ ...DEFAULT_SETTINGS, isSettingsOpen: false }),
       openSettings: () => set({ isSettingsOpen: true }),
       closeSettings: () => set({ isSettingsOpen: false }),
@@ -55,6 +59,7 @@ export const useSettingsStore = create<SettingsState>()(
         apiKey: state.apiKey,
         model: state.model,
         baseUrl: state.baseUrl,
+        difficulty: state.difficulty,
       }),
     },
   ),

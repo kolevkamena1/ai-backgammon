@@ -3,7 +3,7 @@ import type { SeatAssignment } from '@/types/gameConfig'
 import { BUTTON } from '@/components/ui/controls'
 import { useGame } from '@/hooks/useGame'
 import { useSettings } from '@/hooks/useSettings'
-import { describeEngine } from '@/utils/gameConfig'
+import { describeEngine, DIFFICULTY_LABELS } from '@/utils/gameConfig'
 import { cn } from '@/utils/cn'
 import { Dices, RefreshCw, RotateCcw, TriangleAlert, X } from 'lucide-react'
 import Checker from './Checker'
@@ -42,7 +42,9 @@ function seatSummary(seat: SeatAssignment): string {
   }
 
   const engine = describeEngine(seat.engine)
-  return `${seat.label} · ${engine.providerName}${engine.model ? ` · ${engine.model}` : ''}`
+  // The level belongs in the line the player reads while the engine works: the same provider and
+  // model play very differently at Easy and at Hard, and nothing else on screen says which was picked.
+  return `${seat.label} · ${engine.providerName}${engine.model ? ` · ${engine.model}` : ''} · ${DIFFICULTY_LABELS[engine.difficulty]}`
 }
 
 /**

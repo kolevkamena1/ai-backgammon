@@ -686,3 +686,56 @@ describe('timeout budgets across the layers', () => {
     expect(AI_TIMEOUT_MS).toBeGreaterThanOrEqual(60_000)
   })
 })
+
+describe('difficulty', () => {
+  it('gives hard a bigger reply budget than the other levels', async () => {
+    const medium = await ask()
+    const hard = await ask({ difficulty: 'hard' })
+
+    expect((innerBody(medium.calls[0]) as Record<string, unknown>).max_tokens).toBe(2048)
+    // Pinned as a literal, as 2048 is: this is the number that decides whether a long answer is cut
+    // off mid-JSON, and a silent drop back to 2048 would look like a provider bug.
+    expect((innerBody(hard.calls[0]) as Record<string, unknown>).max_tokens).toBe(4096)
+  })
+
+  it('keeps medium and hard deterministic and lets easy misfire', async () => {
+    const easy = await ask({ difficulty: 'easy' })
+    const hard = await ask({ difficulty: 'hard' })
+
+    expect((innerBody(easy.calls[0]) as Record<string, unknown>).temperature).toBe(0.8)
+    expect((innerBody(hard.calls[0]) as Record<string, unknown>).temperature).toBe(0)
+  })
+
+  it('names the playing strength in the system prompt', async () => {
+    const { calls } = await ask({ difficulty: 'hard' })
+    const body = innerBody(calls[0]) as { messages: Array<{ role: string; content: string }> }
+    const system = body.messages[0].content
+
+    expect(system).toContain('Playing strength: hard')
+    expect(system).toContain("Analyze the opponent's threats 2 moves ahead")
+  })
+
+  it('never re-enables thinking at hard, which is what made a turn hang', async () => {
+    const { calls } = await ask({
+      provider: 'custom',
+      baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+      model: 'qwen-plus',
+      difficulty: 'hard',
+    })
+
+    expect((innerBody(calls[0]) as Record<string, unknown>).enable_thinking).toBe(false)
+  })
+
+  it('treats a stored config without a difficulty as medium', async () => {
+    // A payload written before this field existed has no key at all; the request must look exactly
+    // like the current default rather than falling through to a level nobody chose.
+    const legacy = { provider: 'openai', apiKey: KEY, model: '', baseUrl: '' } as AiEngineConfig
+    const spy = recorder(() => fakeResponse({ body: chatReply('{"choice": 1}') }))
+    await getAiMove(legacy, PLAYING, 'light', { fetchImpl: spy.fetchImpl })
+
+    const body = innerBody(spy.calls[0]) as Record<string, unknown>
+    expect(body.max_tokens).toBe(2048)
+    expect(body.temperature).toBe(0)
+    expect((body.messages as Array<{ content: string }>)[0].content).toContain('Playing strength: medium')
+  })
+})

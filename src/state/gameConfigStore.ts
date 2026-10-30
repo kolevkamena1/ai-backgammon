@@ -1,6 +1,7 @@
 import { createSafeStorage } from '@/state/createSafeStorage'
 import type { AiMatchType, GameConfigSnapshot, GameMode } from '@/types/gameConfig'
 import type { AiEngineConfig } from '@/types/settings'
+import { DEFAULT_DIFFICULTY } from '@/utils/gameConfig'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
@@ -22,6 +23,7 @@ export const DEFAULT_OPPONENT_CONFIG: AiEngineConfig = {
   apiKey: '',
   model: '',
   baseUrl: '',
+  difficulty: DEFAULT_DIFFICULTY,
 }
 
 /**

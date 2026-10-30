@@ -1,9 +1,13 @@
-import type { GameConfigSnapshot } from '@/types/gameConfig'
+import type { GameConfigSnapshot, SeatAssignment } from '@/types/gameConfig'
 import type { AiEngineConfig } from '@/types/settings'
 import {
+  AI_DIFFICULTIES,
+  DEFAULT_DIFFICULTY,
   SEAT_LABELS,
   describeEngine,
   describeMode,
+  difficultyOf,
+  parseDifficulty,
   planSeats,
   seatProblems,
   validateEngine,
@@ -76,6 +80,51 @@ describe('describeMode', () => {
     expect(describeMode(snapshot())).toBe('Human vs AI')
     expect(describeMode(snapshot({ mode: 'aiVsAi', aiMatchType: 'mirror' }))).toBe('AI vs AI · Mirror')
     expect(describeMode(snapshot({ mode: 'aiVsAi', aiMatchType: 'custom' }))).toBe('AI vs AI · Custom')
+  })
+})
+
+describe('difficulty', () => {
+  it('defaults a config that predates the field instead of reporting nothing', () => {
+    expect(difficultyOf(engine())).toBe(DEFAULT_DIFFICULTY)
+    expect(describeEngine(engine()).difficulty).toBe('medium')
+    expect(difficultyOf(engine({ difficulty: 'hard' }))).toBe('hard')
+  })
+
+  it('offers exactly the three levels the prompt knows about, in order', () => {
+    expect(AI_DIFFICULTIES.map((entry) => entry.value)).toEqual(['easy', 'medium', 'hard'])
+    // Every entry needs the text a player picks it for; a blank blurb would render an empty hint.
+    for (const entry of AI_DIFFICULTIES) {
+      expect(entry.label.length).toBeGreaterThan(0)
+      expect(entry.blurb.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('narrows a raw select value back to a level, keeping the current one if it is nonsense', () => {
+    expect(parseDifficulty('easy', 'medium')).toBe('easy')
+    expect(parseDifficulty('hard', 'easy')).toBe('hard')
+    // A <select> can only emit these three today, but the fallback is what keeps a stray value from
+    // reaching the prompt as `Playing strength: undefined`.
+    expect(parseDifficulty('insane', 'medium')).toBe('medium')
+    expect(parseDifficulty('', 'hard')).toBe('hard')
+  })
+
+  it('snapshots the level with the seat, so a mid-game Settings edit cannot retune a match', () => {
+    const engineOf = (seat: SeatAssignment): AiEngineConfig | null =>
+      seat.kind === 'ai' ? seat.engine : null
+
+    const personal = engine({ difficulty: 'hard' })
+    const mirror = planSeats(personal, snapshot({ mode: 'aiVsAi', aiMatchType: 'mirror' }))
+    const light = engineOf(mirror.light)
+    const dark = engineOf(mirror.dark)
+
+    expect(light !== null && difficultyOf(light)).toBe('hard')
+    // A mirror match hands the SAME object to both seats, so both must play the same level.
+    expect(dark !== null && difficultyOf(dark)).toBe('hard')
+
+    const custom = planSeats(personal, snapshot({ mode: 'aiVsAi', aiMatchType: 'custom' }))
+    const opponent = engineOf(custom.dark)
+    // The opponent carries its own level: the personal Hard must not bleed into the second seat.
+    expect(opponent !== null && difficultyOf(opponent)).toBe('medium')
   })
 })
 

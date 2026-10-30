@@ -43,6 +43,40 @@ describe('buildSystemPrompt', () => {
   })
 })
 
+describe('difficulty', () => {
+  it('quotes the chosen level verbatim, and only that level', () => {
+    const easy = buildSystemPrompt('light', 'easy')
+    const medium = buildSystemPrompt('light', 'medium')
+    const hard = buildSystemPrompt('light', 'hard')
+
+    expect(easy).toContain('Play casually. Make standard moves without deep strategy.')
+    expect(medium).toContain('Play strategically. Prioritize making points and hitting blots.')
+    expect(hard).toContain("Analyze the opponent's threats 2 moves ahead")
+
+    // The levels must not bleed into each other: an Easy prompt that still asks for prime-building
+    // would play nothing like the option the user picked.
+    expect(easy).not.toContain('2 moves ahead')
+    expect(easy).not.toContain('Play strategically')
+    expect(medium).not.toContain('Play casually')
+    expect(hard).not.toContain('Play casually')
+  })
+
+  it('defaults to medium when a caller passes no level', () => {
+    // Configs stored before the field existed reach here with `difficulty` undefined, so the
+    // no-argument call is the real path, not a convenience.
+    expect(buildSystemPrompt('light')).toBe(buildSystemPrompt('light', 'medium'))
+  })
+
+  it('keeps the rules and the menu contract at every level', () => {
+    for (const difficulty of ['easy', 'medium', 'hard'] as const) {
+      const prompt = buildSystemPrompt('light', difficulty)
+      expect(prompt).toContain('already validated by the rules engine')
+      expect(prompt).toContain('Never invent a move')
+      expect(prompt).toContain(AI_JSON_CONTRACT)
+    }
+  })
+})
+
 describe('renderPoints', () => {
   it('describes all 24 points, six per row, with signs', () => {
     const text = renderPoints(OPENING)

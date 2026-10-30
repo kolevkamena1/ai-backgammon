@@ -1,10 +1,10 @@
 import type { AiCallOptions, AiErrorCode, AiMoveFailure, AiRequestInit, AiResponse, AiResult, FetchLike } from '@/types/ai'
 import type { BoardState, DieFace, Move, MoveSource, MoveTarget, PlayerColor } from '@/types/game'
-import type { AiEngineConfig, AiProvider } from '@/types/settings'
+import type { AiDifficulty, AiEngineConfig, AiProvider } from '@/types/settings'
 import { logger } from '@/lib/logger'
 import { buildMovePrompt } from '@/utils/aiPrompt'
 import { POINT_COUNT, getLegalMoves } from '@/utils/gameLogic'
-import { validateEngine } from '@/utils/gameConfig'
+import { difficultyOf, validateEngine } from '@/utils/gameConfig'
 
 /**
  * The inference transport. Provider-agnostic entry point `getAiMove()` routes to one handler per
@@ -43,6 +43,27 @@ export const AI_TIMEOUT_MS = 60_000
 // The reply this app actually needs is a short JSON object, so the number is headroom for the model
 // to finish, never a target it is expected to approach.
 export const AI_MAX_TOKENS = 2048
+// Hard asks for two-move lookahead and a written reason for the choice, which is more text than a
+// bare move. Thinking stays off at every level (see `chatBody`), so this cap only has to cover the
+// reply itself — it is headroom, not a target.
+export const AI_MAX_TOKENS_HARD = 4096
+/**
+ * Sampling heat per level. Medium and Hard stay deterministic at 0, which is what the app has always
+ * done; Easy is deliberately loose, because a capable model told to "play casually" and sampled at
+ * temperature 0 will still play near-optimally — the words would change nothing.
+ */
+export const AI_TEMPERATURE: Record<AiDifficulty, number> = {
+  easy: 0.8,
+  medium: 0,
+  hard: 0,
+}
+/** Reply budget for one level, so the cap and the temperature are chosen from the same place. */
+export function budgetFor(difficulty: AiDifficulty): { maxTokens: number; temperature: number } {
+  return {
+    maxTokens: difficulty === 'hard' ? AI_MAX_TOKENS_HARD : AI_MAX_TOKENS,
+    temperature: AI_TEMPERATURE[difficulty],
+  }
+}
 export const AI_MOVE_DELAY_MS = 400
 export const AI_TRANSIENT_RETRIES = 1
 export const AI_RETRY_BASE_MS = 800
@@ -405,6 +426,10 @@ export interface MoveContext {
   fetchImpl: FetchLike
   timedOut: () => boolean
   legal: readonly Move[]
+  /** Resolved from `AiEngineConfig.difficulty` by `getAiMove`, never optional below this line. */
+  difficulty: AiDifficulty
+  maxTokens: number
+  temperature: number
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -436,8 +461,8 @@ function chatBody(ctx: MoveContext, jsonMode: boolean, thinkingOff: boolean): Re
       { role: 'system', content: ctx.system },
       { role: 'user', content: ctx.user },
     ],
-    temperature: 0,
-    max_tokens: AI_MAX_TOKENS,
+    temperature: ctx.temperature,
+    max_tokens: ctx.maxTokens,
   }
 
   if (jsonMode) {
@@ -447,6 +472,9 @@ function chatBody(ctx: MoveContext, jsonMode: boolean, thinkingOff: boolean): Re
   // `enable_thinking` is not a standard OpenAI parameter - DashScope documents it as a top-level
   // body field that an OpenAI SDK has to smuggle through `extra_body`. Strict gateways answer 400
   // for fields they do not know, which is exactly why it is sent only where it is defined.
+  // It is `false` at every difficulty, including hard: enabling thinking was measured to spend tens
+  // of seconds on `reasoning_content` before a move appeared, and Hard gets its extra strength from
+  // the prompt and a larger reply budget instead (`DIFFICULTY_INSTRUCTIONS`, `budgetFor`).
   if (thinkingOff) {
     body.enable_thinking = false
   }
@@ -578,8 +606,8 @@ export function fetchAnthropicMove(ctx: MoveContext): Promise<AiResult> {
         model: ctx.model,
         system: ctx.system,
         messages: [{ role: 'user', content: ctx.user }],
-        max_tokens: AI_MAX_TOKENS,
-        temperature: 0,
+        max_tokens: ctx.maxTokens,
+        temperature: ctx.temperature,
       },
       extract: extractAnthropicText,
     },
@@ -596,8 +624,8 @@ export function fetchGoogleMove(ctx: MoveContext): Promise<AiResult> {
         systemInstruction: { parts: [{ text: ctx.system }] },
         contents: [{ role: 'user', parts: [{ text: ctx.user }] }],
         generationConfig: {
-          temperature: 0,
-          maxOutputTokens: AI_MAX_TOKENS,
+          temperature: ctx.temperature,
+          maxOutputTokens: ctx.maxTokens,
           responseMimeType: 'application/json',
         },
       },
@@ -705,7 +733,9 @@ export async function getAiMove(
   }
 
   const timeoutMs = options.timeoutMs ?? AI_TIMEOUT_MS
-  const prompt = buildMovePrompt(board, player, legal)
+  const difficulty = difficultyOf(config)
+  const { maxTokens, temperature } = budgetFor(difficulty)
+  const prompt = buildMovePrompt(board, player, legal, difficulty)
   let timedOut = false
   const controller = new AbortController()
   const timer = setTimeout(() => {
@@ -725,9 +755,18 @@ export async function getAiMove(
     fetchImpl: options.fetchImpl ?? defaultFetch,
     timedOut: () => timedOut,
     legal,
+    difficulty,
+    maxTokens,
+    temperature,
   }
 
-  logger.debug('ai move requested', { provider: config.provider, model, menu: legal.length })
+  logger.debug('ai move requested', {
+    provider: config.provider,
+    model,
+    difficulty,
+    maxTokens: String(maxTokens),
+    menu: legal.length,
+  })
 
   try {
     return await withTransientRetry(

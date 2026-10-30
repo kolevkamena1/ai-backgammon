@@ -1,6 +1,6 @@
 import type { PlayerColor } from '@/types/game'
 import type { GameConfigSnapshot, SeatAssignment, SeatPlan } from '@/types/gameConfig'
-import type { AiEngineConfig, AiProvider } from '@/types/settings'
+import type { AiDifficulty, AiEngineConfig, AiProvider } from '@/types/settings'
 import { maskSecret } from '@/utils/formatSecret'
 
 /**
@@ -10,6 +10,37 @@ import { maskSecret } from '@/utils/formatSecret'
 export const SEAT_LABELS: Record<PlayerColor, string> = {
   light: 'White',
   dark: 'Black',
+}
+
+/** The level a seat plays at when its stored config predates the difficulty field. */
+export const DEFAULT_DIFFICULTY: AiDifficulty = 'medium'
+
+/** Display names, capitalised for UI text. The domain value stays lower-case for the prompt. */
+export const DIFFICULTY_LABELS: Record<AiDifficulty, string> = {
+  easy: 'Easy',
+  medium: 'Medium',
+  hard: 'Hard',
+}
+
+/**
+ * The selector's vocabulary in one place: `ByokFields` builds its options from this, and the prompt
+ * strength line (`utils/aiPrompt.ts`) is what the label promises, so the two cannot drift apart.
+ */
+export const AI_DIFFICULTIES: ReadonlyArray<{ value: AiDifficulty; label: string; blurb: string }> = [
+  { value: 'easy', label: DIFFICULTY_LABELS.easy, blurb: 'Casual play, loose enough to misfire.' },
+  { value: 'medium', label: DIFFICULTY_LABELS.medium, blurb: 'Sound strategy: points made, blots hit.' },
+  { value: 'hard', label: DIFFICULTY_LABELS.hard, blurb: 'Primes, blocking and risk, with a bigger reply budget.' },
+]
+
+/** Reading `difficulty` is always through this, so the fallback exists in exactly one place. */
+export function difficultyOf(engine: AiEngineConfig): AiDifficulty {
+  return engine.difficulty ?? DEFAULT_DIFFICULTY
+}
+
+/** The <select> yields a plain string, so narrow it back, keeping the current value if odd. */
+export function parseDifficulty(value: string, fallback: AiDifficulty): AiDifficulty {
+  const match = AI_DIFFICULTIES.find((entry) => entry.value === value)
+  return match ? match.value : fallback
 }
 
 const PROVIDER_NAMES: Record<AiProvider, string> = {
@@ -40,6 +71,8 @@ export interface EngineSummary {
   endpoint: string
   maskedKey: string
   configured: boolean
+  /** Never `undefined`: a pre-Phase-4 config reports the default level rather than a blank. */
+  difficulty: AiDifficulty
 }
 
 export function describeEngine(engine: AiEngineConfig): EngineSummary {
@@ -49,6 +82,7 @@ export function describeEngine(engine: AiEngineConfig): EngineSummary {
     endpoint: (engine.baseUrl ?? '').trim(),
     maskedKey: maskSecret(engine.apiKey),
     configured: validateEngine(engine).length === 0,
+    difficulty: difficultyOf(engine),
   }
 }
 

@@ -113,6 +113,31 @@ fences, prose around the JSON, stringified numbers, or `{"choice": n}` instead o
 the parser returns a move **only if it appears in that menu**. Whatever a model hallucinates, it
 cannot reach `applyMove`.
 
+### Playing strength
+
+`AiEngineConfig.difficulty` is `'easy' | 'medium' | 'hard'`, chosen per seat in the Settings modal and
+in the Custom-opponent block of the setup modal (both render `ByokFields`). It is carried on the engine
+config rather than a UI setting so that it snapshots with the seat: editing Settings mid-game must not
+retune a match that is already running, and a Custom match may put two different levels on the board.
+
+| Level | System-prompt instruction (`DIFFICULTY_INSTRUCTIONS`) | Reply budget | Temperature |
+| --- | --- | --- | --- |
+| Easy | play casually, standard moves, no deep strategy | 2048 | 0.8 |
+| Medium | play strategically: make points, hit blots | 2048 | 0 |
+| Hard | attack and defend, read the opponent 2 moves ahead, build primes, block the escape, take calculated risks | 4096 | 0 |
+
+Thinking (`enable_thinking`) stays **off at every level**. Enabling it on Qwen3 was measured spending
+tens of seconds on `reasoning_content` before a move appeared, which is the hang Phase 3.1 removed;
+Hard therefore gets its extra strength from the prompt and a larger reply budget, not from a longer
+wall-clock. Medium and Hard keep `temperature: 0` because a deterministic engine is what the app has
+always been; Easy is the one level that samples, because a capable model told to "play casually" at
+temperature 0 still plays near-optimally and the words would change nothing.
+
+A stored config from before this field has no `difficulty` key at all. `difficultyOf()` supplies
+`medium` and it is read through that one function everywhere, so no branch has to restate the default
+— and the settings store's persist `version` stays at 1, because an optional field is a compatible
+change (see *BYOK configuration and security*).
+
 ### Providers
 
 | Provider | Endpoint | Auth | Default model |
@@ -122,7 +147,8 @@ cannot reach `applyMove`.
 | Google | `.../v1beta/models/<model>:generateContent` | `x-goog-api-key` | `gemini-2.0-flash` |
 | Custom | `<baseUrl>/chat/completions` (`/v1` appended when absent) | `Authorization: Bearer` | none — you must set one |
 
-Requests use `temperature: 0` and a 2048-token output cap (`AI_MAX_TOKENS`) — deliberately generous,
+Requests use `temperature: 0` except at Easy (0.8, so it genuinely misfires) and a 2048-token output
+cap (`AI_MAX_TOKENS`; Hard gets 4096) — deliberately generous,
 because a reasoning model bills its `reasoning_content` against that same budget and 220 tokens could
 be consumed entirely by thinking before any move was emitted. `response_format: json_object` goes to
 OpenAI and Google but **not** to custom gateways, which often reject the field, and
@@ -368,7 +394,8 @@ and `tsconfig.app.json` (`compilerOptions.paths`) so Vite and `tsc -b` agree.
 
 ## BYOK configuration and security
 
-* Two `localStorage` entries: **`ai-backgammon:settings`** (your provider/key/model/base URL) and
+* Two `localStorage` entries: **`ai-backgammon:settings`** (your provider, key, model, base URL and
+  difficulty) and
   **`ai-backgammon:game-config`** (mode, match type and the opponent's key/model/base URL). Both
   are written by Zustand's `persist` middleware, and both use `partialize` so modal visibility
   and store actions never reach disk.

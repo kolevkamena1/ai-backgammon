@@ -9,7 +9,7 @@ import { logger } from '@/lib/logger'
 import { DEFAULT_OPPONENT_CONFIG } from '@/state/gameConfigStore'
 import type { AiMatchType, GameMode, SeatAssignment } from '@/types/gameConfig'
 import { cn } from '@/utils/cn'
-import { planSeats, SEAT_LABELS, describeEngine, seatProblems, validateEngine } from '@/utils/gameConfig'
+import { planSeats, SEAT_LABELS, describeEngine, DIFFICULTY_LABELS, seatProblems, validateEngine } from '@/utils/gameConfig'
 import { Bot, Check, Swords, User } from 'lucide-react'
 import { useState, type ComponentType, type FormEvent, type SVGProps } from 'react'
 
@@ -78,7 +78,12 @@ const SeatCard = ({ seat }: { seat: SeatAssignment }) => {
         <p className="mt-1.5 text-sm text-slate-100">You</p>
       ) : (
         <div className="mt-1.5 space-y-0.5">
-          <p className="text-sm text-slate-100">{describeEngine(seat.engine).providerName}</p>
+          <p className="text-sm text-slate-100">
+            {describeEngine(seat.engine).providerName}
+            <span className="ml-1.5 text-xs text-slate-400">
+              {DIFFICULTY_LABELS[describeEngine(seat.engine).difficulty]}
+            </span>
+          </p>
           {seat.kind === 'ai' && describeEngine(seat.engine).model ? (
             <p className="font-mono text-xs text-slate-400">{describeEngine(seat.engine).model}</p>
           ) : null}

@@ -1,5 +1,6 @@
 import { FIELD, HINT, LABEL } from '@/components/ui/controls'
-import type { AiEngineConfig, AiProvider } from '@/types/settings'
+import type { AiDifficulty, AiEngineConfig, AiProvider } from '@/types/settings'
+import { AI_DIFFICULTIES, DEFAULT_DIFFICULTY, parseDifficulty } from '@/utils/gameConfig'
 import { cn } from '@/utils/cn'
 import { Eye, EyeOff } from 'lucide-react'
 import { useState } from 'react'
@@ -38,8 +39,10 @@ function parseProvider(value: string, fallback: AiProvider): AiProvider {
 }
 
 /**
- * The four BYOK inputs — provider, API key, model, and the Base URL that only appears for
- * `custom`. Fully controlled: no persistence, no notices, no buttons (the host owns those).
+ * The BYOK inputs — provider, playing strength, API key, model, and the Base URL that only appears
+ * for `custom`. Fully controlled: no persistence, no notices, no buttons (the host owns those).
+ * Shared by Settings and the Custom-opponent block of the setup modal, which is why a seat's
+ * difficulty is carried on `AiEngineConfig` instead of in a UI-only setting.
  */
 const ByokFields = ({
   idPrefix,
@@ -52,6 +55,12 @@ const ByokFields = ({
   const [revealKey, setRevealKey] = useState(false)
   const hasStoredKey = Boolean(storedTail)
   const id = (name: string): string => `${idPrefix}-${name}`
+
+  // Read through a default so an engine saved before this field existed still renders a real option
+  // instead of falling back to the browser's first one and quietly changing the level.
+  const difficulty: AiDifficulty = value.difficulty ?? DEFAULT_DIFFICULTY
+  const difficultyBlurb =
+    AI_DIFFICULTIES.find((entry) => entry.value === difficulty)?.blurb ?? ''
 
   return (
     <>
@@ -73,6 +82,27 @@ const ByokFields = ({
             </option>
           ))}
         </select>
+      </div>
+
+      <div>
+        <label htmlFor={id('difficulty')} className={LABEL}>
+          AI difficulty
+        </label>
+        <select
+          id={id('difficulty')}
+          className={FIELD}
+          value={difficulty}
+          onChange={(event) =>
+            onChange({ difficulty: parseDifficulty(event.target.value, difficulty) })
+          }
+        >
+          {AI_DIFFICULTIES.map((entry) => (
+            <option key={entry.value} value={entry.value}>
+              {entry.label}
+            </option>
+          ))}
+        </select>
+        <p className={HINT}>{difficultyBlurb}</p>
       </div>
 
       <div>

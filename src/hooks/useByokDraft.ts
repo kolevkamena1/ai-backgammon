@@ -1,4 +1,5 @@
 import type { AiEngineConfig } from '@/types/settings'
+import { DEFAULT_DIFFICULTY } from '@/utils/gameConfig'
 import { useCallback, useState } from 'react'
 
 /**
@@ -23,6 +24,9 @@ export function useByokDraft(initial: AiEngineConfig) {
       apiKey: draft.apiKey.trim(),
       model: draft.model.trim(),
       baseUrl: draft.baseUrl?.trim() ?? '',
+      // Resolved here so a stored payload never carries `undefined`: a draft seeded from a config
+      // written before the field existed commits the default level rather than a hole.
+      difficulty: draft.difficulty ?? DEFAULT_DIFFICULTY,
     }),
     [draft],
   )
