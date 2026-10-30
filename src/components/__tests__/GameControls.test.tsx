@@ -185,6 +185,20 @@ describe('AI turn feedback', () => {
     expect(text()).not.toContain('Invalid API key')
   })
 
+  it('routes a relay refusal to Settings too, since only the Base URL can fix it', () => {
+    startMirror()
+    useGameStore.setState({
+      lastAiError: {
+        code: 'proxy-blocked',
+        message: 'The AI proxy blocked this endpoint. Check the Base URL in Settings.',
+      },
+    })
+    act(() => root.render(<GameControls />))
+
+    expect(text()).toContain('The AI proxy blocked this endpoint')
+    expect(labelled('Open Settings')).toBeTruthy()
+  })
+
   it('re-requests a move from the Retry button', async () => {
     startMirror()
     useGameStore.setState({

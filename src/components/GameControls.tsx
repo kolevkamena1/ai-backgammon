@@ -18,13 +18,16 @@ const PRIMARY = cn(BUTTON, 'bg-sky-600 text-white hover:bg-sky-500')
 const SECONDARY = cn(BUTTON, 'border border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700')
 const GHOST = cn(BUTTON, 'px-2 py-1 text-xs text-slate-300 hover:bg-slate-800')
 
-/** Codes that mean "your credentials are wrong", so the banner can point at Settings. */
-const CREDENTIAL_CODES: ReadonlySet<string> = new Set([
+/** Codes that only Settings can fix, so the banner offers the Settings button next to Retry. */
+const SETTINGS_CODES: ReadonlySet<string> = new Set([
   'unauthorized',
   'forbidden',
   'missing-key',
   'missing-endpoint',
   'missing-model',
+  // The relay refused the target, so what needs editing is the Base URL - and retrying cannot help,
+  // which is exactly why the client does not retry this code either (see `isTransient`).
+  'proxy-blocked',
 ])
 
 /** Why a turn ended without a move, in the player's words. */
@@ -154,7 +157,7 @@ const GameControls = () => {
             {seatName} move failed: {lastAiError.message}
           </p>
           <div className="flex items-center gap-1">
-            {CREDENTIAL_CODES.has(lastAiError.code) ? (
+            {SETTINGS_CODES.has(lastAiError.code) ? (
               <button type="button" onClick={openSettings} className={GHOST}>
                 Open Settings
               </button>
