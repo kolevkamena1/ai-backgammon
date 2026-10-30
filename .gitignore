@@ -22,8 +22,10 @@ dist-ssr
 .wrangler/
 coverage/
 
-# Cloudflare local secrets (never commit; BYOK keys belong in localStorage, not here)
-.dev.vars
+# Cloudflare local dev vars, including wrangler's per-environment variants (.dev.vars.production).
+# Never commit; BYOK keys belong in localStorage, not here.
+.dev.vars*
+!.dev.vars.example
 
 # Editor directories and files
 .vscode/*
