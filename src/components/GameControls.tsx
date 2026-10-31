@@ -130,7 +130,10 @@ const GameControls = () => {
         ) : null}
       </div>
 
-      {isAiThinking ? (
+      {/* Live feedback that the engine is thinking, for the seat that is waiting. Superseded by the
+          thought panel as soon as streamed text exists, so the player never reads the same status
+          twice: the panel says more, and says it earlier. */}
+      {isAiThinking && aiThought === null ? (
         <p className="flex items-center gap-2 text-sm text-sky-300" aria-live="polite">
           <span className="relative flex size-2.5" aria-hidden>
             <span className="absolute inline-flex size-full animate-ping rounded-full bg-sky-400 opacity-75" />

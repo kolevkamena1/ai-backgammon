@@ -3,6 +3,8 @@ import type { AiEngineConfig } from '@/types/settings'
 import type { BoardState, PlayerColor } from '@/types/game'
 import {
   AI_PROXY_PATH,
+  AI_STREAM_IDLE_MS,
+  AI_STREAM_TOTAL_MS,
   AI_TIMEOUT_MS,
   DEFAULT_MODELS,
   extractJsonObject,
@@ -11,6 +13,7 @@ import {
   mapHttpError,
   normalizeBaseUrl,
   parseAiMove,
+  supportsStreaming,
 } from '@/utils/aiClient'
 // The policies live outside `src` deliberately, but the ordering of the two timeout budgets is a
 // contract between the layers, so it is asserted here rather than only restated in a comment.
@@ -43,6 +46,7 @@ interface ProxyEnvelope {
   targetUrl: string
   headers: Record<string, string>
   body: string
+  stream?: boolean
 }
 
 const envelopeOf = (call: Recorded): ProxyEnvelope => JSON.parse(call.init.body) as ProxyEnvelope
@@ -54,13 +58,44 @@ function fakeResponse(input: {
   body?: unknown
   headers?: Record<string, string>
   notJson?: boolean
+  /** Frames of an SSE body. Presence is what makes this response a stream, exactly like a real one. */
+  sse?: string[]
+  /** Throw on the second read: what an abort or a dead connection looks like from the inside. */
+  sseBreaksAfter?: number
 }): AiResponse {
   const status = input.status ?? 200
+  const headers: Record<string, string> = {
+    ...(input.sse !== undefined ? { 'content-type': 'text/event-stream' } : {}),
+    ...input.headers,
+  }
+  let reads = 0
 
   return {
     ok: status < 400,
     status,
-    headers: { get: (name: string) => input.headers?.[name.toLowerCase()] ?? null },
+    headers: { get: (name: string) => headers[name.toLowerCase()] ?? null },
+    body:
+      input.sse === undefined
+        ? undefined
+        : {
+            getReader: () => ({
+              async read() {
+                reads += 1
+                // Counted before the chunk lookup, so a break can happen after the last frame rather
+                // than being swallowed by the clean end of the stream.
+                if (input.sseBreaksAfter !== undefined && reads > input.sseBreaksAfter) {
+                  throw new DOMException('The user aborted a request.', 'AbortError')
+                }
+                const chunk = input.sse?.[reads - 1]
+
+                if (chunk === undefined) {
+                  return { done: true as const }
+                }
+                return { done: false as const, value: new TextEncoder().encode(chunk) }
+              },
+              cancel: async () => undefined,
+            }),
+          },
     json: async () => {
       if (input.notJson || input.body === undefined) {
         throw new Error('body not json')
@@ -795,5 +830,162 @@ describe('difficulty', () => {
     expect(body.max_tokens).toBe(2048)
     expect(body.temperature).toBe(0)
     expect((body.messages as Array<{ content: string }>)[0].content).toContain('Playing strength: medium')
+  })
+})
+
+describe('streaming', () => {
+  /** The reply the app asks for, arriving in the pieces a real tokenizer sends. */
+  const replyPieces = ['{"exp', 'lanation": "I hit', ' your blot.", "cho', 'ice": 2}']
+  const sseOf = (pieces: string[]): string[] => [
+    ...pieces.map((piece) =>
+      `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: piece }, finish_reason: null }] })}\n\n`,
+    ),
+    'data: [DONE]\n\n',
+  ]
+  const sse = sseOf(replyPieces)
+
+  it('asks an OpenAI-compatible provider for SSE only when somebody is listening', async () => {
+    const watched = await ask({}, PLAYING, 'light', () => fakeResponse({ sse }), {
+      onDelta: () => undefined,
+    })
+    const silent = await ask({}, PLAYING, 'light', () => fakeResponse({ body: chatReply('{"choice": 1}') }))
+
+    expect(envelopeOf(watched.calls[0]).stream).toBe(true)
+    const body = innerBody(watched.calls[0]) as Record<string, unknown>
+    expect(body.stream).toBe(true)
+    expect(body.stream_options).toEqual({ include_usage: true })
+
+    // No listener, no change: the request stays byte-for-byte the one the app has always sent, so the
+    // buffered path cannot be broken by anything added for this feature.
+    expect(envelopeOf(silent.calls[0]).stream).toBeUndefined()
+    expect((innerBody(silent.calls[0]) as Record<string, unknown>).stream).toBeUndefined()
+  })
+
+  it('does not ask Anthropic or Google, whose stream framing is different', async () => {
+    const anthropic = await ask(
+      { provider: 'anthropic' },
+      PLAYING,
+      'light',
+      () => fakeResponse({ body: { content: [{ type: 'text', text: '{"choice": 2}' }] } }),
+      { onDelta: () => undefined },
+    )
+    const google = await ask(
+      { provider: 'google' },
+      PLAYING,
+      'light',
+      () => fakeResponse({ body: { candidates: [{ content: { parts: [{ text: '{"choice": 2}' }] } }] } }),
+      { onDelta: () => undefined },
+    )
+
+    expect(envelopeOf(anthropic.calls[0]).stream).toBeUndefined()
+    expect(envelopeOf(google.calls[0]).stream).toBeUndefined()
+    expect(anthropic.result.success).toBe(true)
+
+    expect(supportsStreaming('openai')).toBe(true)
+    expect(supportsStreaming('custom')).toBe(true)
+    expect(supportsStreaming('anthropic')).toBe(false)
+    expect(supportsStreaming('google')).toBe(false)
+  })
+
+  it('plays the move assembled from the stream and reports each step on the way', async () => {
+    const seen: string[] = []
+    const { result } = await ask({}, PLAYING, 'light', () => fakeResponse({ sse }), {
+      onDelta: (delta) => seen.push(delta.text),
+    })
+
+    const legal = getLegalMoves(PLAYING, 'light', PLAYING.dice)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      // `toEqual`, not `toBe`: the menu the client validated against was built by its own call to
+      // `getLegalMoves`, so the objects match by value and cannot be the same instance.
+      expect(result.move).toEqual(legal[1])
+      expect(result.explanation).toBe('I hit your blot.')
+    }
+    // Cumulative, so a dropped frame costs a stutter and never a word.
+    expect(seen).toEqual([
+      '{"exp',
+      '{"explanation": "I hit',
+      '{"explanation": "I hit your blot.", "cho',
+      '{"explanation": "I hit your blot.", "choice": 2}',
+    ])
+  })
+
+  it('still works when the gateway ignores the flag and answers with JSON', async () => {
+    const seen: string[] = []
+    const { result } = await ask(
+      {},
+      PLAYING,
+      'light',
+      () => fakeResponse({ body: chatReply('{"choice": 1}') }),
+      { onDelta: (delta) => seen.push(delta.text) },
+    )
+
+    expect(result.success).toBe(true)
+    expect(seen).toEqual([])
+  })
+
+  it('plays a complete reply even if the connection dies right after it', async () => {
+    // The move is what the player paid for. A socket that closed behind a finished object is no reason
+    // to lose the turn, so the assembled text is validated first and only then is the break reported.
+    const frame = 'data: {"choices":[{"index":0,"delta":{"content":"{\\"choice\\": 1}"},"finish_reason":"stop"}]}\n\n'
+    const { result, calls } = await ask({}, PLAYING, 'light', () => fakeResponse({ sse: [frame], sseBreaksAfter: 1 }), {
+      onDelta: () => undefined,
+    })
+
+    const legal = getLegalMoves(PLAYING, 'light', PLAYING.dice)
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.move).toEqual(legal[0])
+    }
+    expect(calls).toHaveLength(1)
+  })
+
+  it('fails the turn with a clear code when the reply never completes, and does not replay it', async () => {
+    const { result, calls } = await ask(
+      {},
+      PLAYING,
+      'light',
+      () => fakeResponse({ sse: sseOf(['{"cho']), sseBreaksAfter: 1 }),
+      { onDelta: () => undefined },
+    )
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.code).toBe('network')
+      expect(result.error).toContain('stopped before the move was complete')
+    }
+    // One request only: those tokens were paid for and the player watched them arrive, so a silent
+    // second call would double the cost of a turn they can see failing.
+    expect(calls).toHaveLength(1)
+  })
+
+  it('calls a cancelled stream aborted rather than a network failure', async () => {
+    const controller = new AbortController()
+
+    const { result } = await ask(
+      {},
+      PLAYING,
+      'light',
+      () => {
+        controller.abort()
+        return fakeResponse({ sse: sseOf(['{"exp']), sseBreaksAfter: 1 })
+      },
+      { signal: controller.signal, onDelta: () => undefined },
+    )
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.code).toBe('aborted')
+    }
+  })
+
+  it('keeps the streaming clocks inside the relay, in dev and at the edge', () => {
+    // The same rule the buffered path follows: the browser gives up first, so the player is told
+    // `timeout` about their own patience rather than `bad-gateway` about the proxy's.
+    expect(AI_STREAM_IDLE_MS).toBeLessThan(AI_STREAM_TOTAL_MS)
+    expect(AI_STREAM_TOTAL_MS).toBeLessThan(DEV_POLICY.streamTimeoutMs)
+    expect(AI_STREAM_TOTAL_MS).toBeLessThan(PRODUCTION_POLICY.streamTimeoutMs)
+    // And the first-byte budget still applies: a stream that never started has not earned more time.
+    expect(AI_TIMEOUT_MS).toBeLessThan(DEV_POLICY.streamTimeoutMs)
   })
 })

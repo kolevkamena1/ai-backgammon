@@ -16,6 +16,11 @@ import { describe, expect, it } from 'vitest'
  *   AI_PROXY_E2E_EDGE_ORIGIN=http://localhost:8788 \
  *   npm run test -- src/utils/__tests__/aiProxy.e2e.test.ts
  *
+ * `MOCK_STREAM_DELAY_MS` (default 60) paces the mock's SSE frames. The streaming case asserts that the
+ * first words reach the client at least 400 ms before the last one, so run the mock with something like
+ * `MOCK_STREAM_DELAY_MS=250` when you want that check to mean what it says: with frames that land in
+ * the same millisecond, a buffer and a stream look identical.
+ *
  * Step 1 is `scripts/mockprovider.mjs`. Step 3 is `wrangler pages dev dist`, which mounts
  * `functions/` and so answers with the production policy - that is what the last two cases check,
  * and it is why they expect a private http target to be refused there while succeeding in dev.
@@ -49,6 +54,9 @@ function relayFetch(origin: string, seen: string[]): FetchLike {
         ok: response.ok,
         status: response.status,
         headers: response.headers,
+        // Forwarded because it is the whole point of the streaming checks: a real `fetch` response
+        // always carries a body, and a client that cannot see it would silently fall back to `json()`.
+        body: response.body,
         json: () => response.json(),
         text: () => response.text(),
       }))
@@ -130,6 +138,36 @@ describeIf(DEV_ORIGIN)('relay end-to-end through the dev middleware', () => {
       expect(result.code).toBe('network')
     }
   })
+
+  /**
+   * The one check here that a unit test cannot make: that the answer arrives *while it is being
+   * written*. The mock paces its frames at `MOCK_STREAM_DELAY_MS`, so if the relay buffered the body the
+   * client would see every delta land together at the end. Timing is the only difference between a
+   * stream and a very fast buffer, which is why it is asserted rather than assumed.
+   */
+  it('streams the explanation through the relay as the provider sends it', async () => {
+    const started = Date.now()
+    const arrived: { at: number; text: string }[] = []
+
+    const result = await getAiMove(engine(PROVIDER), playingBoard(), 'light', {
+      fetchImpl: relayFetch(DEV_ORIGIN, []),
+      onDelta: (delta) => arrived.push({ at: Date.now() - started, text: delta.text }),
+    })
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.move).toEqual(getLegalMoves(playingBoard(), 'light', [5])[0])
+      expect(result.explanation).toBe('I make my five-point to shut Black in.')
+    }
+
+    expect(arrived.length).toBeGreaterThan(2)
+    // Cumulative: the last frame carries the whole reply, so a dropped frame loses nothing.
+    expect(arrived[arrived.length - 1].text).toBe(
+      '{"explanation": "I make my five-point to shut Black in.", "choice": 1}',
+    )
+    // The first words landed at least 400 ms before the last one. Buffered, that gap would be ~0.
+    expect(arrived[arrived.length - 1].at - arrived[0].at).toBeGreaterThanOrEqual(400)
+  }, 30_000)
 })
 
 describeIf(EDGE_ORIGIN)('relay end-to-end through the Pages Function', () => {

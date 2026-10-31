@@ -42,19 +42,83 @@ function aiProxyDevMiddleware(): Plugin {
             text: async () => raw,
           }
 
+          // Safety net above all three branches. `res.writeHead` twice is a fatal `ERR_HTTP_HEADERS_SENT`
+          // inside Node, and the process dies with it - which is exactly how the first live probe of the
+          // streaming branch took the dev server down. Any late failure on a response that has already
+          // answered therefore destroys the socket instead of answering it again.
+          const failLate = (): void => {
+            if (res.headersSent || res.writableEnded) {
+              res.destroy()
+              return
+            }
+            res.writeHead(500, {
+              'content-type': 'application/json',
+              'cache-control': 'no-store',
+              'x-ai-proxy-error': 'bad-gateway',
+            })
+            res.end(JSON.stringify({ error: { code: 'bad-gateway', message: 'The local AI proxy failed.' } }))
+          }
+
           handleProxyRequest(request, DEV_POLICY)
             .then((outcome) => {
+              const stream = outcome.stream
+
+              if (stream !== undefined && stream !== null) {
+                // The streaming branch mirrors the Pages Function: bytes go straight to the socket, so
+                // `npm run dev` and production behave alike and a stream bug can never be dev-only.
+                //
+                // Pumped by hand rather than with `Readable.fromWeb(...).pipe(res)`, because the core's
+                // stream is a structural `{ getReader() }` and Node brand-checks its streams just like
+                // workerd does. Piping also brings a `close` event that races the end of the response;
+                // writing directly keeps every exit path in this one function.
+                res.writeHead(outcome.status, outcome.headers)
+                res.flushHeaders()
+
+                const reader = stream.getReader()
+                const stopPulling = (): void => {
+                  // Stopping the pull is what ends the upstream request: a player who closes the tab must
+                  // not leave a model generating into a socket nobody will read.
+                  try {
+                    void Promise.resolve(reader.cancel('dev relay: client stopped reading')).catch(() => undefined)
+                  } catch {
+                    // A reader the runtime already closed has nothing left to cancel.
+                  }
+                }
+
+                const pump = async (): Promise<void> => {
+                  for (;;) {
+                    const chunk = await reader.read()
+
+                    if (chunk.done === true) {
+                      break
+                    }
+                    if (chunk.value === undefined) {
+                      continue
+                    }
+                    // Respect backpressure, or a fast provider outruns a slow client.
+                    if (!res.write(chunk.value)) {
+                      await new Promise<void>((resolve) => res.once('drain', () => resolve()))
+                    }
+                  }
+                  res.end()
+                }
+
+                pump().catch(() => {
+                  stopPulling()
+                  res.destroy()
+                })
+                res.once('close', () => {
+                  if (!res.writableFinished) {
+                    stopPulling()
+                  }
+                })
+                return
+              }
+
               res.writeHead(outcome.status, outcome.headers)
               res.end(outcome.body)
             })
-            .catch(() => {
-              res.writeHead(500, {
-                'content-type': 'application/json',
-                'cache-control': 'no-store',
-                'x-ai-proxy-error': 'bad-gateway',
-              })
-              res.end(JSON.stringify({ error: { code: 'bad-gateway', message: 'The local AI proxy failed.' } }))
-            })
+            .catch(failLate)
         })
       })
     },

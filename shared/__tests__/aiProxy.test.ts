@@ -2,6 +2,7 @@ import {
   DEFAULT_ALLOWED_HOSTS,
   DEV_POLICY,
   PRODUCTION_POLICY,
+  capStream,
   classifyTarget,
   handleProxyRequest,
   isPrivateHost,
@@ -10,6 +11,7 @@ import {
   type ProxyFetch,
   type ProxyIncomingRequest,
   type ProxyPolicy,
+  type ProxyStream,
   type ProxyUpstreamInit,
   type ProxyUpstreamResponse,
 } from '../aiProxy.ts'
@@ -63,6 +65,80 @@ function reply(input: { status?: number; headers?: Record<string, string>; text?
       }
       return input.text ?? '{"ok":true}'
     },
+  }
+}
+
+/**
+ * A streaming upstream: the body is handed over as a chunk sequence, and the test keeps the counters
+ * the buffered fake cannot give - how many chunks the relay actually pulled, and whether it cancelled.
+ */
+function streamOf(chunks: (string | Uint8Array)[]): {
+  stream: ProxyStream
+  pulled: () => number
+  cancelled: () => boolean
+} {
+  const bytes = chunks.map((chunk) =>
+    typeof chunk === 'string' ? new TextEncoder().encode(chunk) : chunk,
+  )
+  const counter = { index: 0, pulled: 0, cancelled: false }
+
+  return {
+    pulled: () => counter.pulled,
+    cancelled: () => counter.cancelled,
+    stream: {
+      getReader: () => ({
+        async read(): Promise<{ done: boolean; value?: Uint8Array }> {
+          if (counter.index >= bytes.length) {
+            return { done: true }
+          }
+          const value = bytes[counter.index]
+          counter.index += 1
+          counter.pulled += 1
+          return { done: false, value }
+        },
+        async cancel(): Promise<void> {
+          counter.cancelled = true
+        },
+      }),
+    },
+  }
+}
+
+function streamedReply(
+  chunks: (string | Uint8Array)[],
+  input: { status?: number; contentType?: string } = {},
+): { response: ProxyUpstreamResponse; pulled: () => number; cancelled: () => boolean } {
+  const stream = streamOf(chunks)
+
+  return {
+    pulled: stream.pulled,
+    cancelled: stream.cancelled,
+    response: {
+      status: input.status ?? 200,
+      headers: {
+        get: (name: string) =>
+          name.toLowerCase() === 'content-type' ? (input.contentType ?? 'text/event-stream') : null,
+      },
+      body: stream.stream,
+      text: async () => chunks.join(''),
+    },
+  }
+}
+
+/** Everything a caller can read out of an outcome stream, plus how many chunks it took. */
+async function drain(stream: ProxyStream): Promise<{ text: string; chunks: number }> {
+  const reader = stream.getReader()
+  const decoder = new TextDecoder()
+  let text = ''
+  let chunks = 0
+
+  for (;;) {
+    const chunk = await reader.read()
+    if (chunk.done === true) {
+      return { text, chunks }
+    }
+    chunks += 1
+    text += decoder.decode(chunk.value ?? new Uint8Array(0), { stream: true })
   }
 }
 
@@ -395,5 +471,134 @@ describe('credential hygiene', () => {
       expect(outcome.body).not.toContain(SECRET)
       expect(outcome.headers.authorization).toBeUndefined()
     }
+  })
+
+  it('still refuses a private host when the caller asks for a stream', async () => {
+    // The `stream` flag changes how bytes travel, never where the request goes. If this ever regressed
+    // it would turn a public deployment into an SSRF relay for loopback services, which is the whole
+    // reason the check sits before the fetch and is not duplicated afterwards.
+    const privateTarget = 'http://127.0.0.1:4111/v1/chat/completions'
+    const spy = upstream(() => streamedReply(['data: x\n\n']).response)
+    const outcome = await relay(
+      envelope({ targetUrl: privateTarget, stream: true }),
+      spy.fetchImpl,
+      PRODUCTION_POLICY,
+    )
+
+    expect(outcome.status).toBe(403)
+    expect(outcome.headers['x-ai-proxy-error']).toBe('target-not-allowed')
+    expect(outcome.stream).toBeUndefined()
+    expect(spy.calls).toHaveLength(0)
+
+    // The same envelope is fine in dev, where the whole point is a model running on this machine.
+    const dev = upstream(() => streamedReply(['data: x\n\n']).response)
+    const allowed = await relay(envelope({ targetUrl: privateTarget, stream: true }), dev.fetchImpl, DEV_POLICY)
+    expect(allowed.status).toBe(200)
+    expect(allowed.stream).toBeDefined()
+  })
+
+  it('rejects a stream flag that is not a boolean, and never sends a request for it', async () => {
+    const spy = upstream(() => reply({}))
+    const outcome = await relay(envelope({ stream: 'yes' as unknown as boolean }), spy.fetchImpl)
+
+    expect(outcome.status).toBe(400)
+    expect(outcome.headers['x-ai-proxy-error']).toBe('bad-request')
+    expect(spy.calls).toHaveLength(0)
+  })
+})
+
+describe('streamed relay', () => {
+  const events = ['data: {"choices":[{"delta":{"content":"he"}}]}\n\n', 'data: [DONE]\n\n']
+
+  it('pipes the body through instead of buffering it, and keeps the upstream content type', async () => {
+    const fake = streamedReply(events)
+    const spy = upstream(() => fake.response)
+    const outcome = await relay(envelope({ stream: true }), spy.fetchImpl)
+
+    expect(outcome.status).toBe(200)
+    expect(outcome.headers['content-type']).toBe('text/event-stream')
+    expect(outcome.headers['cache-control']).toBe('no-store')
+    // The bytes are in the stream, not in the string - so nothing accumulates in Function memory.
+    expect(outcome.body).toBe('')
+    expect(outcome.stream).toBeDefined()
+
+    const drained = await drain(outcome.stream as ProxyStream)
+    expect(drained.text).toBe(events.join(''))
+    expect(drained.chunks).toBe(2)
+  })
+
+  it('leaves a buffered answer buffered when nobody asked for a stream', async () => {
+    const fake = streamedReply(events)
+    const spy = upstream(() => fake.response)
+    const outcome = await relay(envelope(), spy.fetchImpl)
+
+    expect(outcome.stream).toBeUndefined()
+    expect(outcome.body).toBe(events.join(''))
+  })
+
+  it('streams the body of a gateway that ignored the flag, and lets the client sort out the format', async () => {
+    // Some OpenAI-compatible servers answer `stream: true` with ordinary JSON. The relay does not
+    // second-guess that: it pipes whatever arrived, and the content type says which one it was.
+    const fake = streamedReply(['{"choices":[]}'], { contentType: 'application/json' })
+    const spy = upstream(() => fake.response)
+    const outcome = await relay(envelope({ stream: true }), spy.fetchImpl)
+
+    expect(outcome.headers['content-type']).toBe('application/json')
+    const drained = await drain(outcome.stream as ProxyStream)
+    expect(drained.text).toBe('{"choices":[]}')
+  })
+
+  it('never streams an error: a provider failure stays a small buffered body', async () => {
+    for (const status of [401, 429, 500]) {
+      const fake = streamedReply(['{"error":{"message":"provider said no"}}'], { status })
+      const spy = upstream(() => fake.response)
+      const outcome = await relay(envelope({ stream: true }), spy.fetchImpl)
+
+      // The client maps the status from a response it can read in one piece, and a retry needs
+      // `retry-after` - a piped error body would deliver both long after the decision had to be made.
+      expect(outcome.stream).toBeUndefined()
+      expect(outcome.status).toBe(status)
+      expect(outcome.body).toContain('provider said no')
+      expect(outcome.headers['content-type']).toBe('text/event-stream')
+    }
+  })
+
+  it('refuses a redirect rather than streaming its way to another host', async () => {
+    const fake = streamedReply(['data: x\n\n'], { status: 302 })
+    const spy = upstream(() => fake.response)
+    const outcome = await relay(envelope({ stream: true }), spy.fetchImpl)
+
+    expect(outcome.status).toBe(403)
+    expect(outcome.headers['x-ai-proxy-error']).toBe('target-not-allowed')
+    expect(outcome.stream).toBeUndefined()
+  })
+
+  it('counts bytes as they pass and stops at the cap', async () => {
+    const big = ['x'.repeat(64), 'y'.repeat(64), 'z'.repeat(64)]
+    const source = streamOf(big)
+    const drained = await drain(capStream(source.stream, 100))
+
+    // The chunk that would cross the line is dropped rather than clipped: half a UTF-8 sequence or half
+    // an SSE frame is worse than nothing, and past the cap the only honest signal left is to end the
+    // stream, because the status line and headers were sent a long time ago.
+    expect(drained.text).toBe('x'.repeat(64))
+    expect(drained.chunks).toBe(1)
+    expect(source.pulled()).toBe(2)
+  })
+
+  it('cancels the upstream when the cap is crossed, so the provider stops generating', async () => {
+    const source = streamOf(['a'.repeat(200), 'b'.repeat(200)])
+    await drain(capStream(source.stream, 50))
+
+    expect(source.cancelled()).toBe(true)
+  })
+
+  it('gives a streamed exchange a longer ceiling than a buffered one, on both policies', () => {
+    // One abort signal covers the whole subrequest including the body, so a buffered ceiling applied to
+    // a stream would cut a slow reply off mid-sentence. Both numbers stay above the client's own
+    // budgets (see `AI_STREAM_TOTAL_MS`), which keeps the browser the one that gives up first.
+    expect(PRODUCTION_POLICY.streamTimeoutMs).toBeGreaterThan(PRODUCTION_POLICY.timeoutMs)
+    expect(DEV_POLICY.streamTimeoutMs).toBeGreaterThan(DEV_POLICY.timeoutMs)
+    expect(PRODUCTION_POLICY.maxStreamBytes).toBeGreaterThan(PRODUCTION_POLICY.maxResponseBytes)
   })
 })

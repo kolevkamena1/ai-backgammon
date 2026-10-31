@@ -18,9 +18,12 @@
  *   - it authenticates by header rather than by URL, so a wrong key is answered the way a provider
  *     answers it: 401 with an OpenAI-shaped error body.
  *
- * Every chat reply is `{"choice": 1}` - the first entry of the legal-move menu. That makes the
+ * Every buffered chat reply is `{"choice": 1}` - the first entry of the legal-move menu. That makes the
  * AI-vs-AI end-to-end game deterministic and guaranteed to reach a bear-off with no dependence on a
- * real model's opinion.
+ * real model's opinion. A reply asked for with `stream: true` is the same choice plus an explanation,
+ * sent as OpenAI-compatible SSE in small mid-token pieces, paced at `MOCK_STREAM_DELAY_MS`; `?thinking=1`
+ * prepends a `reasoning_content` phase and `?stall=N` hangs after N pieces so a client's idle timeout
+ * has something real to fire on.
  *
  * Credentials never leave this process: `Authorization` is compared and then dropped, and the log
  * line for a request carries the path, the status and the model name only.
@@ -102,6 +105,100 @@ function completion(parsed) {
   }
 }
 
+/**
+ * The reply cut the way a real model streams it: mid-token, so `{"exp` and `lanation"` can land in
+ * separate events. Anything that parses a streamed answer has to survive exactly this, and a mock
+ * that sent the whole object in one chunk would prove nothing about the parser.
+ */
+const STREAM_PIECES = [
+  '{"ex', 'planation": "', 'I make my five-point', ' to shut Black in."', ', "cho', 'ice": ', '1', '}',
+]
+
+function sseFrame(payload) {
+  return `data: ${JSON.stringify(payload)}\n\n`
+}
+
+function streamChunk(parsed, delta, finishReason = null) {
+  return {
+    id: `chatcmpl-mock-stream-${Date.now()}`,
+    object: 'chat.completion.chunk',
+    created: Math.floor(Date.now() / 1000),
+    model: typeof parsed.model === 'string' ? parsed.model : 'mock-model',
+    choices: [{ index: 0, delta, finish_reason: finishReason }],
+    usage: null,
+  }
+}
+
+/**
+ * OpenAI-compatible SSE, matching what DashScope's compatible mode sends: incremental
+ * `choices[0].delta.content`, an optional `reasoning_content` phase first, a final chunk with
+ * `finish_reason: "stop"`, then - only when the caller asked for it - one chunk carrying `usage`
+ * with an empty `choices` array, and last `data: [DONE]`.
+ *
+ * `MOCK_STREAM_DELAY_MS` paces it. `?thinking=1` adds the reasoning phase; `?stall=N` stops after
+ * N content events and leaves the socket open, which is the only way to drive a client's idle
+ * timeout from this mock.
+ */
+function streamCompletion(res, req, parsed, query) {
+  const delay = Number(process.env.MOCK_STREAM_DELAY_MS ?? 60)
+  const stall = Number(query.get('stall') ?? 0)
+
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-cache',
+    connection: 'keep-alive',
+    'transfer-encoding': 'chunked',
+  })
+
+  const events = []
+
+  if (query.has('thinking')) {
+    for (const piece of ['Counting pips... ', 'White is ahead. ']) {
+      events.push(streamChunk(parsed, { reasoning_content: piece }))
+    }
+  }
+
+  STREAM_PIECES.forEach((piece, index) => {
+    if (stall > 0 && index >= stall) {
+      return
+    }
+    events.push(streamChunk(parsed, { content: piece }))
+  })
+  events.push(streamChunk(parsed, { content: '' }, 'stop'))
+
+  if (stall > 0) {
+    // Never closed on purpose: an idle timeout has to be what ends this, not the mock.
+    console.log(`${String(req.url)} -> stalled after ${stall} content events, stream left open`)
+    return new Promise(() => {})
+  }
+
+  if (parsed?.stream_options?.include_usage === true) {
+    events.push({
+      ...streamChunk(parsed, {}),
+      choices: [],
+      usage: { prompt_tokens: 1, completion_tokens: STREAM_PIECES.length, total_tokens: 7 },
+    })
+  }
+
+  return new Promise((resolve) => {
+    let index = 0
+
+    const tick = () => {
+      if (index >= events.length) {
+        res.write('data: [DONE]\n\n')
+        res.end()
+        resolve()
+        return
+      }
+      res.write(sseFrame(events[index]))
+      index += 1
+      setTimeout(tick, delay)
+    }
+
+    tick()
+  })
+}
+
 /** Pure routing: returns what to answer, plus one credential-free line to log about it. */
 function route({ method, path, raw, req }) {
   if (path === '/health') {
@@ -127,6 +224,16 @@ function route({ method, path, raw, req }) {
       parsed = JSON.parse(raw)
     } catch {
       return { status: 400, payload: { error: { message: 'Body was not JSON.' } }, note: 'unparseable body' }
+    }
+
+    // The client asks for SSE by putting `stream: true` in the provider body, which the relay
+    // forwards verbatim - so this is the switch the whole D0 probe turns on.
+    if (parsed?.stream === true) {
+      return {
+        stream: true,
+        parsed,
+        note: `streaming model=${String(parsed.model ?? '')} pieces=${STREAM_PIECES.length}`,
+      }
     }
 
     return {
@@ -170,12 +277,20 @@ function route({ method, path, raw, req }) {
 
 const server = createServer((req, res) => {
   const method = req.method ?? 'GET'
-  const path = String(req.url ?? '').split('?')[0]
+  const url = new URL(String(req.url ?? '/'), `http://127.0.0.1:${PORT}`)
+  const path = url.pathname
 
   readBody(req)
     .then((raw) => {
-      const outcome = route({ method, path, raw, req })
-      console.log(`${method} ${path} -> ${outcome.status}${outcome.note ? ` (${outcome.note})` : ''}`)
+      const outcome = route({ method, path, raw, req, query: url.searchParams })
+      const status = outcome.stream === true ? 200 : outcome.status
+      console.log(`${method} ${path} -> ${status}${outcome.note ? ` (${outcome.note})` : ''}`)
+
+      if (outcome.stream === true) {
+        void streamCompletion(res, req, outcome.parsed, url.searchParams)
+        return
+      }
+
       respond(res, outcome.status, outcome.payload, outcome.headers)
     })
     .catch(() => {

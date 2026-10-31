@@ -2,12 +2,16 @@
 
 AI-powered (BYOK) Backgammon.
 
-**Current status: Phase 3.1 — rules, turn flow, BYOK inference and the CORS relay.**
+**Current status: Phase 4 — rules, turn flow, BYOK inference, the CORS relay, configurable strength,
+move explanations and streamed reasoning.**
 Rolling, legal moves, hitting, bar re-entry and bearing off are real and covered by tests, and a
 human can play a full game by clicking a checker then a highlighted triangle. AI seats play
 themselves: every move is requested with your own key, relayed through the same-origin
 `/api/ai-proxy` endpoint, chosen from the legal move menu, and re-validated by the rules engine
 before it touches the board. In `npm run dev` you can still roll and move for any seat by hand.
+
+Each AI seat also plays at a chosen **difficulty** (Easy, Medium, Hard), says **why** it made the move
+it made, and writes that sentence on screen **while the provider is still streaming it**.
 
 ## Tech stack
 
@@ -31,12 +35,14 @@ npm install          # install dependencies
 npm run dev          # dev server on http://localhost:5173
 npm run typecheck    # tsc -b (no emit) — 0 errors required
 npm run lint         # eslint .
-npm run test         # vitest run (163 passed + 5 skipped: rules, seats, click-to-move, AI client,
-                     # AI turn driver, proxy core — the 5 skipped are the opt-in relay e2e suite)
+npm run test         # vitest run (233 passed + 6 skipped: rules, seats, click-to-move, AI client,
+                     # AI turn driver, proxy core, SSE stream parsing — the 6 skipped are the opt-in
+                     # relay e2e suite, which runs live when its origins are set)
 npm run test:watch   # vitest in watch mode
 npm run build        # typecheck + production bundle into dist/
 npm run preview      # serve the built dist/ locally — carries no relay, see "CORS relay" below
 npm run mock:provider# stand-in OpenAI-compatible provider on 127.0.0.1:4111 for the relay e2e suite
+                     # (streams SSE too; MOCK_STREAM_DELAY_MS paces it, ?stall=N hangs it)
 npm run pages:local  # build + serve through wrangler pages dev (Cloudflare-like, mounts functions/)
 npm run pages:deploy # build + publish to Cloudflare Pages (needs `npx wrangler login`)
 ```
@@ -97,12 +103,13 @@ also absent.
 
 ## AI inference
 
-Three files, none of which knows about React:
+Four files, none of which knows about React:
 
 | File | Role |
 | --- | --- |
 | `src/utils/aiPrompt.ts` | Every word the model sees. Pure string building. |
 | `src/utils/aiClient.ts` | `getAiMove()` routes to one handler per provider, then POSTs the call to the relay. |
+| `src/utils/aiStream.ts` | Reads a streamed reply: SSE framing, deltas, byte cap. Pure text plumbing. |
 | `src/state/gameStore.ts` | `runAiTurn()` sequences roll, request, validate, apply. |
 
 ### The menu is the whole trick
@@ -171,6 +178,51 @@ never persisted, cleared by a human move (its position is gone), by `resetGame`,
 button. It names the **seat** that spoke, because in an AI vs AI match the two sides can justify
 contradictory plans.
 
+### Streaming
+
+While the engine is composing its reply the player watches it write. The client asks the provider for
+SSE, the relay pipes the bytes through, and the sentence paints as it lands.
+
+```
+provider  --SSE-->  relay (Pages Function / Vite middleware)  --SSE-->  readProviderStream()  -->  gameStore.aiThought  -->  AiThoughtPanel
+```
+
+* **Asking**: `stream: true` plus `stream_options: { include_usage: true }` go in the *provider* body,
+  and `stream: true` also goes in the envelope so the relay knows to pipe instead of buffer. Only
+  `openai` and `custom` are offered this (`supportsStreaming`): Anthropic and Google frame streams
+  differently (`content_block_delta`, `alt=sse`) and stay buffered on purpose, which is a scope limit,
+  not an oversight. A caller that passes no `onDelta` gets the old byte-for-byte request.
+* **Deciding**: the response is treated as a stream when the *content type* says so, never when a body
+  happens to exist — every `fetch` response has a body. A gateway that ignores the `stream` flag and
+  answers with ordinary JSON is therefore still parsed correctly.
+* **Parsing**: `src/utils/aiStream.ts` is the whole SSE layer, and it is pure. It rejoins frames split
+  anywhere (mid-token, mid-escape, mid multi-byte character), honours the blank-line event boundary,
+  ignores comments and unused fields, tolerates a cumulative gateway instead of an incremental one,
+  and separates `delta.reasoning_content` from `delta.content` — the second is what the panel shows,
+  the first is discarded.
+* **Never on a partial reply**: the assembled text goes through the same `parseAiMove` and the same
+  legal-menu validation as a buffered answer. A truncated stream fails the turn with `bad-response` or
+  `network`; it cannot move a checker, and it is never silently retried once bytes have arrived.
+* **Caps**: the relay counts bytes as they pass (`maxStreamBytes`, 4 MB) and stops the stream at the
+  cap — it cannot send a 413 by then, because the status line and headers are already on the wire. The
+  client mirrors the cap so it stops first and fails the turn itself.
+* **Pacing**: deltas carry the *cumulative* sentence, and the store repaints at most every 80 ms. A
+  dropped frame costs a stutter, never a word, and the final explanation overwrites everything anyway.
+
+Two things this took a live measurement to find out, both now asserted in tests:
+
+* **`wrangler pages dev` does stream.** Probed against the mock provider paced at 250 ms per frame:
+  first byte at ~40 ms, whole body at ~2.4 s, `Transfer-Encoding: chunked`, upstream
+  `content-type: text/event-stream` relayed, `cache-control: no-store` still set. A buffering Function
+  would have reported the first byte at the end. That is the go/no-go gate this feature was built
+  behind, and the same timing is asserted in the opt-in e2e suite rather than left as a claim.
+* **The runtime brand-checks streams.** Handing `new Response(...)` a duck-typed `{ getReader() }`
+  object — which is what the runtime-agnostic core hands back — silently produced the body
+  `"[object Object]"` at the edge, and `Readable.fromWeb(...)` on the same object killed the dev
+  server outright with `ERR_HTTP_HEADERS_SENT` when the failure reached the catch that wrote a second
+  status line. Both mounts now pump bytes through a real stream object of their own runtime, and the
+  dev relay's failure path checks `res.headersSent` before writing anything.
+
 ### Providers
 
 | Provider | Endpoint | Auth | Default model |
@@ -203,8 +255,16 @@ failure with a human message plus an `AiErrorCode` — `unauthorized`, `rate-lim
   edge — so a turn that runs out of time is reported by the client as `timeout` rather than as a
   `gateway-timeout` from the proxy; the relay reports its own cap as `gateway-timeout`, which the
   client maps back to `timeout` anyway.
+  A **streamed** reply is measured by three clocks instead of one, because "slow" and "stalled" are
+  different problems: 60 s still applies to the first byte, then `AI_STREAM_IDLE_MS` (15 s, restarted
+  by every chunk) decides whether the model has stopped talking, and `AI_STREAM_TOTAL_MS` (75 s) is the
+  absolute ceiling. The relay gives a stream the same generous shape — `streamTimeoutMs` (90 s) rather
+  than 65 s, because one abort signal covers the whole subrequest including the body — and still
+  outlasts the client, so the layering rule above keeps holding.
 * **Retry**: exactly one, and only for transient codes (429, 5xx, network, timeout), honouring
-  `Retry-After`. Auth and protocol errors are never retried.
+  `Retry-After`. Auth and protocol errors are never retried, and **neither is a stream that already
+  started**: once a byte has arrived the turn is not replayed, because those tokens were paid for and
+  the player watched them land.
 * **Stop, do not guess**: a failed request ends the turn and shows a banner with Retry / Dismiss
   (plus Open Settings for credential-shaped codes). Nothing falls back to a random legal move,
   because a silent fallback hides a broken key.
@@ -246,17 +306,22 @@ SDKs. A caller hands in a structural `{ method, headers.get(), text() }` and ada
 places, what lets `tsconfig.node.json` typecheck `shared/` and `functions/` with no Workers-specific
 config (`@cloudflare/workers-types` is deliberately not a dependency), and what makes the core
 unit-testable without a network: `handleProxyRequest` takes `fetch` as its third argument, so
-`shared/__tests__/aiProxy.test.ts` covers the policy and the relay paths in 25 tests.
+`shared/__tests__/aiProxy.test.ts` covers the policy, the relay paths and the streaming paths in 35 tests.
 
-The envelope is `{ targetUrl, headers, body }` (`ProxyEnvelope`) — **the credential travels inside
-this object**. The relay never reads the incoming request's own `Authorization` header, so a key put
-on the call to `/api/ai-proxy` is not forwarded, by design.
+The envelope is `{ targetUrl, headers, body, stream? }` (`ProxyEnvelope`) — **the credential travels
+inside this object**. The relay never reads the incoming request's own `Authorization` header, so a key
+put on the call to `/api/ai-proxy` is not forwarded, by design. `stream` is strictly a boolean, is
+validated before the target is classified, and changes only how the answer travels: it cannot move a
+byte past the allowlist (a test pins that down for both policies).
 
-Only six request headers are ever forwarded and everything else is dropped: `authorization`,
-`content-type`, `x-api-key`, `x-goog-api-key`, `anthropic-version`,
+Only seven request headers are ever forwarded and everything else is dropped: `authorization`,
+`content-type`, `accept`, `x-api-key`, `x-goog-api-key`, `anthropic-version`,
 `anthropic-dangerous-direct-browser-access`. Names are matched case-insensitively, because that is
 how header fields work, and are always sent upstream in that canonical lower-case form; one header
-written two ways resolves last-one-wins. Only `content-type`, `retry-after` and `x-request-id` come
+written two ways resolves last-one-wins. `accept` is there so a caller can ask for
+`text/event-stream` — several OpenAI-compatible gateways only switch to SSE when the request says so,
+and it is an end-to-end content-negotiation header that carries no credential and cannot influence
+which host is contacted. Only `content-type`, `retry-after` and `x-request-id` come
 back, so a provider's `Retry-After` survives the hop and the client's 429 handling still works; a
 provider's status and body otherwise pass through untouched, which is what keeps `mapHttpError`
 reading real provider answers.
@@ -268,8 +333,8 @@ reading real provider answers.
 | Plain `http` targets | allowed | refused, https only |
 | Loopback / private targets | allowed | refused |
 | Host allowlist | not enforced | enforced, exact match |
-| Upstream timeout | 65 s | 65 s (both sit above the client's 60 s) |
-| Envelope / response cap | 64 KB / 1 MB | 64 KB / 1 MB |
+| Upstream timeout | 65 s buffered, 90 s streamed | 65 s buffered, 90 s streamed (both above the client's 60 s) |
+| Envelope / response cap | 64 KB / 1 MB, 4 MB streamed | 64 KB / 1 MB, 4 MB streamed |
 
 Dev is your own machine, already reachable from your own browser, so the host list is not a security
 boundary there, and the generous timeout stops a slow local model load from turning into a proxy
@@ -414,10 +479,10 @@ src/
 ├── lib/logger.ts   console wrapper that redacts credential-shaped fields
 ├── state/          createSafeStorage.ts, settingsStore.ts, gameConfigStore.ts, gameStore.ts (+ __tests__/)
 ├── types/          game.ts, settings.ts (AiEngineConfig), gameConfig.ts, ai.ts (AiErrorCode)
-└── utils/          gameConfig.ts, gameLogic.ts, aiClient.ts, aiPrompt.ts, cn.ts,
+└── utils/          gameConfig.ts, gameLogic.ts, aiClient.ts, aiPrompt.ts, aiStream.ts, cn.ts,
                   formatSecret.ts (+ __tests__/, incl. the opt-in aiProxy.e2e.test.ts)
 public/             _headers (static assets only), _redirects, favicon.svg — copied into dist/
-scripts/            mockprovider.mjs — dev-only stand-in provider, never imported, bundled or deployed
+scripts/            mockprovider.mjs — dev-only stand-in provider (buffered and SSE), never imported, bundled or deployed
 vite.config.ts      mounts the same relay core on /api/ai-proxy for `npm run dev`
 wrangler.toml       pages_build_output_dir = "./dist", compatibility_date
 .env.example        documents AI_PROXY_ALLOWED_HOSTS — a host list, not a secret
@@ -528,7 +593,12 @@ only once the production CSS pipeline is stable.
    wording; `runAiTurn` + `useAiTurn` drive a turn.
 3. **Phase 3.1 — CORS relay: done.** `shared/aiProxy.ts` answers on `/api/ai-proxy` from a Vite
    middleware in dev and a Pages Function at the edge, so DashScope and any OpenAI-compatible
-   gateway work through one same-origin path under an allowlisted, SSRF-hardened policy. Still open
-   from Phase 3: move explanations in the side panel.
-4. **Phase 4 — polish:** spectator controls for AI vs AI, drag-and-drop, animations,
+   gateway work through one same-origin path under an allowlisted, SSRF-hardened policy.
+4. **Phase 4 — intelligence and transparency: done.** `AiEngineConfig.difficulty` picks the playing
+   strength per seat (`DIFFICULTY_INSTRUCTIONS`, the Hard reply budget, Easy's temperature); the model
+   now answers with an `explanation` next to the move, `gameStore.aiThought` holds it, and
+   `AiThoughtPanel` shows it — written on screen as it streams, because the relay pipes SSE through
+   instead of buffering it. What is left of Phase 3's list: nothing; the side-panel explanations this
+   section used to promise are in.
+5. **Phase 5 — polish:** spectator controls for AI vs AI, drag-and-drop, animations,
    accessibility pass, persistence of games.

@@ -306,4 +306,46 @@ describe('aiThought', () => {
     useGameStore.getState().resetGame()
     expect(useGameStore.getState().aiThought).toBeNull()
   })
+
+  it('paints the sentence while it streams, then replaces it with the finished one', async () => {
+    startMirror()
+    mockedGetAiMove.mockImplementation(async (_config, board, player, options) => {
+      // The placeholder is already on screen before a byte arrives, because the provider here is one
+      // whose SSE the client reads. Buffered providers never get this state.
+      expect(useGameStore.getState().aiThought).toEqual({ seat: 'light', text: '', phase: 'streaming' })
+
+      options?.onDelta?.({ kind: 'explanation', text: 'I bring a builder' })
+      options?.onDelta?.({ kind: 'explanation', text: 'I bring a builder forward.' })
+
+      const [move] = getLegalMoves(board, player, board.dice)
+      return { success: true, move, choice: 1, explanation: 'I bring a builder forward.' }
+    })
+    useGameStore.getState().roll()
+
+    await expect(useGameStore.getState().aiMakeMove()).resolves.toBe(true)
+
+    // Cumulative deltas plus the final write, so the panel ends on the model's own sentence whatever
+    // frame rate the stream happened to have.
+    expect(useGameStore.getState().aiThought).toEqual({
+      seat: 'light',
+      text: 'I bring a builder forward.',
+      phase: 'final',
+    })
+  })
+
+  it('never puts provider internals on the board, and clears the placeholder when nothing came', async () => {
+    startMirror()
+    mockedGetAiMove.mockImplementation(async (_config, board, player, options) => {
+      options?.onDelta?.({ kind: 'reasoning', text: 'Counting pips in private' })
+      const [move] = getLegalMoves(board, player, board.dice)
+      return { success: true, move, choice: 1, explanation: null }
+    })
+    useGameStore.getState().roll()
+
+    await expect(useGameStore.getState().aiMakeMove()).resolves.toBe(true)
+
+    const state = useGameStore.getState()
+    expect(state.history).toHaveLength(1)
+    expect(state.aiThought).toBeNull()
+  })
 })

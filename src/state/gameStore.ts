@@ -1,8 +1,8 @@
-import type { AiErrorInfo, AiResult } from '@/types/ai'
+import type { AiDelta, AiErrorInfo, AiResult } from '@/types/ai'
 import type { BoardState, DieFace, DiceRoll, Move, MoveSource, PlayerColor } from '@/types/game'
 import type { GameConfigSnapshot, SeatAssignment, SeatPlan } from '@/types/gameConfig'
 import type { AiEngineConfig } from '@/types/settings'
-import { AI_MOVE_DELAY_MS, getAiMove } from '@/utils/aiClient'
+import { AI_MOVE_DELAY_MS, getAiMove, supportsStreaming } from '@/utils/aiClient'
 import { logger } from '@/lib/logger'
 import { planSeats } from '@/utils/gameConfig'
 import {
@@ -74,6 +74,14 @@ interface GameStoreState {
   resetGame: () => void
 }
 
+/**
+ * How often an arriving sentence may repaint the panel. The store is written with the CUMULATIVE text,
+ * so a skipped frame costs a stutter and never a missing word, and the final explanation overwrites
+ * everything anyway. A chatty model can deliver a token every few milliseconds; a React commit every
+ * few milliseconds is not something a board interaction should have to compete with.
+ */
+const AI_THOUGHT_THROTTLE_MS = 80
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms)
@@ -118,8 +126,32 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       return 'stop'
     }
 
+    // Live text: opened before the request so the panel is already there when the first words land,
+    // and only for providers whose SSE this client can actually read. On the buffered path nothing is
+    // shown until the move is known, which is the honest version of "thinking".
+    if (supportsStreaming(engine.provider)) {
+      set({ aiThought: { seat: color, text: '', phase: 'streaming' } })
+    }
+
+    let lastPaint = 0
+    const onDelta = (delta: AiDelta): void => {
+      // Reasoning deltas are ignored on purpose: thinking is off at every difficulty, and even if a
+      // gateway sent them, provider internals are not something to print on a game board.
+      if (delta.kind !== 'explanation' || token !== aiToken) {
+        return
+      }
+
+      const now = Date.now()
+      if (now - lastPaint < AI_THOUGHT_THROTTLE_MS) {
+        return
+      }
+      lastPaint = now
+      set({ aiThought: { seat: color, text: delta.text, phase: 'streaming' } })
+    }
+
     const result: AiResult = await getAiMove(engine, snapshot, color, {
       signal: controller?.signal,
+      onDelta,
     })
 
     // The game was abandoned or restarted while the request was in flight.
@@ -151,11 +183,15 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
     }
 
     // Only after the move is on the board: a reason for a move that did not happen is worse than no
-    // reason at all. Silence (the model ignored the field, or filled it with junk) leaves the panel
-    // away rather than showing an empty speech bubble.
-    if (result.explanation !== null) {
-      set({ aiThought: { seat: color, text: result.explanation, phase: 'final' } })
-    }
+    // reason at all. Silence (the model ignored the field, or filled it with junk) also clears the
+    // placeholder the stream opened, so the panel never freezes on a half-sentence that was never a
+    // reply — the move played, the engine just had nothing to say about it.
+    set({
+      aiThought:
+        result.explanation === null
+          ? null
+          : { seat: color, text: result.explanation, phase: 'final' as const },
+    })
 
     return 'moved'
   }

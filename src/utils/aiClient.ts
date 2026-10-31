@@ -1,8 +1,9 @@
-import type { AiCallOptions, AiErrorCode, AiMoveFailure, AiRequestInit, AiResponse, AiResult, FetchLike } from '@/types/ai'
+import type { AiCallOptions, AiDelta, AiErrorCode, AiMoveFailure, AiRequestInit, AiResponse, AiResult, AiStreamBudget, FetchLike } from '@/types/ai'
 import type { BoardState, DieFace, Move, MoveSource, MoveTarget, PlayerColor } from '@/types/game'
 import type { AiDifficulty, AiEngineConfig, AiProvider } from '@/types/settings'
 import { logger } from '@/lib/logger'
 import { buildMovePrompt } from '@/utils/aiPrompt'
+import { isEventStream, readProviderStream, type StreamReadResult } from '@/utils/aiStream'
 import { POINT_COUNT, getLegalMoves } from '@/utils/gameLogic'
 import { difficultyOf, validateEngine } from '@/utils/gameConfig'
 
@@ -65,6 +66,21 @@ export function budgetFor(difficulty: AiDifficulty): { maxTokens: number; temper
   }
 }
 export const AI_MOVE_DELAY_MS = 400
+/**
+ * A streamed reply is measured by three clocks instead of one, because "slow" and "stalled" are
+ * different problems and only the second one is worth giving up on.
+ *
+ * `AI_TIMEOUT_MS` stays the connect/first-byte budget: a provider that never starts answering has not
+ * earned any extra time. Once bytes are flowing, `AI_STREAM_IDLE_MS` is what matters and it restarts on
+ * every chunk, so a model that thinks for 40 s between two words is not cut off while one that stops
+ * answering entirely is. `AI_STREAM_TOTAL_MS` is the absolute ceiling and is deliberately below the
+ * relay's `streamTimeoutMs`, keeping the rule the buffered path already follows: the browser gives up
+ * before the proxy does, so the player is told `timeout` rather than `bad-gateway`.
+ */
+export const AI_STREAM_IDLE_MS = 15_000
+export const AI_STREAM_TOTAL_MS = 75_000
+/** Mirrors the relay's `maxStreamBytes`. Both sides count, so the client stops first. */
+export const AI_STREAM_MAX_BYTES = 4 * 1024 * 1024
 export const AI_TRANSIENT_RETRIES = 1
 export const AI_RETRY_BASE_MS = 800
 const AI_RETRY_MAX_WAIT_MS = 15_000
@@ -94,6 +110,15 @@ function ok(move: Move, choice: number | null, explanation: string | null): AiRe
 /** Worth another attempt: the request itself was fine, the provider was unavailable or busy. */
 export function isTransient(code: AiErrorCode): boolean {
   return code === 'rate-limited' || code === 'server-error' || code === 'network' || code === 'timeout'
+}
+
+/**
+ * Providers whose SSE this client can read. Anthropic and Google frame streams differently
+ * (`content_block_delta`, `alt=sse`) and stay buffered for now, so callers that want to show live text
+ * ask this instead of guessing — the store opens its placeholder only when the answer is yes.
+ */
+export function supportsStreaming(provider: AiProvider): boolean {
+  return provider === 'openai' || provider === 'custom'
 }
 
 /**
@@ -144,6 +169,10 @@ function isResponseShaped(value: unknown): value is AiResponse {
  *
  * The provider request travels as the body of an envelope to the same-origin relay, so `url` and
  * `headers` here are what the relay will use upstream - they never touch the network directly.
+ *
+ * When the caller asked for a stream and the answer really is one, the body is consumed incrementally
+ * and handed back as `{ streamed }` rather than `{ data }`: nothing is parsed here, because a partial
+ * reply must not be able to choose a move.
  */
 async function postJson(args: {
   url: string
@@ -152,11 +181,21 @@ async function postJson(args: {
   fetchImpl: FetchLike
   signal: AbortSignal
   timedOut: () => boolean
-}): Promise<{ data: unknown } | { failure: AiResult }> {
-  const envelope = {
+  stream: boolean
+  budget: AiStreamBudget
+  onDelta?: (delta: AiDelta) => void
+  maxStreamBytes: number
+}): Promise<{ data: unknown } | { streamed: StreamReadResult } | { failure: AiResult }> {
+  const envelope: Record<string, unknown> = {
     targetUrl: args.url,
     headers: args.headers,
     body: JSON.stringify(args.body),
+  }
+
+  // Only present when streaming was asked for, so every buffered request stays byte-for-byte the
+  // request the app has always sent.
+  if (args.stream) {
+    envelope.stream = true
   }
 
   const init: AiRequestInit = {
@@ -194,6 +233,19 @@ async function postJson(args: {
 
   if (!response.ok) {
     return { failure: mapHttpError(response.status, readRetryAfterMs(response)) }
+  }
+
+  // The content type is the only honest signal that a reply is incremental: a `fetch` Response always
+  // has a `body`, streamed or not. A gateway that ignored the `stream` flag and answered with ordinary
+  // JSON falls through to the buffered path below, so the request is never lost over a format surprise.
+  if (args.stream && isEventStream(response.headers.get('content-type'))) {
+    const streamed = await readProviderStream(response, {
+      maxBytes: args.maxStreamBytes,
+      budget: args.budget,
+      onDelta: args.onDelta,
+    })
+
+    return { streamed }
   }
 
   try {
@@ -468,6 +520,15 @@ export interface MoveContext {
   difficulty: AiDifficulty
   maxTokens: number
   temperature: number
+  /**
+   * Request SSE and consume it incrementally. Only the OpenAI-compatible handlers honour it; the
+   * others stay buffered, which is a scope limit, not an oversight — see the Phase 4 plan.
+   */
+  stream: boolean
+  /** Where the reply goes while it is still arriving. Absent means nobody is watching. */
+  onDelta?: (delta: AiDelta) => void
+  /** The first-byte/idle/total clocks, handed to the reader so it can tell it when bytes land. */
+  budget: AiStreamBudget
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -505,6 +566,14 @@ function chatBody(ctx: MoveContext, jsonMode: boolean, thinkingOff: boolean): Re
 
   if (jsonMode) {
     body.response_format = { type: 'json_object' }
+  }
+
+  // SSE is requested in the provider body, not by a header the relay would have to invent. The
+  // usage frame is asked for because it is the only way to see a reply that hit `max_tokens`, which
+  // is the difference between "the model said nothing" and "the model was cut off".
+  if (ctx.stream) {
+    body.stream = true
+    body.stream_options = { include_usage: true }
   }
 
   // `enable_thinking` is not a standard OpenAI parameter - DashScope documents it as a top-level
@@ -564,13 +633,18 @@ async function requestText(
     fetchImpl: ctx.fetchImpl,
     signal: ctx.signal,
     timedOut: ctx.timedOut,
+    stream: ctx.stream,
+    budget: ctx.budget,
+    onDelta: ctx.onDelta,
+    maxStreamBytes: AI_STREAM_MAX_BYTES,
   })
 
   if ('failure' in outcome) {
     return outcome.failure
   }
 
-  const text = args.extract(outcome.data)
+  const text = 'streamed' in outcome ? outcome.streamed.content : args.extract(outcome.data)
+  const streamed: StreamReadResult | null = 'streamed' in outcome ? outcome.streamed : null
 
   if (text === null) {
     return fail('bad-response', 'The provider replied in a shape this app does not understand.')
@@ -578,25 +652,42 @@ async function requestText(
 
   const { move, choice, explanation } = parseAiMove(text, ctx.legal)
 
-  if (move === null) {
-    const preview = text.replace(/\s+/g, ' ').trim().slice(0, 160)
-    // No JSON object at all is a protocol failure; a well-formed but unlisted move is the model's.
-    const code: AiErrorCode = extractJsonObject(text) === null ? 'bad-response' : 'illegal-move'
-    const error =
-      code === 'bad-response'
-        ? `The reply was not a JSON object: ${preview.length > 0 ? preview : '(empty)'}`
-        : `The model chose a move that is not legal here: ${preview.length > 0 ? preview : '(empty)'}`
-    return fail(code, error)
+  // A complete reply wins even if the connection died on the way out: the model finished, the object
+  // parses and the move is on the menu, so throwing it away over a broken socket would be the app
+  // losing a turn it had already been given.
+  if (move !== null) {
+    logger.debug('ai move received', {
+      from: String(move.from),
+      to: String(move.to),
+      die: move.die,
+      choice,
+      explained: explanation === null ? 'no' : 'yes',
+      streamed: streamed === null ? 'no' : 'yes',
+    })
+    return ok(move, choice, explanation)
   }
 
-  logger.debug('ai move received', {
-    from: String(move.from),
-    to: String(move.to),
-    die: move.die,
-    choice,
-    explained: explanation === null ? 'no' : 'yes',
-  })
-  return ok(move, choice, explanation)
+  if (streamed !== null && streamed.failed) {
+    // The reader stopped mid-reply. Which of the three clocks did it, and does the player retry?
+    const timeout = ctx.timedOut()
+    if (timeout) {
+      return fail('timeout', 'The provider took too long to answer.')
+    }
+    if (ctx.signal.aborted) {
+      return fail('aborted', 'The request was cancelled.')
+    }
+    return fail('network', 'The reply stopped before the move was complete.')
+  }
+
+  const preview = text.replace(/\s+/g, ' ').trim().slice(0, 160)
+  // No JSON object at all is a protocol failure; a well-formed but unlisted move is the model's.
+  const code: AiErrorCode = extractJsonObject(text) === null ? 'bad-response' : 'illegal-move'
+  const cut = streamed !== null && streamed.truncated ? ' The reply was cut off at the size limit.' : ''
+  const error =
+    code === 'bad-response'
+      ? `The reply was not a JSON object: ${preview.length > 0 ? preview : '(empty)'}${cut}`
+      : `The model chose a move that is not legal here: ${preview.length > 0 ? preview : '(empty)'}${cut}`
+  return fail(code, error)
 }
 
 /**
@@ -696,11 +787,18 @@ function dispatch(provider: AiProvider, ctx: MoveContext): Promise<AiResult> {
   }
 }
 
-/** One retry for genuinely transient failures, honouring `Retry-After` when the provider sends it. */
+/**
+ * One retry for genuinely transient failures, honouring `Retry-After` when the provider sends it.
+ *
+ * `consumed` reports whether any part of the reply already arrived. A stream that got that far is never
+ * replayed: the tokens were paid for, the player watched them land, and a second attempt would double
+ * the cost of a turn that is visibly failing. Failures before the first byte keep the old behaviour.
+ */
 async function withTransientRetry(
   attempt: () => Promise<AiResult>,
   provider: AiProvider,
   cancelled: () => boolean,
+  consumed: () => boolean = () => false,
 ): Promise<AiResult> {
   for (let attemptNo = 0; attemptNo <= AI_TRANSIENT_RETRIES; attemptNo += 1) {
     const result = await attempt()
@@ -710,6 +808,7 @@ async function withTransientRetry(
       failure === null ||
       !isTransient(failure.code) ||
       cancelled() ||
+      consumed() ||
       attemptNo === AI_TRANSIENT_RETRIES
     ) {
       return result
@@ -774,13 +873,45 @@ export async function getAiMove(
   const timeoutMs = options.timeoutMs ?? AI_TIMEOUT_MS
   const difficulty = difficultyOf(config)
   const { maxTokens, temperature } = budgetFor(difficulty)
+  // Streamed only when somebody is watching and the provider speaks this dialect: the buffered path
+  // is byte-for-byte what it always was for Anthropic and Google, and for callers with no listener.
+  const wantsStream = options.onDelta !== undefined && supportsStreaming(config.provider)
   const prompt = buildMovePrompt(board, player, legal, difficulty)
   let timedOut = false
+  let sawBytes = false
   const controller = new AbortController()
-  const timer = setTimeout(() => {
+
+  const expire = (): void => {
     timedOut = true
     controller.abort()
-  }, timeoutMs)
+  }
+
+  // Clock 1 covers the wait for the provider to start answering at all. It is retired by the first
+  // streamed byte, after which clocks 2 (idle) and 3 (absolute) take over — see `AI_STREAM_IDLE_MS`.
+  let connectTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(expire, timeoutMs)
+  let idleTimer: ReturnType<typeof setTimeout> | undefined
+  let totalTimer: ReturnType<typeof setTimeout> | undefined
+
+  const stopTimer = (timer: ReturnType<typeof setTimeout> | undefined): undefined => {
+    if (timer !== undefined) {
+      clearTimeout(timer)
+    }
+    return undefined
+  }
+
+  const budget: AiStreamBudget = {
+    firstByte(): void {
+      sawBytes = true
+      connectTimer = stopTimer(connectTimer)
+      totalTimer = setTimeout(expire, AI_STREAM_TOTAL_MS)
+      idleTimer = setTimeout(expire, AI_STREAM_IDLE_MS)
+    },
+    activity(): void {
+      idleTimer = stopTimer(idleTimer)
+      idleTimer = setTimeout(expire, AI_STREAM_IDLE_MS)
+    },
+  }
+
   const relay = (): void => controller.abort()
   options.signal?.addEventListener('abort', relay, { once: true })
 
@@ -797,6 +928,9 @@ export async function getAiMove(
     difficulty,
     maxTokens,
     temperature,
+    stream: wantsStream,
+    onDelta: options.onDelta,
+    budget,
   }
 
   logger.debug('ai move requested', {
@@ -805,6 +939,7 @@ export async function getAiMove(
     difficulty,
     maxTokens: String(maxTokens),
     menu: legal.length,
+    stream: wantsStream ? 'yes' : 'no',
   })
 
   try {
@@ -812,9 +947,14 @@ export async function getAiMove(
       () => dispatch(config.provider, ctx),
       config.provider,
       () => timedOut || controller.signal.aborted,
+      // A reply that already started arriving is never replayed: the provider was paid for those
+      // tokens, and a second attempt would double the cost of a turn the player can see failing.
+      () => sawBytes,
     )
   } finally {
-    clearTimeout(timer)
+    stopTimer(connectTimer)
+    stopTimer(idleTimer)
+    stopTimer(totalTimer)
     options.signal?.removeEventListener('abort', relay)
   }
 }
