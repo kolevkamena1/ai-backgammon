@@ -43,23 +43,13 @@ function sessionId(): string {
 
 function send(event: AnalyticsEvent): void {
   const body = JSON.stringify(event)
-  console.log('[telemetry] sending:', event.type, event)
   void fetch(COLLECT_URL, {
     method: 'POST',
     body,
     headers: { 'content-type': 'application/json' },
+  }).catch(() => {
+    // Fail soft: telemetry errors must never disrupt gameplay
   })
-    .then((res) => {
-      console.log(`[telemetry] ${event.type} -> HTTP ${res.status}`)
-    })
-    .catch((err) => {
-      console.warn(`[telemetry] fetch failed for ${event.type}, attempting sendBeacon:`, err)
-      try {
-        navigator.sendBeacon(COLLECT_URL, body)
-      } catch {
-        // Ignored
-      }
-    })
 }
 
 function referrerHost(): string | null {
