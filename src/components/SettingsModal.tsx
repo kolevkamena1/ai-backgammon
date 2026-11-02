@@ -108,13 +108,13 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
       icon={KeyRound}
       onClose={onClose}
       closeLabel="Close settings"
-      panelClassName="max-w-5xl"
+      panelClassName="w-[96vw] max-w-7xl p-4"
     >
-      <form className="space-y-4" onSubmit={handleSubmit}>
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3">
+      <form className="space-y-3" onSubmit={handleSubmit}>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-950/70 px-3.5 py-2">
           <label
             htmlFor="settings-use-two-byok"
-            className="flex cursor-pointer items-center gap-3 select-none"
+            className="flex cursor-pointer items-center gap-2.5 select-none"
           >
             <input
               id="settings-use-two-byok"
@@ -123,19 +123,18 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
               onChange={(event) => setUseTwoByok(event.target.checked)}
               className="size-4 rounded border-slate-600 bg-slate-900 text-sky-500 focus:ring-2 focus:ring-sky-500/40"
             />
-            <div>
-              <span className="block text-sm font-semibold text-slate-100">
-                Use two different BYOK
-              </span>
-              <span className="block text-xs text-slate-400">
-                {useTwoByok
-                  ? 'BYOK 1 plays White and BYOK 2 plays Black in AI vs AI matches.'
-                  : 'BYOK 2 is disabled — BYOK 1 powers every AI seat.'}
-              </span>
-            </div>
+            <span className="text-sm font-semibold text-slate-100">
+              Use two different BYOK
+            </span>
+            <span className="hidden text-xs text-slate-400 sm:inline">
+              —{' '}
+              {useTwoByok
+                ? 'BYOK 1 plays White and BYOK 2 plays Black in AI vs AI matches.'
+                : 'BYOK 2 is disabled; BYOK 1 powers every AI seat.'}
+            </span>
           </label>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
               onClick={handleCopyByok1ToByok2}
@@ -143,10 +142,10 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
               title="Copy provider, API key, model, and parameters from BYOK 1 into BYOK 2"
               className={cn(
                 BUTTON,
-                'border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-800',
+                'border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800',
               )}
             >
-              <Copy className="size-3.5 text-sky-400" aria-hidden />
+              <Copy className="size-3 text-sky-400" aria-hidden />
               Copy BYOK 1 → BYOK 2
             </button>
             <button
@@ -156,44 +155,39 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
               title="Swap BYOK 1 and BYOK 2 configurations"
               className={cn(
                 BUTTON,
-                'border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 hover:bg-slate-800',
+                'border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800',
               )}
             >
-              <ArrowLeftRight className="size-3.5 text-sky-400" aria-hidden />
+              <ArrowLeftRight className="size-3 text-sky-400" aria-hidden />
               Swap 1 ↔ 2
             </button>
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-3 lg:grid-cols-2">
           {/* BYOK 1 Panel */}
           <section
             aria-labelledby="byok1-heading"
-            className="flex flex-col justify-between rounded-xl border border-slate-800 bg-slate-950/40 p-4"
+            className="flex flex-col justify-between rounded-xl border border-slate-800 bg-slate-950/40 p-3"
           >
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 id="byok1-heading" className="text-sm font-semibold text-slate-100">
-                      BYOK 1
-                    </h3>
-                    <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-300">
-                      {useTwoByok ? 'White (AI vs AI) · AI (Human vs AI)' : 'All AI seats'}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-xs text-slate-400">
-                    Primary engine configuration stored in <code>ai-backgammon:settings</code>.
-                  </p>
+            <div className="space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 id="byok1-heading" className="text-sm font-semibold text-slate-100">
+                    BYOK 1
+                  </h3>
+                  <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium text-sky-300">
+                    {useTwoByok ? 'White (AI vs AI) · AI (Human vs AI)' : 'All AI seats'}
+                  </span>
                 </div>
 
                 <button
                   type="button"
                   onClick={handleRemoveByok1}
                   disabled={!isConfigured && byok1.draft.apiKey.trim().length === 0}
-                  className={cn(BUTTON, 'px-2.5 py-1 text-xs text-red-300 hover:bg-red-500/10')}
+                  className={cn(BUTTON, 'px-2 py-0.5 text-xs text-red-300 hover:bg-red-500/10')}
                 >
-                  <Trash className="size-3.5" aria-hidden />
+                  <Trash className="size-3" aria-hidden />
                   Remove key
                 </button>
               </div>
@@ -212,41 +206,34 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
           <section
             aria-labelledby="byok2-heading"
             className={cn(
-              'flex flex-col justify-between rounded-xl border p-4 transition',
+              'flex flex-col justify-between rounded-xl border p-3 transition',
               useTwoByok
                 ? 'border-slate-800 bg-slate-950/40'
                 : 'border-slate-800/60 bg-slate-950/20',
             )}
           >
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3
-                      id="byok2-heading"
-                      className={cn(
-                        'text-sm font-semibold',
-                        useTwoByok ? 'text-slate-100' : 'text-slate-400',
-                      )}
-                    >
-                      BYOK 2
-                    </h3>
-                    <span
-                      className={cn(
-                        'rounded-full border px-2 py-0.5 text-[11px] font-medium',
-                        useTwoByok
-                          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-                          : 'border-slate-700 bg-slate-800/80 text-slate-400',
-                      )}
-                    >
-                      {useTwoByok ? 'Black (AI vs AI)' : 'Disabled · Mirroring BYOK 1'}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-xs text-slate-400">
-                    {useTwoByok
-                      ? 'Secondary opponent engine for custom AI vs AI matches.'
-                      : 'Turn on "Use two different BYOK" above to unlock these fields.'}
-                  </p>
+            <div className="space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3
+                    id="byok2-heading"
+                    className={cn(
+                      'text-sm font-semibold',
+                      useTwoByok ? 'text-slate-100' : 'text-slate-400',
+                    )}
+                  >
+                    BYOK 2
+                  </h3>
+                  <span
+                    className={cn(
+                      'rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                      useTwoByok
+                        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                        : 'border-slate-700 bg-slate-800/80 text-slate-400',
+                    )}
+                  >
+                    {useTwoByok ? 'Black (AI vs AI)' : 'Disabled · Mirroring BYOK 1'}
+                  </span>
                 </div>
 
                 <button
@@ -255,9 +242,9 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
                   disabled={
                     !useTwoByok || (!opponentConfigured && byok2.draft.apiKey.trim().length === 0)
                   }
-                  className={cn(BUTTON, 'px-2.5 py-1 text-xs text-red-300 hover:bg-red-500/10')}
+                  className={cn(BUTTON, 'px-2 py-0.5 text-xs text-red-300 hover:bg-red-500/10')}
                 >
-                  <Trash className="size-3.5" aria-hidden />
+                  <Trash className="size-3" aria-hidden />
                   Remove key
                 </button>
               </div>
@@ -266,7 +253,7 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
                 disabled={!useTwoByok}
                 aria-disabled={!useTwoByok}
                 className={cn(
-                  'space-y-4 transition-opacity',
+                  'space-y-2.5 transition-opacity',
                   !useTwoByok && 'pointer-events-none select-none opacity-40 grayscale',
                 )}
               >
@@ -282,16 +269,6 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
           </section>
         </div>
 
-        <div className="flex gap-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-          <ShieldAlert className="size-4 shrink-0 text-amber-400" aria-hidden />
-          <p className="text-xs leading-relaxed text-slate-400">
-            Keys are saved in this browser&rsquo;s <code>localStorage</code> and are forwarded to
-            your provider through the same-origin <code>/api/ai-proxy</code> relay (never stored or
-            logged there). Anyone with access to this device can read them — use dedicated,
-            revocable keys.
-          </p>
-        </div>
-
         {error ? (
           <p
             role="alert"
@@ -301,18 +278,31 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
           </p>
         ) : null}
 
-        <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
-          <button
-            type="button"
-            onClick={onClose}
-            className={cn(BUTTON, 'text-slate-300 hover:bg-slate-800')}
-          >
-            Cancel
-          </button>
-          <button type="submit" className={cn(BUTTON, 'bg-sky-600 text-white hover:bg-sky-500')}>
-            <Check className="size-4" aria-hidden />
-            Save settings
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800/80 pt-2.5">
+          <div className="flex items-center gap-2 text-[11px] text-slate-400">
+            <ShieldAlert className="size-3.5 shrink-0 text-amber-400" aria-hidden />
+            <span>
+              Keys are stored in <code>localStorage</code> and relayed via same-origin{' '}
+              <code>/api/ai-proxy</code> (never logged). Use dedicated, revocable keys.
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className={cn(BUTTON, 'px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800')}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className={cn(BUTTON, 'bg-sky-600 px-3.5 py-1.5 text-xs text-white hover:bg-sky-500')}
+            >
+              <Check className="size-3.5" aria-hidden />
+              Save settings
+            </button>
+          </div>
         </div>
       </form>
     </Modal>
