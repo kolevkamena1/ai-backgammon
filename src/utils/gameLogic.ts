@@ -179,20 +179,12 @@ function hasCheckerFarther(board: BoardState, player: PlayerColor, index: PointI
 }
 
 /**
- * Every single-die move available right now, deduplicated (four equal dice still offer each
- * destination once).
- *
- * Deliberately move-at-a-time rather than full sequences: `applyMove` re-derives the options
- * after every step, which is what click-to-move needs. Two sequence-level rules are therefore
- * NOT enforced yet — playing the maximum number of pips when a choice exists, and preferring the
- * larger die when only one is playable. See README "Known rules gaps".
+ * Every single-die move that is structurally possible, deduplicated, with no regard for what the
+ * remaining dice could do afterwards. `getLegalMoves` narrows this with the sequence-level rules;
+ * on its own it answers "can anything move at all?", which is all `canPlay` needs.
  */
-export function getLegalMoves(
-  board: BoardState,
-  player: PlayerColor,
-  dice: readonly DieFace[],
-): Move[] {
-  if (board.phase === 'finished' || board.winner !== null || dice.length === 0) {
+function candidateMoves(board: BoardState, player: PlayerColor, dice: readonly DieFace[]): Move[] {
+  if (dice.length === 0) {
     return []
   }
 
@@ -249,9 +241,128 @@ export function getLegalMoves(
   })
 }
 
+/**
+ * Moves one checker on the board — lifting, hitting, landing, bearing off — and nothing else: no
+ * dice, no turn, no winner. Shared by `applyMove` and the sequence search, so a hypothetical line
+ * and a real move can never disagree about where the checkers end up. Assumes `move` came from
+ * `candidateMoves` (or was validated by the caller).
+ */
+function moveChecker(board: BoardState, move: Move, player: PlayerColor): BoardState {
+  const points = [...board.points]
+  const bar = { ...board.bar }
+  const off = { ...board.off }
+
+  if (move.from === 'bar') {
+    bar[player] -= 1
+  } else {
+    points[move.from - 1] = pointValue(board, move.from) - sign(player)
+  }
+
+  if (move.to === 'off') {
+    off[player] += 1
+  } else {
+    let landing = pointValue(board, move.to)
+    if (landing !== 0 && landing * sign(player) < 0) {
+      // Exactly one enemy checker (isEnterable already ruled out 2+): send the blot to the bar.
+      landing = 0
+      bar[otherPlayer(player)] += 1
+    }
+    points[move.to - 1] = landing + sign(player)
+  }
+
+  return { ...board, points, bar, off }
+}
+
+function withoutOneDie(dice: readonly DieFace[], die: DieFace): DieFace[] {
+  const rest = [...dice]
+  const index = rest.indexOf(die)
+  if (index !== -1) {
+    rest.splice(index, 1)
+  }
+  return rest
+}
+
+/**
+ * The most dice a sequence starting with `move` can play. A move that bears off the last checker
+ * counts as playing every die: the game is over, and nothing is left to be forced.
+ */
+function diceUsedStartingWith(
+  board: BoardState,
+  player: PlayerColor,
+  dice: readonly DieFace[],
+  move: Move,
+): number {
+  const next = moveChecker(board, move, player)
+  if (next.off[player] >= CHECKERS_PER_PLAYER) {
+    return dice.length
+  }
+  return 1 + mostDicePlayable(next, player, withoutOneDie(dice, move.die))
+}
+
+/** Depth-first search for the longest playable sequence. At most four plies deep. */
+function mostDicePlayable(board: BoardState, player: PlayerColor, dice: readonly DieFace[]): number {
+  let best = 0
+
+  for (const move of candidateMoves(board, player, dice)) {
+    best = Math.max(best, diceUsedStartingWith(board, player, dice, move))
+    if (best === dice.length) {
+      // Nothing can beat playing every die, so stop searching.
+      break
+    }
+  }
+
+  return best
+}
+
+/**
+ * Every single-die move legal right now, deduplicated (four equal dice still offer each
+ * destination once).
+ *
+ * Moves are still offered one at a time, which is what click-to-move and the AI menu need, but
+ * each one is checked against the whole turn so the two sequence-level rules hold:
+ *
+ *   1. a player must use as many dice as the position allows, so a first move that leaves a
+ *      playable die stranded is not offered when another order plays them all;
+ *   2. when only one die of a non-double roll can be played, it must be the larger one if that
+ *      is possible.
+ *
+ * Because each step only offers moves that begin a longest sequence, re-deriving the options after
+ * every `applyMove` keeps the whole turn legal.
+ */
+export function getLegalMoves(
+  board: BoardState,
+  player: PlayerColor,
+  dice: readonly DieFace[],
+): Move[] {
+  if (board.phase === 'finished' || board.winner !== null || dice.length === 0) {
+    return []
+  }
+
+  const candidates = candidateMoves(board, player, dice)
+  if (candidates.length <= 1 && dice.length === 1) {
+    return candidates
+  }
+
+  const scored = candidates.map((move) => ({ move, used: diceUsedStartingWith(board, player, dice, move) }))
+  const most = scored.reduce((max, entry) => Math.max(max, entry.used), 0)
+  let legal = scored.filter((entry) => entry.used === most).map((entry) => entry.move)
+
+  const distinctDice = new Set(dice)
+  if (most === 1 && dice.length === 2 && distinctDice.size === 2) {
+    const larger = Math.max(...legal.map((move) => move.die))
+    legal = legal.filter((move) => move.die === larger)
+  }
+
+  return legal
+}
+
 /** Does the player have any move at all with these dice? If not, the turn passes. */
 export function canPlay(board: BoardState, player: PlayerColor, dice: readonly DieFace[]): boolean {
-  return getLegalMoves(board, player, dice).length > 0
+  if (board.phase === 'finished' || board.winner !== null) {
+    return false
+  }
+  // The sequence rules only ever narrow a non-empty set, so "any candidate" is the same answer.
+  return candidateMoves(board, player, dice).length > 0
 }
 
 /** Hands the turn over: flips `turn`, discards unplayed dice, puts the game in play. */
