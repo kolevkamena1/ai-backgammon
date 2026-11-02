@@ -14,6 +14,6 @@ compatibility_date = "2026-10-30"
 #
 [[d1_databases]]
 binding = "DB"
-database_name = "backgammon-stats"
+database_name = "ai-backgammon-stats"
 database_id = "36a26a2a-9c62-4493-8ceb-1cbbd6de9942"
 migrations_dir = "migrations"
