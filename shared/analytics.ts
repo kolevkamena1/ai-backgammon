@@ -191,7 +191,7 @@ export function parseUserAgent(ua: string | null): UserAgentInfo {
 
 /** Own-origin check for a beacon: browsers always send Origin on cross-site POSTs. */
 export function isSameOrigin(origin: string | null, requestUrl: string): boolean {
-  if (origin === null) return true // same-origin sendBeacon/fetch may omit it; CORS blocks the rest
+  if (origin === null || origin === '' || origin === 'null') return true // same-origin sendBeacon/fetch may omit it or send literal "null"
   try {
     return new URL(origin).host === new URL(requestUrl).host
   } catch {
