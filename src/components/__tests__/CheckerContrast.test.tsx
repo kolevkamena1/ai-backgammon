@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
-import Board from '@/components/Board'
+import Board, {
+  computeBoardMetrics,
+  computeResizedDimensions,
+  DEFAULT_BOARD_DIMENSIONS,
+} from '@/components/Board'
 import Checker from '@/components/Checker'
 import Point from '@/components/Point'
 import { act } from 'react'
@@ -96,5 +100,39 @@ describe('checker contrast', () => {
     )
     expect(discs).toHaveLength(6)
     expect(stack?.textContent ?? '').toContain('+3')
+  })
+
+  it('resizes width on left/right edges, height on top/bottom edges, and locks aspect ratio on corners', () => {
+    const start = { width: 800, height: 400 } // 2:1 aspect ratio
+
+    // Right / Left edge: only width changes (symmetrically around center)
+    expect(computeResizedDimensions('right', start, 50, 30)).toEqual({ width: 900, height: 400 })
+    expect(computeResizedDimensions('left', start, -50, 30)).toEqual({ width: 900, height: 400 })
+
+    // Bottom / Top edge: only height changes
+    expect(computeResizedDimensions('bottom', start, 40, 60)).toEqual({ width: 800, height: 460 })
+    expect(computeResizedDimensions('top', start, 40, -60)).toEqual({ width: 800, height: 460 })
+
+    // Corner handles: preserve exact 2:1 aspect ratio
+    const cornerGrown = computeResizedDimensions('bottom-right', start, 100, 20)
+    expect(cornerGrown.width / cornerGrown.height).toBeCloseTo(start.width / start.height, 2)
+    expect(cornerGrown).toEqual({ width: 1000, height: 500 })
+
+    const cornerShrunk = computeResizedDimensions('top-left', start, 80, 10)
+    expect(cornerShrunk.width / cornerShrunk.height).toBeCloseTo(start.width / start.height, 2)
+    expect(cornerShrunk).toEqual({ width: 640, height: 320 })
+  })
+
+  it('scales circular checkers with board dimensions and never overflows triangle bounds', () => {
+    const base = computeBoardMetrics(
+      DEFAULT_BOARD_DIMENSIONS.width,
+      DEFAULT_BOARD_DIMENSIONS.height,
+    )
+    const larger = computeBoardMetrics(1100, 520)
+    const smaller = computeBoardMetrics(480, 280)
+
+    expect(larger.checkerSize).toBeGreaterThan(base.checkerSize)
+    expect(smaller.checkerSize).toBeLessThan(base.checkerSize)
+    expect(larger.quadrantHeight).toBeGreaterThan(base.quadrantHeight)
   })
 })

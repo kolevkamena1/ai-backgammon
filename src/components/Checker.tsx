@@ -23,8 +23,12 @@ const CHECKER_STYLES: Record<PlayerColor, string> = {
 const Checker = ({ owner, className }: CheckerProps) => (
   <span
     aria-hidden
+    style={{
+      width: 'var(--checker-size, 1rem)',
+      height: 'var(--checker-size, 1rem)',
+    }}
     className={cn(
-      'block size-4 shrink-0 rounded-full border-2 shadow-md shadow-black/45',
+      'block size-4 aspect-square shrink-0 rounded-full border-2 shadow-md shadow-black/45',
       CHECKER_STYLES[owner],
       className,
     )}
