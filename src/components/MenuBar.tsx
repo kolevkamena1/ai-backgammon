@@ -43,6 +43,7 @@ interface MenuItemProps {
   icon?: ReactNode
   shortcut?: string
   checked?: boolean
+  active?: boolean
   disabled?: boolean
   hasSubmenu?: boolean
   onClick?: () => void
@@ -54,6 +55,7 @@ const MenuItem = ({
   icon,
   shortcut,
   checked,
+  active,
   disabled = false,
   hasSubmenu = false,
   onClick,
@@ -70,13 +72,17 @@ const MenuItem = ({
         'group flex w-full items-center justify-between gap-4 rounded-lg px-3 py-2 text-left text-sm transition-colors',
         disabled
           ? 'cursor-not-allowed text-slate-500 opacity-50'
-          : 'cursor-pointer text-slate-200 hover:bg-sky-600 hover:text-white',
+          : checked
+            ? 'bg-sky-500/15 font-semibold text-sky-700 dark:text-sky-300 hover:bg-sky-600 hover:text-white'
+            : active
+              ? 'bg-slate-800/80 font-medium text-slate-100 hover:bg-sky-600 hover:text-white'
+              : 'cursor-pointer text-slate-200 hover:bg-sky-600 hover:text-white',
       )}
     >
       <span className="flex items-center gap-2.5">
         <span className="size-4 flex items-center justify-center shrink-0">
           {checked ? (
-            <Check className="size-4 stroke-[2.5]" aria-hidden />
+            <Check className="size-4 stroke-[2.5] text-sky-600 dark:text-sky-400 group-hover:text-white" aria-hidden />
           ) : (
             icon
           )}
@@ -187,7 +193,7 @@ export default function MenuBar({
             'rounded-md px-3.5 py-1.5 text-sm font-semibold transition',
             openMenu === 'game'
               ? 'bg-sky-600 text-white shadow-sm ring-1 ring-sky-400/50'
-              : 'text-slate-200 hover:bg-slate-800 hover:text-white',
+              : 'text-slate-200 hover:bg-slate-800/80 hover:text-slate-50',
           )}
         >
           Game
@@ -208,6 +214,7 @@ export default function MenuBar({
                 label="New Game"
                 icon={<Swords className="size-4 text-sky-400" aria-hidden />}
                 hasSubmenu
+                active={activeSubmenu === 'new-game'}
                 onClick={() => setActiveSubmenu('new-game')}
               />
 
@@ -283,7 +290,7 @@ export default function MenuBar({
             'rounded-md px-3.5 py-1.5 text-sm font-semibold transition',
             openMenu === 'view'
               ? 'bg-sky-600 text-white shadow-sm ring-1 ring-sky-400/50'
-              : 'text-slate-200 hover:bg-slate-800 hover:text-white',
+              : 'text-slate-200 hover:bg-slate-800/80 hover:text-slate-50',
           )}
         >
           View
@@ -304,6 +311,7 @@ export default function MenuBar({
                 label="Board Style"
                 icon={<Palette className="size-4 text-sky-400" aria-hidden />}
                 hasSubmenu
+                active={activeSubmenu === 'board-style'}
                 onClick={() => setActiveSubmenu('board-style')}
               />
 
@@ -325,13 +333,17 @@ export default function MenuBar({
                           closeAll()
                         }}
                         className={cn(
-                          'flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-sky-600 hover:text-white',
-                          isChecked ? 'font-semibold text-white' : 'text-slate-200',
+                          'group flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-sky-600 hover:text-white cursor-pointer',
+                          isChecked
+                            ? 'bg-sky-500/15 font-semibold text-sky-700 dark:text-sky-300'
+                            : 'text-slate-200',
                         )}
                       >
                         <span className="flex items-center gap-2.5">
                           <span className="size-4 flex items-center justify-center shrink-0">
-                            {isChecked ? <Check className="size-4 stroke-[2.5]" aria-hidden /> : null}
+                            {isChecked ? (
+                              <Check className="size-4 stroke-[2.5] text-sky-600 dark:text-sky-400 group-hover:text-white" aria-hidden />
+                            ) : null}
                           </span>
                           <span>{design.name}</span>
                         </span>
@@ -364,6 +376,7 @@ export default function MenuBar({
                 label="Color Theme"
                 icon={theme === 'light' ? <Sun className="size-4 text-amber-400" /> : <Moon className="size-4 text-sky-400" />}
                 hasSubmenu
+                active={activeSubmenu === 'theme'}
                 onClick={() => setActiveSubmenu('theme')}
               />
 
@@ -418,7 +431,7 @@ export default function MenuBar({
             'rounded-md px-3.5 py-1.5 text-sm font-semibold transition',
             openMenu === 'options'
               ? 'bg-sky-600 text-white shadow-sm ring-1 ring-sky-400/50'
-              : 'text-slate-200 hover:bg-slate-800 hover:text-white',
+              : 'text-slate-200 hover:bg-slate-800/80 hover:text-slate-50',
           )}
         >
           Options
@@ -454,7 +467,7 @@ export default function MenuBar({
             'rounded-md px-3.5 py-1.5 text-sm font-semibold transition',
             openMenu === 'help'
               ? 'bg-sky-600 text-white shadow-sm ring-1 ring-sky-400/50'
-              : 'text-slate-200 hover:bg-slate-800 hover:text-white',
+              : 'text-slate-200 hover:bg-slate-800/80 hover:text-slate-50',
           )}
         >
           Help

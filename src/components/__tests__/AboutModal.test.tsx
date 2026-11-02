@@ -34,6 +34,8 @@ describe('AboutModal', () => {
     expect(text()).toContain('Model vs Model Arena')
     expect(text()).toContain('Just for Fun')
     expect(text()).toContain('Local & Private BYOK Architecture')
+    expect(text()).toContain('Kamen Kolev')
+    expect(text()).toContain('www.kamenonline.com')
   })
 
   it('provides a link to the GitHub README and triggers onClose', () => {
@@ -42,9 +44,14 @@ describe('AboutModal', () => {
       root.render(<AboutModal onClose={onClose} />)
     })
 
-    const link = host.querySelector('a[href*="github.com"]')
-    expect(link).toBeTruthy()
-    expect(link?.getAttribute('href')?.toLowerCase()).toContain('readme')
+    const readmeLink = host.querySelector('a[href*="#readme"]')
+    expect(readmeLink).toBeTruthy()
+
+    const repoLink = host.querySelector('a[href="https://github.com/kolevkamena1/ai-backgammon"]')
+    expect(repoLink).toBeTruthy()
+
+    const websiteLink = host.querySelector('a[href="https://www.kamenonline.com"]')
+    expect(websiteLink).toBeTruthy()
 
     const closeBtn = Array.from(host.querySelectorAll('button')).find((b) => b.textContent === 'Close')
     expect(closeBtn).toBeTruthy()

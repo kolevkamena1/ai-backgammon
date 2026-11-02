@@ -56,19 +56,23 @@ const App = () => {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-slate-950 text-slate-100">
-      <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-900/90 shadow-md backdrop-blur-md shrink-0">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-2">
-          <div>
-            <h1 className="flex items-center gap-2 text-lg font-bold tracking-tight text-slate-50">
-              <Dices className="size-5 text-amber-400" aria-hidden />
-              AI Backgammon
-            </h1>
-            <p className="text-xs text-slate-400">Bring-your-own-key inference · Classic rules, turns & live AI seats</p>
-          </div>
-        </div>
+      <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-900/95 shadow-md backdrop-blur-md shrink-0">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-3 sm:px-4 py-2">
+          <div className="flex items-center gap-3 sm:gap-4 overflow-x-auto">
+            {/* 'AI Backgammon' branding on the far lefthand side */}
+            <div className="flex items-center gap-2.5 pr-3 sm:pr-4 border-r border-slate-700/60 shrink-0">
+              <Dices className="size-5 text-amber-400 shrink-0" aria-hidden />
+              <div className="flex flex-col">
+                <h1 className="text-sm font-bold tracking-tight text-slate-50 leading-tight">
+                  AI Backgammon
+                </h1>
+                <p className="text-[10px] text-slate-400 leading-none hidden md:block">
+                  Bring-your-own-key inference · Classic rules, turns & live AI seats
+                </p>
+              </div>
+            </div>
 
-        <div className="border-t border-slate-800/80 bg-slate-950/40">
-          <div className="mx-auto w-full max-w-7xl px-3 py-1">
+            {/* Menu items on the exact same level */}
             <MenuBar
               isGameActive={game.active}
               onOpenNewGame={handleOpenNewGame}
@@ -121,9 +125,31 @@ const App = () => {
       </main>
 
       <footer className="border-t border-slate-800 px-4 py-1.5 shrink-0 bg-slate-900/60">
-        <p className="mx-auto max-w-7xl text-[11px] text-slate-500 truncate">
-          Credentials persist in <code>localStorage</code> · Vite + React + Tailwind CSS · Deploys to Cloudflare Pages
-        </p>
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+          <p>
+            Created by <span className="font-semibold text-slate-300">Kamen Kolev</span> ·{' '}
+            <a
+              href="https://www.kamenonline.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sky-400 hover:underline"
+            >
+              www.kamenonline.com
+            </a>
+          </p>
+          <div className="flex items-center gap-3">
+            <a
+              href="https://github.com/kolevkamena1/ai-backgammon"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-slate-400 hover:text-slate-200 hover:underline"
+            >
+              GitHub Repository
+            </a>
+            <span>·</span>
+            <span>Vite + React + Tailwind CSS</span>
+          </div>
+        </div>
       </footer>
 
       {isSetupOpen ? (

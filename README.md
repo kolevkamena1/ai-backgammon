@@ -597,3 +597,10 @@ only once the production CSS pipeline is stable.
    section used to promise are in.
 5. **Phase 5 — polish:** spectator controls for AI vs AI, drag-and-drop, animations,
    accessibility pass, persistence of games.
+
+## Author & Links
+
+- **Author & Developer:** Kamen Kolev
+- **Website:** [www.kamenonline.com](https://www.kamenonline.com)
+- **Repository:** [https://github.com/kolevkamena1/ai-backgammon](https://github.com/kolevkamena1/ai-backgammon)
+

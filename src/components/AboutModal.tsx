@@ -1,5 +1,16 @@
 import Modal from '@/components/ui/Modal'
-import { Brain, Dices, ExternalLink, Gamepad2, ShieldCheck, Sparkles, Swords } from 'lucide-react'
+import {
+  Brain,
+  Code2,
+  Dices,
+  ExternalLink,
+  Gamepad2,
+  Globe,
+  ShieldCheck,
+  Sparkles,
+  Swords,
+  User,
+} from 'lucide-react'
 
 interface AboutModalProps {
   onClose: () => void
@@ -7,6 +18,7 @@ interface AboutModalProps {
 
 export const GITHUB_REPO_URL = 'https://github.com/kolevkamena1/ai-backgammon'
 export const GITHUB_README_URL = 'https://github.com/kolevkamena1/ai-backgammon#readme'
+export const AUTHOR_WEBSITE_URL = 'https://www.kamenonline.com'
 
 export default function AboutModal({ onClose }: AboutModalProps) {
   return (
@@ -85,6 +97,41 @@ export default function AboutModal({ onClose }: AboutModalProps) {
             Your API keys and settings never leave your browser. Requests go directly from your machine to your
             chosen cloud provider (OpenAI, Anthropic, Google) or your own local endpoints (Ollama, vLLM, LM Studio).
           </p>
+        </div>
+
+        {/* Developer & Author Attribution */}
+        <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-slate-100 font-semibold">
+              <User className="size-4 text-sky-400 shrink-0" aria-hidden />
+              <span>Author & Developer</span>
+            </div>
+            <span className="font-semibold text-slate-200">Kamen Kolev</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4 pt-1.5 border-t border-slate-800/80 text-xs">
+            <a
+              href={AUTHOR_WEBSITE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300 hover:underline transition"
+            >
+              <Globe className="size-3.5" aria-hidden />
+              <span>www.kamenonline.com</span>
+              <ExternalLink className="size-3 text-slate-500" aria-hidden />
+            </a>
+
+            <a
+              href={GITHUB_REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300 hover:underline transition"
+            >
+              <Code2 className="size-3.5" aria-hidden />
+              <span>GitHub Repository</span>
+              <ExternalLink className="size-3 text-slate-500" aria-hidden />
+            </a>
+          </div>
         </div>
 
         <div className="pt-2 flex items-center justify-between border-t border-slate-800">

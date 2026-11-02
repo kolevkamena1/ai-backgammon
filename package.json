@@ -1,6 +1,12 @@
 {
   "name": "ai-backgammon",
   "description": "AI-powered (BYOK) Backgammon",
+  "author": "Kamen Kolev <kolev.kamen.a1@gmail.com> (https://www.kamenonline.com)",
+  "homepage": "https://www.kamenonline.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kolevkamena1/ai-backgammon"
+  },
   "private": true,
   "version": "0.1.0",
   "type": "module",
