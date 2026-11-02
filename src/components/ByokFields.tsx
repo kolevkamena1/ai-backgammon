@@ -1,9 +1,24 @@
-import { FIELD, HINT, LABEL } from '@/components/ui/controls'
-import type { AiDifficulty, AiEngineConfig, AiProvider } from '@/types/settings'
-import { AI_DIFFICULTIES, DEFAULT_DIFFICULTY, parseDifficulty } from '@/utils/gameConfig'
+import { BUTTON, FIELD, HINT, LABEL } from '@/components/ui/controls'
+import type { AiModelMetadata } from '@/types/ai'
+import type {
+  AiDifficulty,
+  AiEngineConfig,
+  AiInferenceParams,
+  AiProvider,
+  AiThinkingLevel,
+} from '@/types/settings'
+import { DEFAULT_MODELS } from '@/utils/aiClient'
+import {
+  fetchModelMetadata,
+  fetchProviderModels,
+  lookupCatalogMetadata,
+  resolveDefaultParams,
+  resolveEffectiveParams,
+} from '@/utils/aiModels'
 import { cn } from '@/utils/cn'
-import { Eye, EyeOff } from 'lucide-react'
-import { useState } from 'react'
+import { AI_DIFFICULTIES, DEFAULT_DIFFICULTY, parseDifficulty } from '@/utils/gameConfig'
+import { Eye, EyeOff, RefreshCw, RotateCcw, SlidersHorizontal, Sparkles } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 interface ByokFieldsProps {
   /** Prefixes every element id so two instances can coexist without colliding. */
@@ -25,10 +40,17 @@ const PROVIDERS: ReadonlyArray<{ value: AiProvider; label: string }> = [
   { value: 'custom', label: 'Custom (OpenAI-compatible)' },
 ]
 
+const THINKING_LEVELS: ReadonlyArray<{ value: AiThinkingLevel; label: string }> = [
+  { value: 'off', label: 'Off (fastest)' },
+  { value: 'low', label: 'Low (~1k budget)' },
+  { value: 'medium', label: 'Medium (~2k budget)' },
+  { value: 'high', label: 'High (~4k budget)' },
+]
+
 const MODEL_HINTS: Record<AiProvider, string> = {
-  openai: 'gpt-5.1',
-  anthropic: 'claude-sonnet-4-5',
-  google: 'gemini-2.5-flash',
+  openai: 'gpt-4o-mini',
+  anthropic: 'claude-3-5-haiku-latest',
+  google: 'gemini-2.0-flash',
   custom: 'model id served by your endpoint',
 }
 
@@ -38,11 +60,14 @@ function parseProvider(value: string, fallback: AiProvider): AiProvider {
   return match ? match.value : fallback
 }
 
+function parseThinkingLevel(value: string, fallback: AiThinkingLevel): AiThinkingLevel {
+  const match = THINKING_LEVELS.find((entry) => entry.value === value)
+  return match ? match.value : fallback
+}
+
 /**
- * The BYOK inputs — provider, playing strength, API key, model, and the Base URL that only appears
- * for `custom`. Fully controlled: no persistence, no notices, no buttons (the host owns those).
- * Shared by Settings and the Custom-opponent block of the setup modal, which is why a seat's
- * difficulty is carried on `AiEngineConfig` instead of in a UI-only setting.
+ * The BYOK inputs — provider, playing strength, API key, model discovery + metadata lookup,
+ * Base URL (for `custom`), and customizable inference parameters pre-filled from model metadata.
  */
 const ByokFields = ({
   idPrefix,
@@ -53,14 +78,113 @@ const ByokFields = ({
   autoFocusKey = false,
 }: ByokFieldsProps) => {
   const [revealKey, setRevealKey] = useState(false)
+  const [availableModels, setAvailableModels] = useState<AiModelMetadata[]>([])
+  const [loadingModels, setLoadingModels] = useState(false)
+  const [loadingMetadata, setLoadingMetadata] = useState(false)
+  const [endpointMetadata, setEndpointMetadata] = useState<AiModelMetadata | null>(null)
+  const [metadataNotice, setMetadataNotice] = useState<string | null>(null)
+
   const hasStoredKey = Boolean(storedTail)
   const id = (name: string): string => `${idPrefix}-${name}`
 
-  // Read through a default so an engine saved before this field existed still renders a real option
-  // instead of falling back to the browser's first one and quietly changing the level.
   const difficulty: AiDifficulty = value.difficulty ?? DEFAULT_DIFFICULTY
   const difficultyBlurb =
     AI_DIFFICULTIES.find((entry) => entry.value === difficulty)?.blurb ?? ''
+
+  const effectiveModel = value.model.trim() || DEFAULT_MODELS[value.provider]
+  const canQueryEndpoint =
+    value.apiKey.trim().length > 0 &&
+    (value.provider !== 'custom' || (value.baseUrl ?? '').trim().length > 0)
+
+  const metadata: AiModelMetadata =
+    (endpointMetadata !== null && endpointMetadata.id === effectiveModel
+      ? endpointMetadata
+      : null) ??
+    availableModels.find((entry) => entry.id === effectiveModel) ??
+    lookupCatalogMetadata(value.provider, effectiveModel)
+
+  // Query the live model metadata endpoint (debounced) whenever credentials and a model name exist.
+  useEffect(() => {
+    const targetModel = value.model.trim() || DEFAULT_MODELS[value.provider]
+    if (!canQueryEndpoint || targetModel.length === 0) {
+      return
+    }
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => {
+      setLoadingMetadata(true)
+      void fetchModelMetadata(value, targetModel, { signal: controller.signal }).then((res) => {
+        if (controller.signal.aborted) {
+          return
+        }
+        setLoadingMetadata(false)
+        if (res.ok) {
+          setEndpointMetadata(res.metadata)
+          setMetadataNotice(
+            `Loaded metadata for ${res.metadata.displayName} from provider endpoint.`,
+          )
+        }
+      })
+    }, 350)
+
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [value.provider, value.model, value.apiKey, value.baseUrl, canQueryEndpoint, value])
+
+  const handleLoadModels = async (): Promise<void> => {
+    setLoadingModels(true)
+    setMetadataNotice(null)
+    const result = await fetchProviderModels(value)
+    setLoadingModels(false)
+
+    if (!result.ok) {
+      setMetadataNotice(result.error)
+      return
+    }
+
+    setAvailableModels(result.models)
+    const currentId = value.model.trim() || DEFAULT_MODELS[value.provider]
+    const matched = result.models.find((entry) => entry.id === currentId) ?? result.models[0]
+    if (matched) {
+      setEndpointMetadata(matched)
+      if (value.model.trim().length === 0) {
+        onChange({ model: matched.id })
+      }
+    }
+    setMetadataNotice(
+      result.models.length > 0
+        ? `Discovered ${result.models.length} model${result.models.length === 1 ? '' : 's'} from provider.`
+        : 'Provider returned an empty model list.',
+    )
+  }
+
+  const handleFetchMetadataNow = async (): Promise<void> => {
+    setLoadingMetadata(true)
+    setMetadataNotice(null)
+    const result = await fetchModelMetadata(value, effectiveModel)
+    setLoadingMetadata(false)
+    setEndpointMetadata(result.metadata)
+    setMetadataNotice(
+      result.ok
+        ? `Loaded live metadata for ${result.metadata.displayName}.`
+        : (result.error ?? 'Showing catalog defaults for this model.'),
+    )
+  }
+
+  const defaults = resolveDefaultParams(difficulty, metadata)
+  const effective = resolveEffectiveParams(value, metadata)
+  const hasCustomParams = value.params !== undefined && Object.keys(value.params).length > 0
+
+  const patchParams = (changes: Partial<AiInferenceParams>): void => {
+    const merged: AiInferenceParams = { ...(value.params ?? {}), ...changes }
+    onChange({ params: merged })
+  }
+
+  const resetParams = (): void => {
+    onChange({ params: undefined })
+  }
 
   return (
     <>
@@ -72,9 +196,12 @@ const ByokFields = ({
           id={id('provider')}
           className={FIELD}
           value={value.provider}
-          onChange={(event) =>
-            onChange({ provider: parseProvider(event.target.value, value.provider) })
-          }
+          onChange={(event) => {
+            const nextProvider = parseProvider(event.target.value, value.provider)
+            setAvailableModels([])
+            setMetadataNotice(null)
+            onChange({ provider: nextProvider })
+          }}
         >
           {PROVIDERS.map((provider) => (
             <option key={provider.value} value={provider.value}>
@@ -140,22 +267,7 @@ const ByokFields = ({
           {hasStoredKey
             ? `A key ending ${storedTail} is already stored in this browser.`
             : 'Leave empty to keep the AI engine disabled.'}
-          </p>
-      </div>
-
-      <div>
-        <label htmlFor={id('model')} className={LABEL}>
-          Model <span className="text-slate-500">(optional)</span>
-        </label>
-        <input
-          id={id('model')}
-          className={FIELD}
-          placeholder={MODEL_HINTS[value.provider]}
-          autoComplete="off"
-          spellCheck={false}
-          value={value.model}
-          onChange={(event) => onChange({ model: event.target.value })}
-        />
+        </p>
       </div>
 
       {value.provider === 'custom' ? (
@@ -182,6 +294,234 @@ const ByokFields = ({
           </p>
         </div>
       ) : null}
+
+      <div>
+        <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+          <label htmlFor={id('model')} className="text-xs font-medium text-slate-300">
+            Model <span className="text-slate-500">(optional)</span>
+          </label>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => void handleLoadModels()}
+              disabled={loadingModels || !canQueryEndpoint}
+              className={cn(
+                BUTTON,
+                'border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800',
+              )}
+            >
+              <RefreshCw className={cn('size-3', loadingModels && 'animate-spin')} aria-hidden />
+              {loadingModels ? 'Loading…' : 'Fetch models'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleFetchMetadataNow()}
+              disabled={loadingMetadata || effectiveModel.length === 0}
+              className={cn(
+                BUTTON,
+                'border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800',
+              )}
+            >
+              <Sparkles className="size-3 text-sky-400" aria-hidden />
+              {loadingMetadata ? 'Querying…' : 'Query metadata'}
+            </button>
+          </div>
+        </div>
+
+        <input
+          id={id('model')}
+          list={availableModels.length > 0 ? id('model-list') : undefined}
+          className={FIELD}
+          placeholder={MODEL_HINTS[value.provider]}
+          autoComplete="off"
+          spellCheck={false}
+          value={value.model}
+          onChange={(event) => onChange({ model: event.target.value })}
+        />
+
+        {availableModels.length > 0 ? (
+          <>
+            <datalist id={id('model-list')}>
+              {availableModels.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.displayName}
+                </option>
+              ))}
+            </datalist>
+            <div className="mt-1.5">
+              <label htmlFor={id('model-select')} className="sr-only">
+                Select discovered model
+              </label>
+              <select
+                id={id('model-select')}
+                className={cn(FIELD, 'py-1.5 text-xs')}
+                value={value.model.trim() || DEFAULT_MODELS[value.provider]}
+                onChange={(event) => onChange({ model: event.target.value })}
+              >
+                {availableModels.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.displayName}
+                    {entry.contextWindow ? ` (${entry.contextWindow.toLocaleString()} ctx)` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
+        ) : null}
+
+        {metadataNotice ? <p className="mt-1 text-xs text-sky-300">{metadataNotice}</p> : null}
+      </div>
+
+      <fieldset className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/50 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <legend className="flex items-center gap-1.5 text-xs font-semibold text-slate-200">
+            <SlidersHorizontal className="size-3.5 text-sky-400" aria-hidden />
+            Inference parameters
+            <span className="font-normal text-slate-400">
+              · {metadata.source === 'endpoint' ? 'endpoint defaults' : 'catalog defaults'}
+            </span>
+          </legend>
+
+          {hasCustomParams ? (
+            <button
+              type="button"
+              onClick={resetParams}
+              className={cn(BUTTON, 'px-2 py-0.5 text-[11px] text-slate-300 hover:bg-slate-800')}
+            >
+              <RotateCcw className="size-3" aria-hidden />
+              Reset defaults
+            </button>
+          ) : null}
+        </div>
+
+        <p className="text-[11px] text-slate-400">
+          Model <span className="font-mono text-slate-300">{metadata.id}</span>
+          {metadata.contextWindow !== null
+            ? ` · max context ${metadata.contextWindow.toLocaleString()} tokens`
+            : ''}
+          {metadata.maxOutputTokens !== null
+            ? ` · max output ${metadata.maxOutputTokens.toLocaleString()} tokens`
+            : ''}
+          {metadata.supportsThinking ? ' · supports extended thinking' : ''}
+        </p>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label htmlFor={id('context-window')} className={LABEL}>
+              Context window (tokens)
+            </label>
+            <input
+              id={id('context-window')}
+              type="number"
+              min={512}
+              max={metadata.contextWindow ?? 2_000_000}
+              step={512}
+              className={cn(FIELD, 'font-mono text-xs')}
+              value={effective.contextWindow}
+              onChange={(event) => {
+                const parsed = Number.parseInt(event.target.value, 10)
+                if (Number.isFinite(parsed) && parsed >= 512) {
+                  patchParams({ contextWindow: parsed })
+                }
+              }}
+            />
+            <p className={HINT}>Default: {defaults.contextWindow.toLocaleString()}</p>
+          </div>
+
+          <div>
+            <label htmlFor={id('max-tokens')} className={LABEL}>
+              Max output tokens
+            </label>
+            <input
+              id={id('max-tokens')}
+              type="number"
+              min={64}
+              max={metadata.maxOutputTokens ?? 65_536}
+              step={128}
+              className={cn(FIELD, 'font-mono text-xs')}
+              value={effective.maxTokens}
+              onChange={(event) => {
+                const parsed = Number.parseInt(event.target.value, 10)
+                if (Number.isFinite(parsed) && parsed >= 64) {
+                  patchParams({ maxTokens: parsed })
+                }
+              }}
+            />
+            <p className={HINT}>Default: {defaults.maxTokens.toLocaleString()}</p>
+          </div>
+
+          <div>
+            <label htmlFor={id('temperature')} className={LABEL}>
+              Temperature (0 – {metadata.maxTemperature ?? 2})
+            </label>
+            <input
+              id={id('temperature')}
+              type="number"
+              min={0}
+              max={metadata.maxTemperature ?? 2}
+              step={0.1}
+              className={cn(FIELD, 'font-mono text-xs')}
+              value={effective.temperature}
+              onChange={(event) => {
+                const parsed = Number.parseFloat(event.target.value)
+                if (Number.isFinite(parsed) && parsed >= 0) {
+                  patchParams({ temperature: parsed })
+                }
+              }}
+            />
+            <p className={HINT}>Default: {defaults.temperature}</p>
+          </div>
+
+          <div>
+            <label htmlFor={id('top-p')} className={LABEL}>
+              Top-P (0.05 – 1)
+            </label>
+            <input
+              id={id('top-p')}
+              type="number"
+              min={0.05}
+              max={1}
+              step={0.05}
+              className={cn(FIELD, 'font-mono text-xs')}
+              value={effective.topP}
+              onChange={(event) => {
+                const parsed = Number.parseFloat(event.target.value)
+                if (Number.isFinite(parsed) && parsed > 0 && parsed <= 1) {
+                  patchParams({ topP: parsed })
+                }
+              }}
+            />
+            <p className={HINT}>Default: {defaults.topP}</p>
+          </div>
+        </div>
+
+        <div>
+          <label htmlFor={id('thinking-level')} className={LABEL}>
+            Thinking / reasoning level
+          </label>
+          <select
+            id={id('thinking-level')}
+            className={cn(FIELD, 'text-xs')}
+            value={effective.thinkingLevel}
+            onChange={(event) =>
+              patchParams({
+                thinkingLevel: parseThinkingLevel(event.target.value, effective.thinkingLevel),
+              })
+            }
+          >
+            {THINKING_LEVELS.map((entry) => (
+              <option key={entry.value} value={entry.value}>
+                {entry.label}
+              </option>
+            ))}
+          </select>
+          <p className={HINT}>
+            Default: {defaults.thinkingLevel}. Maps to <code>reasoning_effort</code> (OpenAI),{' '}
+            <code>thinking.budget_tokens</code> (Anthropic), <code>thinkingBudget</code> (Gemini),
+            or <code>enable_thinking</code> (DashScope).
+          </p>
+        </div>
+      </fieldset>
     </>
   )
 }

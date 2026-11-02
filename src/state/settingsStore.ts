@@ -17,7 +17,10 @@ interface SettingsState extends AppSettings {
 }
 
 /** The exact subset mirrored to disk — actions and modal state never reach storage. */
-type PersistedSettings = Pick<SettingsState, 'provider' | 'apiKey' | 'model' | 'baseUrl' | 'difficulty'>
+type PersistedSettings = Pick<
+  SettingsState,
+  'provider' | 'apiKey' | 'model' | 'baseUrl' | 'difficulty' | 'params'
+>
 
 /** Shown when nothing has been saved yet — the AI engine stays disabled with an empty key. */
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -44,9 +47,9 @@ export const useSettingsStore = create<SettingsState>()(
       setProvider: (provider) => set({ provider }),
       setApiKey: (apiKey) => set({ apiKey }),
       setDifficulty: (difficulty) => set({ difficulty }),
-      saveSettings: ({ provider, apiKey, model, baseUrl, difficulty }) =>
-        set({ provider, apiKey, model, baseUrl, difficulty, isSettingsOpen: false }),
-      clearSettings: () => set({ ...DEFAULT_SETTINGS, isSettingsOpen: false }),
+      saveSettings: ({ provider, apiKey, model, baseUrl, difficulty, params }) =>
+        set({ provider, apiKey, model, baseUrl, difficulty, params, isSettingsOpen: false }),
+      clearSettings: () => set({ ...DEFAULT_SETTINGS, params: undefined, isSettingsOpen: false }),
       openSettings: () => set({ isSettingsOpen: true }),
       closeSettings: () => set({ isSettingsOpen: false }),
     }),
@@ -60,6 +63,7 @@ export const useSettingsStore = create<SettingsState>()(
         model: state.model,
         baseUrl: state.baseUrl,
         difficulty: state.difficulty,
+        params: state.params,
       }),
       merge: (persisted, current): SettingsState => ({
         ...current,

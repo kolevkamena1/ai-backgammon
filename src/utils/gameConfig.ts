@@ -1,6 +1,6 @@
 import type { PlayerColor } from '@/types/game'
 import type { GameConfigSnapshot, SeatAssignment, SeatPlan } from '@/types/gameConfig'
-import type { AiDifficulty, AiEngineConfig, AiProvider } from '@/types/settings'
+import type { AiDifficulty, AiEngineConfig, AiInferenceParams, AiProvider, AiThinkingLevel } from '@/types/settings'
 import { maskSecret } from '@/utils/formatSecret'
 
 /**
@@ -54,6 +54,40 @@ function isProvider(value: unknown): value is AiProvider {
   return typeof value === 'string' && Object.prototype.hasOwnProperty.call(PROVIDER_NAMES, value)
 }
 
+function isThinkingLevel(value: unknown): value is AiThinkingLevel {
+  return value === 'off' || value === 'low' || value === 'medium' || value === 'high'
+}
+
+export function sanitizeInferenceParams(raw: unknown): AiInferenceParams | undefined {
+  if (typeof raw !== 'object' || raw === null) {
+    return undefined
+  }
+  const record = raw as Record<string, unknown>
+  const out: AiInferenceParams = {}
+
+  if (typeof record.maxTokens === 'number' && Number.isFinite(record.maxTokens) && record.maxTokens >= 64) {
+    out.maxTokens = Math.trunc(record.maxTokens)
+  }
+  if (typeof record.temperature === 'number' && Number.isFinite(record.temperature) && record.temperature >= 0) {
+    out.temperature = record.temperature
+  }
+  if (typeof record.topP === 'number' && Number.isFinite(record.topP) && record.topP > 0 && record.topP <= 1) {
+    out.topP = record.topP
+  }
+  if (
+    typeof record.contextWindow === 'number' &&
+    Number.isFinite(record.contextWindow) &&
+    record.contextWindow >= 512
+  ) {
+    out.contextWindow = Math.trunc(record.contextWindow)
+  }
+  if (isThinkingLevel(record.thinkingLevel)) {
+    out.thinkingLevel = record.thinkingLevel
+  }
+
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
 /**
  * Coerces an untrusted persisted payload into a valid `AiEngineConfig`, falling back field-by-field
  * to `fallback` so a tampered or stale `localStorage` entry cannot crash the UI.
@@ -64,6 +98,7 @@ export function sanitizeEngineConfig(raw: unknown, fallback: AiEngineConfig): Ai
   }
   const record = raw as Record<string, unknown>
   const fallbackDifficulty = fallback.difficulty ?? DEFAULT_DIFFICULTY
+  const params = sanitizeInferenceParams(record.params)
 
   return {
     provider: isProvider(record.provider) ? record.provider : fallback.provider,
@@ -74,6 +109,7 @@ export function sanitizeEngineConfig(raw: unknown, fallback: AiEngineConfig): Ai
       typeof record.difficulty === 'string'
         ? parseDifficulty(record.difficulty, fallbackDifficulty)
         : fallbackDifficulty,
+    ...(params !== undefined ? { params } : {}),
   }
 }
 

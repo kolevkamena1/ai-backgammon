@@ -18,8 +18,11 @@
 /** Envelope the client POSTs: what to fetch, with which headers, and what to send. */
 export interface ProxyEnvelope {
   targetUrl: string
+  /** Defaults to `'POST'`. `'GET'` is used for model list and model metadata lookups. */
+  method?: 'GET' | 'POST'
   headers: Record<string, string>
-  body: string
+  /** Required for `'POST'`; omitted or ignored for `'GET'`. */
+  body?: string
   /**
    * Ask the relay to pipe the upstream body through instead of buffering it. Optional and strictly
    * boolean: it changes only how the response travels, never where the request goes, so it cannot
@@ -90,9 +93,9 @@ export interface ProxyIncomingRequest {
 }
 
 export interface ProxyUpstreamInit {
-  method: 'POST'
+  method: 'GET' | 'POST'
   headers: Record<string, string>
-  body: string
+  body?: string
   redirect: 'manual'
   signal?: AbortSignal
 }
@@ -458,11 +461,21 @@ export async function handleProxyRequest(
 
   const record = parsed as Record<string, unknown>
   const { targetUrl } = record
+  const rawMethod = record.method ?? 'POST'
   const rawHeaders = record.headers
   const { body } = record
 
-  if (typeof targetUrl !== 'string' || typeof body !== 'string') {
+  if (rawMethod !== 'POST' && rawMethod !== 'GET') {
+    return jsonRejection(400, 'bad-request', 'The envelope method must be GET or POST.')
+  }
+  if (typeof targetUrl !== 'string') {
     return jsonRejection(400, 'bad-request', 'The envelope needs string targetUrl and body fields.')
+  }
+  if (rawMethod === 'POST' && typeof body !== 'string') {
+    return jsonRejection(400, 'bad-request', 'The envelope needs string targetUrl and body fields.')
+  }
+  if (rawMethod === 'GET' && body !== undefined && typeof body !== 'string') {
+    return jsonRejection(400, 'bad-request', 'The envelope body must be a string when present.')
   }
   if (rawHeaders !== undefined && (typeof rawHeaders !== 'object' || rawHeaders === null)) {
     return jsonRejection(400, 'bad-request', 'The envelope headers must be an object of strings.')
@@ -472,7 +485,7 @@ export async function handleProxyRequest(
   if (record.stream !== undefined && typeof record.stream !== 'boolean') {
     return jsonRejection(400, 'bad-request', 'The envelope stream flag must be a boolean.')
   }
-  const wantsStream = record.stream === true
+  const wantsStream = record.stream === true && rawMethod === 'POST'
 
   const target = classifyTarget(targetUrl, policy)
   if (target.ok === false) {
@@ -488,7 +501,11 @@ export async function handleProxyRequest(
 
   let upstream: ProxyUpstreamResponse
   try {
-    upstream = await fetchImpl(target.url.toString(), { method: 'POST', headers, body, redirect: 'manual', signal })
+    const upstreamInit: ProxyUpstreamInit =
+      rawMethod === 'POST'
+        ? { method: 'POST', headers, body: body as string, redirect: 'manual', signal }
+        : { method: 'GET', headers, redirect: 'manual', signal }
+    upstream = await fetchImpl(target.url.toString(), upstreamInit)
   } catch {
     // Only the signal matters: whether it aborted (timeout) or the socket failed.
     const timedOut = signal.aborted

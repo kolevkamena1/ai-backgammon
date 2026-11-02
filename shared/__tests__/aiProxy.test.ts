@@ -601,4 +601,24 @@ describe('streamed relay', () => {
     expect(DEV_POLICY.streamTimeoutMs).toBeGreaterThan(DEV_POLICY.timeoutMs)
     expect(PRODUCTION_POLICY.maxStreamBytes).toBeGreaterThan(PRODUCTION_POLICY.maxResponseBytes)
   })
+
+  it('forwards GET envelopes without a body for model metadata endpoints under the same allowlist', async () => {
+    const spy = upstream(() => reply({ text: '{"id":"gpt-4o-mini"}' }))
+    const outcome = await handleProxyRequest(
+      request({
+        body: JSON.stringify({
+          targetUrl: 'https://api.openai.com/v1/models/gpt-4o-mini',
+          method: 'GET',
+          headers: { authorization: `Bearer ${SECRET}` },
+        }),
+      }),
+      PRODUCTION_POLICY,
+      spy.fetchImpl,
+    )
+
+    expect(outcome.status).toBe(200)
+    expect(spy.calls).toHaveLength(1)
+    expect(spy.calls[0].init.method).toBe('GET')
+    expect(spy.calls[0].init.body).toBeUndefined()
+  })
 })

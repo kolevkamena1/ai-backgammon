@@ -1,4 +1,5 @@
 import type { Move } from '@/types/game'
+import type { AiThinkingLevel } from '@/types/settings'
 
 /**
  * Everything the inference layer needs that is not a game rule. Nothing here imports React, the
@@ -134,4 +135,23 @@ export interface AiCallOptions {
    * move plays, because the move is only ever taken from the fully parsed reply.
    */
   onDelta?: (delta: AiDelta) => void
+}
+
+/**
+ * Capabilities and default inference parameters discovered for a model from its provider metadata
+ * endpoint (or enriched from the built-in catalog when a provider's `/v1/models/<id>` endpoint
+ * returns only the model identifier).
+ */
+export interface AiModelMetadata {
+  readonly id: string
+  readonly displayName: string
+  readonly contextWindow: number | null
+  readonly maxOutputTokens: number | null
+  readonly defaultTemperature: number | null
+  readonly maxTemperature: number | null
+  readonly defaultTopP: number | null
+  readonly supportsThinking: boolean
+  readonly defaultThinkingLevel: AiThinkingLevel
+  /** `'endpoint'` when returned by the provider's model metadata API, `'catalog'` when fallback. */
+  readonly source: 'endpoint' | 'catalog'
 }

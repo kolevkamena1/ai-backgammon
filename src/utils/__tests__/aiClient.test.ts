@@ -999,4 +999,61 @@ describe('streaming', () => {
     )
     expect(extractPartialExplanation('{"choice": 2}')).toBeNull()
   })
+
+  it('forwards user-configured inference parameters (temperature, topP, maxTokens, contextWindow, thinkingLevel)', async () => {
+    const customCall = await ask(
+      {
+        provider: 'custom',
+        baseUrl: 'http://localhost:11434/v1',
+        model: 'qwen3:8b',
+        params: {
+          maxTokens: 3072,
+          temperature: 0.35,
+          topP: 0.85,
+          contextWindow: 32_768,
+          thinkingLevel: 'medium',
+        },
+      },
+      PLAYING,
+      'light',
+      () => fakeResponse({ body: chatReply('{"choice": 1}') }),
+    )
+
+    expect(customCall.result.success).toBe(true)
+    const customBody = innerBody(customCall.calls[0]) as Record<string, unknown>
+    expect(customBody.max_tokens).toBe(3072)
+    expect(customBody.temperature).toBe(0.35)
+    expect(customBody.top_p).toBe(0.85)
+    expect(customBody.num_ctx).toBe(32_768)
+    expect(customBody.reasoning_effort).toBe('medium')
+
+    const googleCall = await ask(
+      {
+        provider: 'google',
+        model: 'gemini-2.5-flash',
+        params: {
+          maxTokens: 4096,
+          temperature: 0.2,
+          topP: 0.9,
+          thinkingLevel: 'high',
+        },
+      },
+      PLAYING,
+      'light',
+      () =>
+        fakeResponse({
+          body: {
+            candidates: [{ content: { parts: [{ text: '{"choice": 1}' }] } }],
+          },
+        }),
+    )
+
+    expect(googleCall.result.success).toBe(true)
+    const googleGenConfig = (innerBody(googleCall.calls[0]) as Record<string, unknown>)
+      .generationConfig as Record<string, unknown>
+    expect(googleGenConfig.maxOutputTokens).toBe(4096)
+    expect(googleGenConfig.temperature).toBe(0.2)
+    expect(googleGenConfig.topP).toBe(0.9)
+    expect(googleGenConfig.thinkingConfig).toEqual({ thinkingBudget: 4096 })
+  })
 })

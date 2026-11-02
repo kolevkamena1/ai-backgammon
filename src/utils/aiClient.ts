@@ -1,6 +1,6 @@
 import type { AiCallOptions, AiDelta, AiErrorCode, AiMoveFailure, AiRequestInit, AiResponse, AiResult, AiStreamBudget, FetchLike } from '@/types/ai'
 import type { BoardState, DieFace, Move, MoveSource, MoveTarget, PlayerColor } from '@/types/game'
-import type { AiDifficulty, AiEngineConfig, AiProvider } from '@/types/settings'
+import type { AiDifficulty, AiEngineConfig, AiProvider, AiThinkingLevel } from '@/types/settings'
 import { logger } from '@/lib/logger'
 import { buildMovePrompt } from '@/utils/aiPrompt'
 import { isEventStream, readProviderStream, type StreamReadResult } from '@/utils/aiStream'
@@ -606,6 +606,9 @@ export interface MoveContext {
   difficulty: AiDifficulty
   maxTokens: number
   temperature: number
+  topP?: number
+  contextWindow?: number
+  thinkingLevel: AiThinkingLevel
   /**
    * Request SSE and consume it incrementally. Only the OpenAI-compatible handlers honour it; the
    * others stay buffered, which is a scope limit, not an oversight — see the Phase 4 plan.
@@ -615,6 +618,12 @@ export interface MoveContext {
   onDelta?: (delta: AiDelta) => void
   /** The first-byte/idle/total clocks, handed to the reader so it can tell it when bytes land. */
   budget: AiStreamBudget
+}
+
+const THINKING_TOKEN_BUDGETS: Record<Exclude<AiThinkingLevel, 'off'>, number> = {
+  low: 1024,
+  medium: 2048,
+  high: 4096,
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -639,7 +648,7 @@ function readString(root: unknown, key: string): string | null {
  * OpenAI-compatible chat body. `jsonMode` is off for custom gateways that reject the field, and
  * `thinkingOff` is set only for the host that defines `enable_thinking`.
  */
-function chatBody(ctx: MoveContext, jsonMode: boolean, thinkingOff: boolean): Record<string, unknown> {
+function chatBody(ctx: MoveContext, jsonMode: boolean, isDashScope: boolean): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: ctx.model,
     messages: [
@@ -648,6 +657,14 @@ function chatBody(ctx: MoveContext, jsonMode: boolean, thinkingOff: boolean): Re
     ],
     temperature: ctx.temperature,
     max_tokens: ctx.maxTokens,
+  }
+
+  if (ctx.topP !== undefined) {
+    body.top_p = ctx.topP
+  }
+
+  if ( !jsonMode && !isDashScope && ctx.contextWindow !== undefined) {
+    body.num_ctx = ctx.contextWindow
   }
 
   if (jsonMode) {
@@ -665,11 +682,18 @@ function chatBody(ctx: MoveContext, jsonMode: boolean, thinkingOff: boolean): Re
   // `enable_thinking` is not a standard OpenAI parameter - DashScope documents it as a top-level
   // body field that an OpenAI SDK has to smuggle through `extra_body`. Strict gateways answer 400
   // for fields they do not know, which is exactly why it is sent only where it is defined.
-  // It is `false` at every difficulty, including hard: enabling thinking was measured to spend tens
-  // of seconds on `reasoning_content` before a move appeared, and Hard gets its extra strength from
-  // the prompt and a larger reply budget instead (`DIFFICULTY_INSTRUCTIONS`, `budgetFor`).
-  if (thinkingOff) {
-    body.enable_thinking = false
+  // By default (`thinkingLevel: 'off'`) it stays `false` at every difficulty; when the user turns
+  // thinking on in Settings, DashScope gets `enable_thinking: true` + `thinking_budget` and
+  // OpenAI-compatible endpoints get `reasoning_effort`.
+  if (isDashScope) {
+    if (ctx.thinkingLevel === 'off') {
+      body.enable_thinking = false
+    } else {
+      body.enable_thinking = true
+      body.thinking_budget = THINKING_TOKEN_BUDGETS[ctx.thinkingLevel]
+    }
+  } else if (ctx.thinkingLevel !== 'off') {
+    body.reasoning_effort = ctx.thinkingLevel
   }
 
   return body
@@ -809,6 +833,26 @@ export function fetchCustomMove(ctx: MoveContext, baseUrl: string): Promise<AiRe
 }
 
 export function fetchAnthropicMove(ctx: MoveContext): Promise<AiResult> {
+  const body: Record<string, unknown> = {
+    model: ctx.model,
+    system: ctx.system,
+    messages: [{ role: 'user', content: ctx.user }],
+    max_tokens: ctx.maxTokens,
+    temperature: ctx.temperature,
+  }
+
+  if (ctx.topP !== undefined) {
+    body.top_p = ctx.topP
+  }
+
+  if (ctx.thinkingLevel !== 'off') {
+    const budgetTokens = THINKING_TOKEN_BUDGETS[ctx.thinkingLevel]
+    body.thinking = { type: 'enabled', budget_tokens: budgetTokens }
+    if (ctx.maxTokens <= budgetTokens) {
+      body.max_tokens = budgetTokens + AI_MAX_TOKENS
+    }
+  }
+
   return requestText(
     {
       url: ANTHROPIC_MESSAGES_URL,
@@ -818,13 +862,7 @@ export function fetchAnthropicMove(ctx: MoveContext): Promise<AiResult> {
         // Without this header Anthropic rejects calls made straight from a browser.
         'anthropic-dangerous-direct-browser-access': 'true',
       },
-      body: {
-        model: ctx.model,
-        system: ctx.system,
-        messages: [{ role: 'user', content: ctx.user }],
-        max_tokens: ctx.maxTokens,
-        temperature: ctx.temperature,
-      },
+      body,
       extract: extractAnthropicText,
     },
     ctx,
@@ -832,6 +870,22 @@ export function fetchAnthropicMove(ctx: MoveContext): Promise<AiResult> {
 }
 
 export function fetchGoogleMove(ctx: MoveContext): Promise<AiResult> {
+  const generationConfig: Record<string, unknown> = {
+    temperature: ctx.temperature,
+    maxOutputTokens: ctx.maxTokens,
+    responseMimeType: 'application/json',
+  }
+
+  if (ctx.topP !== undefined) {
+    generationConfig.topP = ctx.topP
+  }
+
+  if (ctx.thinkingLevel !== 'off') {
+    generationConfig.thinkingConfig = {
+      thinkingBudget: THINKING_TOKEN_BUDGETS[ctx.thinkingLevel],
+    }
+  }
+
   return requestText(
     {
       url: `${GOOGLE_BASE_URL}/${encodeURIComponent(ctx.model)}:generateContent`,
@@ -839,11 +893,7 @@ export function fetchGoogleMove(ctx: MoveContext): Promise<AiResult> {
       body: {
         systemInstruction: { parts: [{ text: ctx.system }] },
         contents: [{ role: 'user', parts: [{ text: ctx.user }] }],
-        generationConfig: {
-          temperature: ctx.temperature,
-          maxOutputTokens: ctx.maxTokens,
-          responseMimeType: 'application/json',
-        },
+        generationConfig,
       },
       extract: extractGoogleText,
     },
@@ -962,7 +1012,39 @@ export async function getAiMove(
 
   const timeoutMs = options.timeoutMs ?? AI_TIMEOUT_MS
   const difficulty = difficultyOf(config)
-  const { maxTokens, temperature } = budgetFor(difficulty)
+  const defaults = budgetFor(difficulty)
+  const customParams = config.params
+  const maxTokens =
+    typeof customParams?.maxTokens === 'number' &&
+    Number.isFinite(customParams.maxTokens) &&
+    customParams.maxTokens >= 64
+      ? Math.trunc(customParams.maxTokens)
+      : defaults.maxTokens
+  const temperature =
+    typeof customParams?.temperature === 'number' &&
+    Number.isFinite(customParams.temperature) &&
+    customParams.temperature >= 0
+      ? customParams.temperature
+      : defaults.temperature
+  const topP =
+    typeof customParams?.topP === 'number' &&
+    Number.isFinite(customParams.topP) &&
+    customParams.topP > 0 &&
+    customParams.topP <= 1
+      ? customParams.topP
+      : undefined
+  const contextWindow =
+    typeof customParams?.contextWindow === 'number' &&
+    Number.isFinite(customParams.contextWindow) &&
+    customParams.contextWindow >= 512
+      ? Math.trunc(customParams.contextWindow)
+      : undefined
+  const thinkingLevel: AiThinkingLevel =
+    customParams?.thinkingLevel === 'low' ||
+    customParams?.thinkingLevel === 'medium' ||
+    customParams?.thinkingLevel === 'high'
+      ? customParams.thinkingLevel
+      : 'off'
   // Streamed only when somebody is watching and the provider speaks this dialect: the buffered path
   // is byte-for-byte what it always was for Anthropic and Google, and for callers with no listener.
   const wantsStream = options.onDelta !== undefined && supportsStreaming(config.provider)
@@ -1018,6 +1100,9 @@ export async function getAiMove(
     difficulty,
     maxTokens,
     temperature,
+    topP,
+    contextWindow,
+    thinkingLevel,
     stream: wantsStream,
     onDelta: options.onDelta,
     budget,

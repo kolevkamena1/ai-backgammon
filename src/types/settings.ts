@@ -9,6 +9,31 @@ export type AiProvider = 'openai' | 'anthropic' | 'google' | 'custom'
 export type AiDifficulty = 'easy' | 'medium' | 'hard'
 
 /**
+ * Reasoning / extended thinking effort. `'off'` disables thinking where the provider supports
+ * toggling it; `'low' | 'medium' | 'high'` maps to `reasoning_effort` (OpenAI), `thinking` budget
+ * tokens (Anthropic), `thinkingConfig.thinkingBudget` (Google), or `enable_thinking: true`
+ * (DashScope / custom gateways).
+ */
+export type AiThinkingLevel = 'off' | 'low' | 'medium' | 'high'
+
+/**
+ * User-configurable inference parameters. Every field is optional: when omitted, the engine uses
+ * the defaults resolved from `difficulty` and any queried model metadata.
+ */
+export interface AiInferenceParams {
+  /** Maximum completion/output tokens per move request. */
+  maxTokens?: number
+  /** Sampling temperature (0 to 2). */
+  temperature?: number
+  /** Nucleus sampling top-p (0 to 1). */
+  topP?: number
+  /** Context window size in tokens (sent as `num_ctx` to local/custom gateways). */
+  contextWindow?: number
+  /** Reasoning / extended thinking effort. */
+  thinkingLevel?: AiThinkingLevel
+}
+
+/**
  * One complete set of credentials for an inference engine: provider, key, optional model
  * override and (for `custom`) the endpoint. Used both for the player's personal BYOK and, in a
  * Custom AI vs AI match, for the opponent.
@@ -37,6 +62,12 @@ export interface AiEngineConfig {
    * both seats (see `utils/gameConfig.ts`), so it is deliberately the same level for both.
    */
   difficulty?: AiDifficulty
+  /**
+   * Optional per-seat overrides for inference parameters (context window, max output tokens,
+   * temperature, top-p, thinking level). Pre-filled from model metadata and difficulty defaults in
+   * the UI, and snapshotted with the seat when a game starts.
+   */
+  params?: AiInferenceParams
 }
 
 /** The personal BYOK bundle from Settings — the same shape as any engine config. */
