@@ -578,6 +578,46 @@ Pages does not apply `_headers` to a Functions response, which is why the relay 
 Tailwind injects inline `<style>` tags during dev/HMR, so add one with `style-src 'unsafe-inline'`
 only once the production CSS pipeline is stable.
 
+## Admin stats (`/stats`)
+
+A private dashboard for the site owner: sessions, visitors, country/AS, referrers, devices, and per-game
+mode, AI provider/level, duration, turns, undo/pause counts and **finished vs. abandoned**.
+
+**Privacy by design.** Cookieless; the random session id lives in `sessionStorage` (gone with the tab).
+The IP is stored only as `HMAC(secret, day|ip)` truncated to 64 bits — it rotates daily, so unique
+visitors per day are countable but nobody can be followed across days. Country and AS come from
+Cloudflare's request metadata. API keys, endpoints, prompts, AI explanations and board positions are
+never sent. Do Not Track is honoured and `npm run dev` sends nothing. Raw rows are deleted after 90 days
+(rolled into `daily_stats` first). The About dialog and footer tell visitors this.
+
+| Piece | File |
+| --- | --- |
+| Beacon client | `src/utils/telemetry.ts` |
+| Ingest (`POST /api/collect`, fail-soft) | `functions/api/collect.ts` |
+| Admin API (`GET /api/stats/{summary,sessions,games,export}`) | `functions/api/stats/[[path]].ts` |
+| Validation / hashing / UA / CSV, SQL, Access JWT | `shared/analytics*.ts` |
+| Dashboard | `src/stats/StatsPage.tsx` (lazy chunk, not loaded by players) |
+| Schema | `migrations/0001_init.sql` |
+
+### One-time Cloudflare setup
+
+1. **Database** — `npx wrangler d1 create ai-backgammon-stats`, paste the `database_id` into the
+   `[[d1_databases]]` block in `wrangler.toml` (uncomment it), then
+   `npx wrangler d1 migrations apply ai-backgammon-stats --remote`.
+2. **Secret** — Pages → Settings → Variables: add `ANALYTICS_SALT` (long random string, *encrypted*).
+3. **Custom domain** — Pages → Custom domains → `backgamm.kamenonline.com`.
+4. **Protect it** — Zero Trust → Access → Applications → *Self-hosted*. Add **two** paths on
+   `backgamm.kamenonline.com`: `/stats*` and `/api/stats*`. Policy: *Allow* → Emails → your address
+   only. Copy the application's **Audience (AUD) tag** and your team domain.
+5. **Pin the app to the policy** — Pages variables: `ACCESS_TEAM_DOMAIN` (`yourteam.cloudflareaccess.com`)
+   and `ACCESS_AUD`. The API verifies the Access JWT itself (signature, issuer, audience, expiry), so
+   if the Access policy is ever deleted or mistyped the API **fails closed** (403) rather than leaking.
+6. **Protect the preview URL too** — the `*.pages.dev` hostname serves the same functions; add the same
+   Access application for it (or disable preview deployments' public access).
+
+Test locally with real SQL: `npm test` runs the data layer against in-memory SQLite. For an end-to-end
+local run use `npm run pages:local` with `STATS_DEV_BYPASS=1` in `.env` (honoured on localhost only).
+
 ## Roadmap
 
 1. **Phase 2 — game core: done.** `src/utils/gameLogic.ts` holds the rules (not the `dice.ts`

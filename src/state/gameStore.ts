@@ -68,6 +68,8 @@ interface GameStoreState {
   aiMoveDelayMs: number
   /** True when the game flow or AI auto-advance is paused by user. */
   isPaused: boolean
+  /** Unique per started game (null when none); lets telemetry tell one game from the next. */
+  gameId: string | null
   /** 1-based turn sequence counter. */
   turnNumber: number
   /** Recorded dice roll history for exact replay on undo/resume. */
@@ -248,6 +250,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
     aiThought: null,
     aiMoveDelayMs: AI_MOVE_DELAY_MS,
     isPaused: false,
+    gameId: null,
     turnNumber: 1,
     recordedRolls: [],
     stepHistory: [],
@@ -291,6 +294,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         lastAiError: null,
         aiThought: null,
         isPaused: false,
+        gameId: crypto.randomUUID(),
         turnNumber: 1,
         recordedRolls: [],
         stepHistory: [initialSnapshot],
@@ -646,6 +650,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         lastAiError: null,
         aiThought: null,
         isPaused: false,
+        gameId: null,
         turnNumber: 1,
         recordedRolls: [],
         stepHistory: [],

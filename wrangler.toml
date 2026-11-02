@@ -5,3 +5,15 @@
 name = "ai-backgammon"
 pages_build_output_dir = "./dist"
 compatibility_date = "2026-10-30"
+
+# --- Admin stats (/stats) ---------------------------------------------------------------------
+# 1. npx wrangler d1 create ai-backgammon-stats        (copy the database_id it prints)
+# 2. Uncomment the block below and paste the id.
+# 3. npx wrangler d1 migrations apply ai-backgammon-stats --remote
+# Without the binding the app works normally: /api/collect silently no-ops and /api/stats answers 503.
+#
+[[d1_databases]]
+binding = "DB"
+database_name = "backgammon-stats"
+database_id = "36a26a2a-9c62-4493-8ceb-1cbbd6de9942"
+migrations_dir = "migrations"

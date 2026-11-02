@@ -10,6 +10,7 @@ import { useGame } from '@/hooks/useGame'
 import { useAiTurn } from '@/hooks/useAiTurn'
 import { useGameConfig } from '@/hooks/useGameConfig'
 import { useSettings } from '@/hooks/useSettings'
+import { startTelemetry } from '@/utils/telemetry'
 import type { GameMode } from '@/types/gameConfig'
 import { Dices } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -53,6 +54,9 @@ const App = () => {
 
   // Exactly one AI driver for the whole app; the store itself guards single-flight.
   useAiTurn()
+
+  // Anonymous usage stats for the site admin (see utils/telemetry.ts for exactly what is sent).
+  useEffect(() => startTelemetry(), [])
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-slate-950 text-slate-100">
@@ -148,6 +152,10 @@ const App = () => {
             </a>
             <span>·</span>
             <span>Vite + React + Tailwind CSS</span>
+            <span>·</span>
+            <span title="Anonymous, cookieless: country, network, device type, game mode and outcome. Never your API keys or the IP address itself. Honours Do Not Track.">
+              Anonymous usage stats
+            </span>
           </div>
         </div>
       </footer>

@@ -97,6 +97,12 @@ export default function AboutModal({ onClose }: AboutModalProps) {
             Your API keys and settings never leave your browser. Requests go directly from your machine to your
             chosen cloud provider (OpenAI, Anthropic, Google) or your own local endpoints (Ollama, vLLM, LM Studio).
           </p>
+          <p className="text-slate-400 leading-normal">
+            <span className="font-medium text-slate-300">Anonymous usage stats:</span> the site owner sees
+            aggregate, cookieless statistics — country, network, device type, game mode, and whether games are
+            finished. Your IP address is only stored as a daily-rotating salted hash, and your API keys, prompts
+            and moves are never sent. Browsers with Do Not Track enabled are not counted.
+          </p>
         </div>
 
         {/* Developer & Author Attribution */}
