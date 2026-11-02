@@ -67,16 +67,16 @@ const MenuItem = ({
       onClick={disabled ? undefined : onClick}
       onMouseEnter={onMouseEnter}
       className={cn(
-        'group flex w-full items-center justify-between gap-4 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors',
+        'group flex w-full items-center justify-between gap-4 rounded-lg px-3 py-2 text-left text-sm transition-colors',
         disabled
-          ? 'cursor-not-allowed text-slate-500 opacity-60'
+          ? 'cursor-not-allowed text-slate-500 opacity-50'
           : 'cursor-pointer text-slate-200 hover:bg-sky-600 hover:text-white',
       )}
     >
-      <span className="flex items-center gap-2">
+      <span className="flex items-center gap-2.5">
         <span className="size-4 flex items-center justify-center shrink-0">
           {checked ? (
-            <Check className="size-3.5 stroke-[2.5]" aria-hidden />
+            <Check className="size-4 stroke-[2.5]" aria-hidden />
           ) : (
             icon
           )}
@@ -84,16 +84,16 @@ const MenuItem = ({
         <span className="font-medium">{label}</span>
       </span>
 
-      <span className="flex items-center gap-1.5 text-[11px] text-slate-400 group-hover:text-white/80">
+      <span className="flex items-center gap-1.5 text-xs text-slate-400 group-hover:text-white/90">
         {shortcut ? <span>{shortcut}</span> : null}
-        {hasSubmenu ? <ChevronRight className="size-3.5 shrink-0" aria-hidden /> : null}
+        {hasSubmenu ? <ChevronRight className="size-4 shrink-0" aria-hidden /> : null}
       </span>
     </button>
   )
 }
 
 const MenuSeparator = () => (
-  <div className="my-1 border-t border-slate-700/60" role="separator" />
+  <div className="my-1.5 border-t border-slate-700/70" role="separator" />
 )
 
 export default function MenuBar({
@@ -170,7 +170,7 @@ export default function MenuBar({
       role="menubar"
       aria-label="Application menu"
       className={cn(
-        'relative flex items-center gap-0.5 border-b border-slate-800 bg-slate-900/95 px-2 py-0.5 text-xs select-none backdrop-blur-sm',
+        'relative flex items-center gap-1 text-sm select-none',
         className,
       )}
     >
@@ -184,9 +184,9 @@ export default function MenuBar({
           onClick={() => handleMenuHeaderClick('game')}
           onMouseEnter={() => handleMenuHeaderHover('game')}
           className={cn(
-            'rounded px-2.5 py-1 font-medium transition',
+            'rounded-md px-3.5 py-1.5 text-sm font-semibold transition',
             openMenu === 'game'
-              ? 'bg-sky-600 text-white'
+              ? 'bg-sky-600 text-white shadow-sm ring-1 ring-sky-400/50'
               : 'text-slate-200 hover:bg-slate-800 hover:text-white',
           )}
         >
@@ -196,7 +196,7 @@ export default function MenuBar({
         {openMenu === 'game' && (
           <div
             role="menu"
-            className="absolute left-0 top-full z-50 mt-0.5 min-w-[210px] rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-2xl backdrop-blur-md"
+            className="absolute left-0 top-full z-50 mt-1 min-w-[230px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl"
           >
             {/* New Game with Submenu */}
             <div
@@ -206,7 +206,7 @@ export default function MenuBar({
             >
               <MenuItem
                 label="New Game"
-                icon={<Swords className="size-3.5 text-sky-400" aria-hidden />}
+                icon={<Swords className="size-4 text-sky-400" aria-hidden />}
                 hasSubmenu
                 onClick={() => setActiveSubmenu('new-game')}
               />
@@ -214,11 +214,11 @@ export default function MenuBar({
               {activeSubmenu === 'new-game' && (
                 <div
                   role="menu"
-                  className="absolute left-full top-0 -ml-1 min-w-[190px] rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-2xl backdrop-blur-md"
+                  className="absolute left-full top-0 -ml-1 min-w-[210px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl"
                 >
                   <MenuItem
                     label="Human vs AI"
-                    icon={<User className="size-3.5 text-sky-400" aria-hidden />}
+                    icon={<User className="size-4 text-sky-400" aria-hidden />}
                     onClick={() => {
                       onOpenNewGame('humanVsAi')
                       closeAll()
@@ -226,7 +226,7 @@ export default function MenuBar({
                   />
                   <MenuItem
                     label="AI vs AI"
-                    icon={<Bot className="size-3.5 text-emerald-400" aria-hidden />}
+                    icon={<Bot className="size-4 text-emerald-400" aria-hidden />}
                     onClick={() => {
                       onOpenNewGame('aiVsAi')
                       closeAll()
@@ -235,7 +235,7 @@ export default function MenuBar({
                   <MenuSeparator />
                   <MenuItem
                     label="Custom Match..."
-                    icon={<Dices className="size-3.5 text-amber-400" aria-hidden />}
+                    icon={<Dices className="size-4 text-amber-400" aria-hidden />}
                     onClick={() => {
                       onOpenNewGame()
                       closeAll()
@@ -249,7 +249,7 @@ export default function MenuBar({
 
             <MenuItem
               label="Restart Match"
-              icon={<RotateCcw className="size-3.5" aria-hidden />}
+              icon={<RotateCcw className="size-4 text-slate-300" aria-hidden />}
               disabled={!isGameActive}
               onClick={() => {
                 onRestartGame()
@@ -259,7 +259,7 @@ export default function MenuBar({
 
             <MenuItem
               label="Reset to Opening Board"
-              icon={<Dices className="size-3.5" aria-hidden />}
+              icon={<Dices className="size-4 text-slate-300" aria-hidden />}
               disabled={!isGameActive}
               onClick={() => {
                 onResetToOpening()
@@ -280,9 +280,9 @@ export default function MenuBar({
           onClick={() => handleMenuHeaderClick('view')}
           onMouseEnter={() => handleMenuHeaderHover('view')}
           className={cn(
-            'rounded px-2.5 py-1 font-medium transition',
+            'rounded-md px-3.5 py-1.5 text-sm font-semibold transition',
             openMenu === 'view'
-              ? 'bg-sky-600 text-white'
+              ? 'bg-sky-600 text-white shadow-sm ring-1 ring-sky-400/50'
               : 'text-slate-200 hover:bg-slate-800 hover:text-white',
           )}
         >
@@ -292,7 +292,7 @@ export default function MenuBar({
         {openMenu === 'view' && (
           <div
             role="menu"
-            className="absolute left-0 top-full z-50 mt-0.5 min-w-[210px] rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-2xl backdrop-blur-md"
+            className="absolute left-0 top-full z-50 mt-1 min-w-[230px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl"
           >
             {/* Board Style Submenu */}
             <div
@@ -302,7 +302,7 @@ export default function MenuBar({
             >
               <MenuItem
                 label="Board Style"
-                icon={<Palette className="size-3.5 text-sky-400" aria-hidden />}
+                icon={<Palette className="size-4 text-sky-400" aria-hidden />}
                 hasSubmenu
                 onClick={() => setActiveSubmenu('board-style')}
               />
@@ -310,7 +310,7 @@ export default function MenuBar({
               {activeSubmenu === 'board-style' && (
                 <div
                   role="menu"
-                  className="absolute left-full top-0 -ml-1 min-w-[280px] rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-2xl backdrop-blur-md"
+                  className="absolute left-full top-0 -ml-1 min-w-[310px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl"
                 >
                   {BOARD_DESIGNS.map((design) => {
                     const isChecked = boardDesign === design.id
@@ -325,13 +325,13 @@ export default function MenuBar({
                           closeAll()
                         }}
                         className={cn(
-                          'flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-sky-600 hover:text-white',
+                          'flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-sky-600 hover:text-white',
                           isChecked ? 'font-semibold text-white' : 'text-slate-200',
                         )}
                       >
-                        <span className="flex items-center gap-2">
-                          <span className="size-3.5 flex items-center justify-center shrink-0">
-                            {isChecked ? <Check className="size-3.5 stroke-[2.5]" aria-hidden /> : null}
+                        <span className="flex items-center gap-2.5">
+                          <span className="size-4 flex items-center justify-center shrink-0">
+                            {isChecked ? <Check className="size-4 stroke-[2.5]" aria-hidden /> : null}
                           </span>
                           <span>{design.name}</span>
                         </span>
@@ -341,7 +341,7 @@ export default function MenuBar({
                             <span
                               key={idx}
                               style={{ backgroundColor: hex }}
-                              className="size-2.5 rounded-full border border-black/40"
+                              className="size-3.5 rounded-full border border-black/40 shadow-xs"
                             />
                           ))}
                         </span>
@@ -362,7 +362,7 @@ export default function MenuBar({
             >
               <MenuItem
                 label="Color Theme"
-                icon={theme === 'light' ? <Sun className="size-3.5 text-amber-400" /> : <Moon className="size-3.5 text-sky-400" />}
+                icon={theme === 'light' ? <Sun className="size-4 text-amber-400" /> : <Moon className="size-4 text-sky-400" />}
                 hasSubmenu
                 onClick={() => setActiveSubmenu('theme')}
               />
@@ -370,11 +370,11 @@ export default function MenuBar({
               {activeSubmenu === 'theme' && (
                 <div
                   role="menu"
-                  className="absolute left-full top-0 -ml-1 min-w-[170px] rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-2xl backdrop-blur-md"
+                  className="absolute left-full top-0 -ml-1 min-w-[200px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl"
                 >
                   <MenuItem
                     label="Warm Soft Light"
-                    icon={<Sun className="size-3.5 text-amber-400" aria-hidden />}
+                    icon={<Sun className="size-4 text-amber-400" aria-hidden />}
                     checked={theme === 'light'}
                     onClick={() => {
                       onSetTheme('light')
@@ -383,7 +383,7 @@ export default function MenuBar({
                   />
                   <MenuItem
                     label="Midnight Dark"
-                    icon={<Moon className="size-3.5 text-sky-400" aria-hidden />}
+                    icon={<Moon className="size-4 text-sky-400" aria-hidden />}
                     checked={theme === 'dark'}
                     onClick={() => {
                       onSetTheme('dark')
@@ -398,7 +398,7 @@ export default function MenuBar({
 
             <MenuItem
               label="Reset Board Size"
-              icon={<Maximize2 className="size-3.5" aria-hidden />}
+              icon={<Maximize2 className="size-4 text-slate-300" aria-hidden />}
               onClick={triggerResetBoardSize}
             />
           </div>
@@ -415,9 +415,9 @@ export default function MenuBar({
           onClick={() => handleMenuHeaderClick('options')}
           onMouseEnter={() => handleMenuHeaderHover('options')}
           className={cn(
-            'rounded px-2.5 py-1 font-medium transition',
+            'rounded-md px-3.5 py-1.5 text-sm font-semibold transition',
             openMenu === 'options'
-              ? 'bg-sky-600 text-white'
+              ? 'bg-sky-600 text-white shadow-sm ring-1 ring-sky-400/50'
               : 'text-slate-200 hover:bg-slate-800 hover:text-white',
           )}
         >
@@ -427,11 +427,11 @@ export default function MenuBar({
         {openMenu === 'options' && (
           <div
             role="menu"
-            className="absolute left-0 top-full z-50 mt-0.5 min-w-[210px] rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-2xl backdrop-blur-md"
+            className="absolute left-0 top-full z-50 mt-1 min-w-[230px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl"
           >
             <MenuItem
               label="BYOK Settings..."
-              icon={<Settings className="size-3.5 text-sky-400" aria-hidden />}
+              icon={<Settings className="size-4 text-sky-400" aria-hidden />}
               onClick={() => {
                 onOpenSettings()
                 closeAll()
@@ -451,9 +451,9 @@ export default function MenuBar({
           onClick={() => handleMenuHeaderClick('help')}
           onMouseEnter={() => handleMenuHeaderHover('help')}
           className={cn(
-            'rounded px-2.5 py-1 font-medium transition',
+            'rounded-md px-3.5 py-1.5 text-sm font-semibold transition',
             openMenu === 'help'
-              ? 'bg-sky-600 text-white'
+              ? 'bg-sky-600 text-white shadow-sm ring-1 ring-sky-400/50'
               : 'text-slate-200 hover:bg-slate-800 hover:text-white',
           )}
         >
@@ -463,29 +463,29 @@ export default function MenuBar({
         {openMenu === 'help' && (
           <div
             role="menu"
-            className="absolute left-0 top-full z-50 mt-0.5 min-w-[220px] rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-2xl backdrop-blur-md"
+            className="absolute left-0 top-full z-50 mt-1 min-w-[240px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl"
           >
             <a
               href={GITHUB_README_URL}
               target="_blank"
               rel="noopener noreferrer"
               onClick={closeAll}
-              className="group flex w-full items-center justify-between gap-4 rounded-md px-2.5 py-1.5 text-left text-xs text-slate-200 hover:bg-sky-600 hover:text-white transition-colors"
+              className="group flex w-full items-center justify-between gap-4 rounded-lg px-3 py-2 text-left text-sm text-slate-200 hover:bg-sky-600 hover:text-white transition-colors"
             >
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-2.5">
                 <span className="size-4 flex items-center justify-center shrink-0">
-                  <HelpCircle className="size-3.5 text-sky-400 group-hover:text-white" aria-hidden />
+                  <HelpCircle className="size-4 text-sky-400 group-hover:text-white" aria-hidden />
                 </span>
                 <span className="font-medium">README on GitHub</span>
               </span>
-              <ExternalLink className="size-3.5 text-slate-400 group-hover:text-white/80 shrink-0" aria-hidden />
+              <ExternalLink className="size-4 text-slate-400 group-hover:text-white/90 shrink-0" aria-hidden />
             </a>
 
             <MenuSeparator />
 
             <MenuItem
               label="About AI Backgammon..."
-              icon={<Info className="size-3.5 text-amber-400" aria-hidden />}
+              icon={<Info className="size-4 text-amber-400" aria-hidden />}
               onClick={() => {
                 onOpenAbout()
                 closeAll()

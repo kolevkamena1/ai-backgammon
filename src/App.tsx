@@ -9,9 +9,8 @@ import { useAiTurn } from '@/hooks/useAiTurn'
 import { useGameConfig } from '@/hooks/useGameConfig'
 import { useSettings } from '@/hooks/useSettings'
 import type { GameMode, SeatAssignment } from '@/types/gameConfig'
-import { cn } from '@/utils/cn'
 import { SEAT_LABELS, describeEngine, describeMode, planSeats, seatProblems } from '@/utils/gameConfig'
-import { Dices, KeyRound, ShieldCheck, Sparkles } from 'lucide-react'
+import { Dices, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 /** One roster line per seat: who plays it, and through which engine. */
@@ -31,9 +30,7 @@ const App = () => {
     settings,
     theme,
     boardDesign,
-    isConfigured,
     isSettingsOpen,
-    maskedApiKey,
     setTheme,
     setBoardDesign,
     openSettings,
@@ -77,58 +74,31 @@ const App = () => {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-900/90 shadow-md backdrop-blur-md">
-        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-2.5">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-3">
           <div>
-            <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-slate-50">
-              <Dices className="size-5 text-amber-400" aria-hidden />
+            <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-slate-50">
+              <Dices className="size-6 text-amber-400" aria-hidden />
               AI Backgammon
             </h1>
-            <p className="text-xs text-slate-400">Bring-your-own-key inference. Rules, turns and live AI seats.</p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <span
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium',
-                blocked > 0
-                  ? 'border-slate-600 bg-slate-800 text-slate-300'
-                  : 'border-sky-500/40 bg-sky-500/10 text-sky-300',
-              )}
-            >
-              {describeMode(config)}
-            </span>
-
-            <span
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium',
-                isConfigured
-                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-                  : 'border-amber-500/40 bg-amber-500/10 text-amber-300',
-              )}
-            >
-              {isConfigured ? (
-                <ShieldCheck className="size-3.5" aria-hidden />
-              ) : (
-                <KeyRound className="size-3.5" aria-hidden />
-              )}
-              {isConfigured ? `Key saved · ${maskedApiKey}` : 'No API key configured'}
-            </span>
+            <p className="text-xs text-slate-400">Bring-your-own-key inference · Classic rules, turns & live AI seats</p>
           </div>
         </div>
 
-        <div className="mx-auto w-full max-w-5xl px-2">
-          <MenuBar
-            isGameActive={game.active}
-            onOpenNewGame={handleOpenNewGame}
-            onRestartGame={handleRestartGame}
-            onResetToOpening={handleResetToOpening}
-            boardDesign={boardDesign}
-            onSelectBoardDesign={setBoardDesign}
-            theme={theme}
-            onSetTheme={setTheme}
-            onOpenSettings={openSettings}
-            onOpenAbout={() => setIsAboutOpen(true)}
-          />
+        <div className="border-t border-slate-800/80 bg-slate-950/40">
+          <div className="mx-auto w-full max-w-5xl px-3 py-1">
+            <MenuBar
+              isGameActive={game.active}
+              onOpenNewGame={handleOpenNewGame}
+              onRestartGame={handleRestartGame}
+              onResetToOpening={handleResetToOpening}
+              boardDesign={boardDesign}
+              onSelectBoardDesign={setBoardDesign}
+              theme={theme}
+              onSetTheme={setTheme}
+              onOpenSettings={openSettings}
+              onOpenAbout={() => setIsAboutOpen(true)}
+            />
+          </div>
         </div>
       </header>
 
