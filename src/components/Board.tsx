@@ -30,6 +30,7 @@ import {
   type DragEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
+import Checker from './Checker'
 import Point, { type PointState } from './Point'
 
 interface BoardProps {
@@ -80,6 +81,9 @@ const SEAT_NAMES: Record<PlayerColor, string> = { light: 'White', dark: 'Black' 
 /** Used until a game starts, and by any render that passes no board. */
 const OPENING_BOARD = getInitialBoardState()
 
+const MAX_VISIBLE_TRAY_CHECKERS = 15
+const MAX_VISIBLE_BAR_CHECKERS = 5
+
 const Tray = ({
   seat,
   count,
@@ -97,16 +101,48 @@ const Tray = ({
 }) => {
   const [isDragOver, setIsDragOver] = useState(false)
   const label = `${SEAT_NAMES[seat]} off ${count}`
+  const visible = Math.min(count, MAX_VISIBLE_TRAY_CHECKERS)
+  const overflow = count - visible
+
   const look = cn(
-    'board-tray flex w-9 shrink-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 text-center',
-    live ? 'bg-emerald-500/25 text-slate-50' : 'bg-board-field/70 text-point-light/50',
-    live && isDragOver && 'bg-emerald-500/45 ring-2 ring-emerald-300',
+    'board-tray flex w-9 sm:w-10 shrink-0 flex-col items-center justify-between gap-1 rounded-lg px-1 py-2 text-center transition-all',
+    live
+      ? 'bg-emerald-500/25 text-slate-50 ring-2 ring-emerald-400/70'
+      : 'bg-board-field/70 text-point-light/50',
+    live && isDragOver && 'bg-emerald-500/45 ring-2 ring-emerald-300 scale-[1.02]',
   )
 
   const body = (
     <>
-      <span className="text-[9px] uppercase tracking-[0.18em]">{SEAT_NAMES[seat]}</span>
-      <span className="text-sm font-semibold">{count}</span>
+      <div className="flex shrink-0 flex-col items-center">
+        <span className="text-[9px] uppercase tracking-[0.18em] font-semibold">{SEAT_NAMES[seat]}</span>
+        <span className="text-xs font-bold leading-tight">{count}</span>
+      </div>
+
+      <div
+        className={cn(
+          'flex flex-1 flex-col items-center justify-center w-full min-h-0 overflow-hidden py-1',
+          visible > 1 && '-space-y-2 sm:-space-y-2.5',
+        )}
+      >
+        {visible > 0 ? (
+          <>
+            {Array.from({ length: visible }, (_, slot) => (
+              <Checker key={slot} owner={seat} />
+            ))}
+            {overflow > 0 ? (
+              <span className="text-[10px] font-bold text-slate-100">+{overflow}</span>
+            ) : null}
+          </>
+        ) : (
+          <div
+            title={`No ${SEAT_NAMES[seat]} checkers borne off yet`}
+            className="size-4 rounded-full border border-dashed border-current opacity-25"
+          />
+        )}
+      </div>
+
+      <span className="text-[8px] uppercase tracking-wider opacity-60">Off</span>
     </>
   )
 
@@ -178,15 +214,49 @@ const BarCell = ({
   onDragStart?: (event: DragEvent<HTMLButtonElement>) => void
   onDragEnd?: (event: DragEvent<HTMLButtonElement>) => void
 }) => {
+  const visible = Math.min(count, MAX_VISIBLE_BAR_CHECKERS)
+  const overflow = count - visible
+
+  const handleBarDragStart = (event: DragEvent<HTMLButtonElement>): void => {
+    const discs = event.currentTarget.querySelectorAll<HTMLElement>('.checker-disc')
+    const grabbed = discs[discs.length - 1] ?? discs[0]
+    if (grabbed && typeof event.dataTransfer?.setDragImage === 'function') {
+      const rect = grabbed.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) {
+        event.dataTransfer.setDragImage(grabbed, rect.width / 2, rect.height / 2)
+      }
+    }
+    onDragStart?.(event)
+  }
+
   const look = cn(
-    'rounded-md px-1 py-1 text-center text-[10px] font-semibold',
-    selected ? 'bg-sky-400/70 text-slate-950' : live ? 'bg-emerald-500/30 text-slate-50' : 'text-point-light/45',
+    'flex flex-col items-center justify-center w-full rounded-md px-1 py-1.5 text-center text-[10px] font-semibold transition-all',
+    selected
+      ? 'bg-sky-400/70 text-slate-950 ring-2 ring-sky-300'
+      : live
+        ? 'bg-emerald-500/30 text-slate-50 ring-2 ring-emerald-400'
+        : 'text-point-light/45',
   )
 
   const body = (
     <>
-      <span className="block uppercase tracking-[0.1em]">{SEAT_NAMES[seat]}</span>
-      <span className="block text-xs">{count}</span>
+      <span className="block uppercase tracking-[0.1em] text-[9px] font-medium">{SEAT_NAMES[seat]}</span>
+      {visible > 0 ? (
+        <div
+          className={cn(
+            'relative my-1 flex flex-col items-center justify-center',
+            visible > 3 ? '-space-y-1.5' : 'gap-0.5',
+          )}
+        >
+          {Array.from({ length: visible }, (_, slot) => (
+            <Checker key={slot} owner={seat} />
+          ))}
+          {overflow > 0 ? (
+            <span className="text-[10px] font-bold text-slate-100">+{overflow}</span>
+          ) : null}
+        </div>
+      ) : null}
+      <span className="block text-xs font-semibold">{count}</span>
     </>
   )
 
@@ -198,7 +268,7 @@ const BarCell = ({
         title={`${SEAT_NAMES[seat]} has ${count} checker${count === 1 ? '' : 's'} on the bar`}
         draggable={draggable}
         onClick={onSelect}
-        onDragStart={draggable ? onDragStart : undefined}
+        onDragStart={draggable ? handleBarDragStart : undefined}
         onDragEnd={draggable ? onDragEnd : undefined}
         className={cn(
           look,

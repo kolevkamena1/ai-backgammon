@@ -9,6 +9,7 @@ import {
   computeResizedDimensions,
   DEFAULT_BOARD_DIMENSIONS,
 } from '@/utils/boardResize'
+import { getInitialBoardState } from '@/utils/gameLogic'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -159,5 +160,37 @@ describe('checker contrast', () => {
       const section = host.querySelector('section[aria-label="Backgammon board"]')
       expect(section?.getAttribute('data-board-design')).toBe(design.id)
     }
+  })
+
+  it('renders visible checkers on the left (black bear-off), right (white bear-off), and center bars', () => {
+    const board = {
+      ...getInitialBoardState(),
+      bar: { light: 2, dark: 1 },
+      off: { light: 3, dark: 4 },
+    }
+
+    act(() => {
+      root.render(<Board board={board} />)
+    })
+
+    // Center bar: Black cell should have 1 dark checker disc, White cell should have 2 light checker discs
+    const bar = host.querySelector('.board-bar')
+    expect(bar).toBeTruthy()
+    const barDarkDiscs = bar?.querySelectorAll('.checker-disc-dark')
+    const barLightDiscs = bar?.querySelectorAll('.checker-disc-light')
+    expect(barDarkDiscs).toHaveLength(1)
+    expect(barLightDiscs).toHaveLength(2)
+
+    // Trays: left is Black bear-off, right is White bear-off
+    const trays = host.querySelectorAll('.board-tray')
+    expect(trays).toHaveLength(2)
+    const leftTray = trays[0]
+    const rightTray = trays[1]
+
+    const leftDiscs = leftTray.querySelectorAll('.checker-disc-dark')
+    expect(leftDiscs).toHaveLength(4)
+
+    const rightDiscs = rightTray.querySelectorAll('.checker-disc-light')
+    expect(rightDiscs).toHaveLength(3)
   })
 })
