@@ -33,7 +33,11 @@ function toParams(query: Query, extra: Record<string, string> = {}): string {
 
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(path, { headers: { accept: 'application/json' } })
-  if (response.status === 403) throw new Error('Forbidden — sign in through Cloudflare Access, or check ACCESS_AUD / ACCESS_TEAM_DOMAIN.')
+  if (response.status === 403 || response.status === 401) {
+    const data = (await response.json().catch(() => null)) as { error?: string; reason?: string } | null
+    const details = data?.reason ? ` [${data.reason}]` : ''
+    throw new Error(`Forbidden${details} — check Cloudflare Access configuration.`)
+  }
   if (response.status === 503) throw new Error('The D1 database is not bound yet (see README → Admin stats).')
   if (!response.ok) throw new Error(`Request failed (${response.status})`)
   return (await response.json()) as T

@@ -43,29 +43,61 @@ function decodeJson(segment: string): Record<string, unknown> | null {
   }
 }
 
-export async function verifyAccessJwt(
+export function cleanTeamDomain(domain: string): string {
+  return domain.replace(/^https?:\/\//, '').replace(/\/+$/, '').trim()
+}
+
+export type VerifyResult =
+  | { ok: true; identity: AccessIdentity }
+  | { ok: false; reason: string }
+
+export async function verifyAccessJwtDetail(
   token: string | null,
   config: AccessConfig,
   getKeys: () => Promise<Jwk[]>,
   nowSeconds: number = Math.floor(Date.now() / 1000),
-): Promise<AccessIdentity | null> {
-  if (token === null || token === '') return null
+): Promise<VerifyResult> {
+  if (token === null || token === '') {
+    return {
+      ok: false,
+      reason: 'missing_jwt_header (Request has no Cf-Access-Jwt-Assertion. Ensure your Cloudflare Access application path includes both /stats* and /api/stats*)',
+    }
+  }
   const parts = token.split('.')
-  if (parts.length !== 3) return null
+  if (parts.length !== 3) return { ok: false, reason: 'malformed_jwt_token' }
 
   const header = decodeJson(parts[0])
   const payload = decodeJson(parts[1])
-  if (header === null || payload === null || header.alg !== 'RS256' || typeof header.kid !== 'string') return null
+  if (header === null || payload === null) return { ok: false, reason: 'malformed_jwt_payload' }
+  if (header.alg !== 'RS256' || typeof header.kid !== 'string') return { ok: false, reason: `unsupported_algorithm_${String(header.alg)}` }
+
+  const team = cleanTeamDomain(config.teamDomain)
+  const aud = config.audience.trim()
 
   const audience = payload.aud
   const audiences = Array.isArray(audience) ? audience : [audience]
-  if (!audiences.includes(config.audience)) return null
-  if (payload.iss !== `https://${config.teamDomain}`) return null
-  if (typeof payload.exp !== 'number' || payload.exp <= nowSeconds) return null
-  if (typeof payload.nbf === 'number' && payload.nbf > nowSeconds + 60) return null
+  if (!audiences.includes(aud)) {
+    return {
+      ok: false,
+      reason: `audience_mismatch (Expected ${aud.slice(0, 10)}..., but token has ${audiences.map((a) => typeof a === 'string' ? a.slice(0, 10) + '...' : String(a)).join(', ')}. Check ACCESS_AUD variable.)`,
+    }
+  }
+  if (payload.iss !== `https://${team}`) {
+    return {
+      ok: false,
+      reason: `issuer_mismatch (Expected https://${team}, but token issuer is ${String(payload.iss)}. Check ACCESS_TEAM_DOMAIN variable.)`,
+    }
+  }
+  if (typeof payload.exp !== 'number' || payload.exp <= nowSeconds) {
+    return { ok: false, reason: 'jwt_expired' }
+  }
+  if (typeof payload.nbf === 'number' && payload.nbf > nowSeconds + 60) {
+    return { ok: false, reason: 'jwt_not_yet_valid' }
+  }
 
-  const jwk = (await getKeys()).find((key) => key.kid === header.kid && key.kty === 'RSA')
-  if (jwk === undefined) return null
+  const keys = await getKeys()
+  const jwk = keys.find((key) => key.kid === header.kid && key.kty === 'RSA')
+  if (jwk === undefined) return { ok: false, reason: `unknown_kid_${header.kid}` }
 
   try {
     const key = await crypto.subtle.importKey(
@@ -81,9 +113,20 @@ export async function verifyAccessJwt(
       base64UrlToBytes(parts[2]),
       new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
     )
-    return valid ? { email: typeof payload.email === 'string' ? payload.email : null } : null
-  } catch {
-    return null
+    if (!valid) return { ok: false, reason: 'invalid_signature' }
+    return { ok: true, identity: { email: typeof payload.email === 'string' ? payload.email : null } }
+  } catch (err) {
+    return { ok: false, reason: `verification_exception: ${err instanceof Error ? err.message : 'unknown'}` }
   }
+}
+
+export async function verifyAccessJwt(
+  token: string | null,
+  config: AccessConfig,
+  getKeys: () => Promise<Jwk[]>,
+  nowSeconds: number = Math.floor(Date.now() / 1000),
+): Promise<AccessIdentity | null> {
+  const result = await verifyAccessJwtDetail(token, config, getKeys, nowSeconds)
+  return result.ok ? result.identity : null
 }
 

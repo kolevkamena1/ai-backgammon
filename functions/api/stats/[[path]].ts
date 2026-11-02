@@ -1,5 +1,5 @@
 import { parseFilters, toCsv } from '../../../shared/analytics.ts'
-import { verifyAccessJwt, type Jwk } from '../../../shared/analyticsAuth.ts'
+import { cleanTeamDomain, verifyAccessJwtDetail, type AccessIdentity, type Jwk } from '../../../shared/analyticsAuth.ts'
 import { getSummary, listGames, listSessions, type D1Db } from '../../../shared/analyticsDb.ts'
 
 interface PagesContext {
@@ -21,7 +21,8 @@ const json = (body: unknown, status = 200): Response =>
 
 let cachedKeys: { teamDomain: string; keys: Jwk[]; fetchedAt: number } | null = null
 
-async function loadKeys(teamDomain: string): Promise<Jwk[]> {
+async function loadKeys(rawTeamDomain: string): Promise<Jwk[]> {
+  const teamDomain = cleanTeamDomain(rawTeamDomain)
   if (cachedKeys !== null && cachedKeys.teamDomain === teamDomain && Date.now() - cachedKeys.fetchedAt < 3_600_000) {
     return cachedKeys.keys
   }
@@ -32,23 +33,34 @@ async function loadKeys(teamDomain: string): Promise<Jwk[]> {
   return cachedKeys.keys
 }
 
-async function authorised(request: Request, env: PagesContext['env']): Promise<boolean> {
+async function checkAuth(request: Request, env: PagesContext['env']): Promise<{ ok: true; identity?: AccessIdentity } | { ok: false; status: number; reason: string }> {
   const hostname = new URL(request.url).hostname
-  if (env.STATS_DEV_BYPASS === '1' && (hostname === 'localhost' || hostname === '127.0.0.1')) return true
+  if (env.STATS_DEV_BYPASS === '1' && (hostname === 'localhost' || hostname === '127.0.0.1')) return { ok: true }
 
   // Fail closed: without both settings nobody gets in, not even with a valid-looking header.
-  if (env.ACCESS_TEAM_DOMAIN === undefined || env.ACCESS_AUD === undefined) return false
-
-  try {
-    const identity = await verifyAccessJwt(
-      request.headers.get('cf-access-jwt-assertion'),
-      { teamDomain: env.ACCESS_TEAM_DOMAIN, audience: env.ACCESS_AUD },
-      () => loadKeys(env.ACCESS_TEAM_DOMAIN as string),
-    )
-    return identity !== null
-  } catch {
-    return false
+  if (!env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD) {
+    const missing: string[] = []
+    if (!env.ACCESS_TEAM_DOMAIN) missing.push('ACCESS_TEAM_DOMAIN')
+    if (!env.ACCESS_AUD) missing.push('ACCESS_AUD')
+    return {
+      ok: false,
+      status: 403,
+      reason: `missing_configuration (${missing.join(' and ')} not set in Cloudflare Pages Environment variables or wrangler.toml)`,
+    }
   }
+
+  const token = request.headers.get('cf-access-jwt-assertion')
+  const detail = await verifyAccessJwtDetail(
+    token,
+    { teamDomain: env.ACCESS_TEAM_DOMAIN, audience: env.ACCESS_AUD },
+    () => loadKeys(env.ACCESS_TEAM_DOMAIN as string),
+  )
+
+  if (!detail.ok) {
+    return { ok: false, status: 403, reason: detail.reason }
+  }
+
+  return { ok: true, identity: detail.identity }
 }
 
 const clamp = (value: string | null, fallback: number, max: number): number =>
@@ -56,7 +68,8 @@ const clamp = (value: string | null, fallback: number, max: number): number =>
 
 /** `GET /api/stats/{summary|sessions|games|export}` - admin only. */
 export const onRequestGet = async ({ request, env }: PagesContext): Promise<Response> => {
-  if (!(await authorised(request, env))) return json({ error: 'forbidden' }, 403)
+  const auth = await checkAuth(request, env)
+  if (!auth.ok) return json({ error: 'forbidden', reason: auth.reason }, auth.status)
   if (env.DB === undefined) return json({ error: 'database not configured' }, 503)
 
   const url = new URL(request.url)
