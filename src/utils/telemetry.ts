@@ -12,7 +12,7 @@ import { describeEngine } from '@/utils/gameConfig'
  * the server from the request itself. Do Not Track is honoured, and dev builds send nothing.
  */
 
-const COLLECT_URL = '/api/collect'
+const COLLECT_URL = '/api/event'
 const SESSION_KEY = 'ai-backgammon:session'
 
 interface GameTracker {
