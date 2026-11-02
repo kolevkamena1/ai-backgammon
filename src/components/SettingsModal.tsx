@@ -108,10 +108,10 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
       icon={KeyRound}
       onClose={onClose}
       closeLabel="Close settings"
-      panelClassName="w-[96vw] max-w-7xl p-4"
+      panelClassName="max-w-6xl"
     >
-      <form className="space-y-3" onSubmit={handleSubmit}>
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-950/70 px-3.5 py-2">
+      <form className="space-y-4" onSubmit={handleSubmit}>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-2.5">
           <label
             htmlFor="settings-use-two-byok"
             className="flex cursor-pointer items-center gap-2.5 select-none"
@@ -126,7 +126,7 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
             <span className="text-sm font-semibold text-slate-100">
               Use two different BYOK
             </span>
-            <span className="hidden text-xs text-slate-400 sm:inline">
+            <span className="text-xs text-slate-400">
               —{' '}
               {useTwoByok
                 ? 'BYOK 1 plays White and BYOK 2 plays Black in AI vs AI matches.'
@@ -134,7 +134,7 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
             </span>
           </label>
 
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={handleCopyByok1ToByok2}
@@ -142,10 +142,10 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
               title="Copy provider, API key, model, and parameters from BYOK 1 into BYOK 2"
               className={cn(
                 BUTTON,
-                'border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800',
+                'border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800',
               )}
             >
-              <Copy className="size-3 text-sky-400" aria-hidden />
+              <Copy className="size-3.5 text-sky-400" aria-hidden />
               Copy BYOK 1 → BYOK 2
             </button>
             <button
@@ -155,28 +155,28 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
               title="Swap BYOK 1 and BYOK 2 configurations"
               className={cn(
                 BUTTON,
-                'border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs text-slate-200 hover:bg-slate-800',
+                'border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800',
               )}
             >
-              <ArrowLeftRight className="size-3 text-sky-400" aria-hidden />
+              <ArrowLeftRight className="size-3.5 text-sky-400" aria-hidden />
               Swap 1 ↔ 2
             </button>
           </div>
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {/* BYOK 1 Panel */}
           <section
             aria-labelledby="byok1-heading"
-            className="flex flex-col justify-between rounded-xl border border-slate-800 bg-slate-950/40 p-3"
+            className="flex flex-col justify-between rounded-xl border border-slate-800 bg-slate-950/40 p-4"
           >
-            <div className="space-y-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 id="byok1-heading" className="text-sm font-semibold text-slate-100">
                     BYOK 1
                   </h3>
-                  <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium text-sky-300">
+                  <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-0.5 text-[11px] font-medium text-sky-300">
                     {useTwoByok ? 'White (AI vs AI) · AI (Human vs AI)' : 'All AI seats'}
                   </span>
                 </div>
@@ -185,9 +185,9 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
                   type="button"
                   onClick={handleRemoveByok1}
                   disabled={!isConfigured && byok1.draft.apiKey.trim().length === 0}
-                  className={cn(BUTTON, 'px-2 py-0.5 text-xs text-red-300 hover:bg-red-500/10')}
+                  className={cn(BUTTON, 'px-2.5 py-1 text-xs text-red-300 hover:bg-red-500/10')}
                 >
-                  <Trash className="size-3" aria-hidden />
+                  <Trash className="size-3.5" aria-hidden />
                   Remove key
                 </button>
               </div>
@@ -206,14 +206,14 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
           <section
             aria-labelledby="byok2-heading"
             className={cn(
-              'flex flex-col justify-between rounded-xl border p-3 transition',
+              'flex flex-col justify-between rounded-xl border p-4 transition',
               useTwoByok
                 ? 'border-slate-800 bg-slate-950/40'
                 : 'border-slate-800/60 bg-slate-950/20',
             )}
           >
-            <div className="space-y-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3
                     id="byok2-heading"
@@ -226,7 +226,7 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
                   </h3>
                   <span
                     className={cn(
-                      'rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                      'rounded-full border px-2.5 py-0.5 text-[11px] font-medium',
                       useTwoByok
                         ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
                         : 'border-slate-700 bg-slate-800/80 text-slate-400',
@@ -242,9 +242,9 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
                   disabled={
                     !useTwoByok || (!opponentConfigured && byok2.draft.apiKey.trim().length === 0)
                   }
-                  className={cn(BUTTON, 'px-2 py-0.5 text-xs text-red-300 hover:bg-red-500/10')}
+                  className={cn(BUTTON, 'px-2.5 py-1 text-xs text-red-300 hover:bg-red-500/10')}
                 >
-                  <Trash className="size-3" aria-hidden />
+                  <Trash className="size-3.5" aria-hidden />
                   Remove key
                 </button>
               </div>
@@ -253,7 +253,7 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
                 disabled={!useTwoByok}
                 aria-disabled={!useTwoByok}
                 className={cn(
-                  'space-y-2.5 transition-opacity',
+                  'space-y-3 transition-opacity',
                   !useTwoByok && 'pointer-events-none select-none opacity-40 grayscale',
                 )}
               >

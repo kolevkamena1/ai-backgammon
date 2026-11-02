@@ -28,7 +28,7 @@ const Modal = ({
   icon: Icon,
   onClose,
   children,
-  panelClassName,
+  panelClassName = 'max-w-md',
   closeLabel = 'Close',
 }: ModalProps) => {
   const handleBackdropClick = (event: MouseEvent<HTMLDivElement>): void => {
@@ -49,7 +49,7 @@ const Modal = ({
         aria-modal="true"
         aria-labelledby={titleId}
         className={cn(
-          'max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl',
+          'max-h-[92vh] w-full overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl',
           panelClassName,
         )}
       >
