@@ -1,17 +1,18 @@
+import AboutModal from '@/components/AboutModal'
 import Board from '@/components/Board'
 import GameControls from '@/components/GameControls'
 import GameSetupModal from '@/components/GameSetupModal'
+import MenuBar from '@/components/MenuBar'
 import SettingsModal from '@/components/SettingsModal'
 import { useGame } from '@/hooks/useGame'
 import { useAiTurn } from '@/hooks/useAiTurn'
 import { useGameConfig } from '@/hooks/useGameConfig'
 import { useSettings } from '@/hooks/useSettings'
-import type { SeatAssignment } from '@/types/gameConfig'
+import type { GameMode, SeatAssignment } from '@/types/gameConfig'
 import { cn } from '@/utils/cn'
-import { BOARD_DESIGNS } from '@/utils/boardDesigns'
 import { SEAT_LABELS, describeEngine, describeMode, planSeats, seatProblems } from '@/utils/gameConfig'
-import { Dices, KeyRound, Moon, Palette, Settings, ShieldCheck, Sparkles, Sun, Swords } from 'lucide-react'
-import { useEffect } from 'react'
+import { Dices, KeyRound, ShieldCheck, Sparkles } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 /** One roster line per seat: who plays it, and through which engine. */
 function seatText(seat: SeatAssignment): string {
@@ -33,13 +34,31 @@ const App = () => {
     isConfigured,
     isSettingsOpen,
     maskedApiKey,
-    toggleTheme,
+    setTheme,
     setBoardDesign,
     openSettings,
     closeSettings,
   } = useSettings()
   const { config, isSetupOpen, openSetup, closeSetup } = useGameConfig()
   const game = useGame()
+
+  const [isAboutOpen, setIsAboutOpen] = useState(false)
+  const [setupInitialMode, setSetupInitialMode] = useState<GameMode | undefined>(undefined)
+
+  const handleOpenNewGame = (preferredMode?: GameMode): void => {
+    setSetupInitialMode(preferredMode)
+    openSetup()
+  }
+
+  const handleRestartGame = (): void => {
+    if (game.active) {
+      game.startNewGame(game.config ?? config, settings)
+    }
+  }
+
+  const handleResetToOpening = (): void => {
+    game.resetGame()
+  }
 
   // Keep the root <html data-theme="..."> attribute synced with the user's chosen theme.
   useEffect(() => {
@@ -57,14 +76,14 @@ const App = () => {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="border-b border-slate-800 bg-slate-900/70">
-        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-4">
+      <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-900/90 shadow-md backdrop-blur-md">
+        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-2.5">
           <div>
-            <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-slate-50">
+            <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-slate-50">
               <Dices className="size-5 text-amber-400" aria-hidden />
               AI Backgammon
             </h1>
-            <p className="text-sm text-slate-400">Bring-your-own-key inference. Rules, turns and live AI seats.</p>
+            <p className="text-xs text-slate-400">Bring-your-own-key inference. Rules, turns and live AI seats.</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -94,45 +113,22 @@ const App = () => {
               )}
               {isConfigured ? `Key saved · ${maskedApiKey}` : 'No API key configured'}
             </span>
-
-            <button
-              type="button"
-              onClick={openSetup}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-sky-500"
-            >
-              <Swords className="size-4" aria-hidden />
-              New game
-            </button>
-
-            <button
-              type="button"
-              onClick={openSettings}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 transition hover:border-slate-600 hover:bg-slate-700"
-            >
-              <Settings className="size-4" aria-hidden />
-              Settings
-            </button>
-
-            <button
-              type="button"
-              onClick={toggleTheme}
-              aria-label={theme === 'light' ? 'Switch to dark theme' : 'Switch to warm light theme'}
-              title={theme === 'light' ? 'Switch to dark theme' : 'Switch to warm light theme'}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 transition hover:border-slate-600 hover:bg-slate-700"
-            >
-              {theme === 'light' ? (
-                <>
-                  <Moon className="size-4 text-amber-500" aria-hidden />
-                  <span>Dark</span>
-                </>
-              ) : (
-                <>
-                  <Sun className="size-4 text-amber-400" aria-hidden />
-                  <span>Light</span>
-                </>
-              )}
-            </button>
           </div>
+        </div>
+
+        <div className="mx-auto w-full max-w-5xl px-2">
+          <MenuBar
+            isGameActive={game.active}
+            onOpenNewGame={handleOpenNewGame}
+            onRestartGame={handleRestartGame}
+            onResetToOpening={handleResetToOpening}
+            boardDesign={boardDesign}
+            onSelectBoardDesign={setBoardDesign}
+            theme={theme}
+            onSetTheme={setTheme}
+            onOpenSettings={openSettings}
+            onOpenAbout={() => setIsAboutOpen(true)}
+          />
         </div>
       </header>
 
@@ -140,45 +136,6 @@ const App = () => {
         data-board-design={boardDesign}
         className="mx-auto flex w-full max-w-7xl flex-1 flex-col items-center gap-5 px-4 py-5"
       >
-        <nav
-          aria-label="Board visual design"
-          className="flex w-full max-w-3xl flex-wrap items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2"
-        >
-          <span className="mr-1 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-300">
-            <Palette className="size-3.5 text-sky-400" aria-hidden />
-            Board style:
-          </span>
-          {BOARD_DESIGNS.map((design) => {
-            const active = boardDesign === design.id
-            return (
-              <button
-                key={design.id}
-                type="button"
-                onClick={() => setBoardDesign(design.id)}
-                aria-pressed={active}
-                title={design.subtitle}
-                className={cn(
-                  'inline-flex items-center gap-2 rounded-lg border px-2.5 py-1 text-xs font-medium transition',
-                  active
-                    ? 'border-sky-500 bg-sky-500/15 text-slate-50 shadow-sm'
-                    : 'border-slate-700/80 bg-slate-950/60 text-slate-300 hover:border-slate-600 hover:bg-slate-800/70',
-                )}
-              >
-                <span className="flex items-center -space-x-1" aria-hidden>
-                  {design.swatches.map((hex, idx) => (
-                    <span
-                      key={idx}
-                      style={{ backgroundColor: hex }}
-                      className="size-3 rounded-full border border-black/30 shadow-xs"
-                    />
-                  ))}
-                </span>
-                <span>{design.name}</span>
-              </button>
-            )
-          })}
-        </nav>
-
         <Board
           board={game.board ?? undefined}
           turn={game.board?.turn ?? null}
@@ -236,8 +193,11 @@ const App = () => {
         </p>
       </footer>
 
-      {isSetupOpen ? <GameSetupModal onClose={closeSetup} /> : null}
+      {isSetupOpen ? (
+        <GameSetupModal initialMode={setupInitialMode} onClose={closeSetup} />
+      ) : null}
       {isSettingsOpen ? <SettingsModal onClose={closeSettings} /> : null}
+      {isAboutOpen ? <AboutModal onClose={() => setIsAboutOpen(false)} /> : null}
     </div>
   )
 }

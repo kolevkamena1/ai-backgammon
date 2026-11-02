@@ -317,6 +317,12 @@ const Board = ({
   }, [boardSize])
 
   useEffect(() => {
+    const handleResetEvent = (): void => setBoardSize(null)
+    window.addEventListener('ai-backgammon:reset-board-size', handleResetEvent)
+    return () => window.removeEventListener('ai-backgammon:reset-board-size', handleResetEvent)
+  }, [])
+
+  useEffect(() => {
     if (activeHandle === null) {
       return
     }

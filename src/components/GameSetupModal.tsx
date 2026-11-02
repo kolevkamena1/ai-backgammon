@@ -19,6 +19,7 @@ import { useState, type ComponentType, type FormEvent, type SVGProps } from 'rea
 interface GameSetupModalProps {
   /** Mounted only while open, so the draft always starts from the stored setup. */
   onClose: () => void
+  initialMode?: GameMode
 }
 
 interface ChoiceProps {
@@ -117,12 +118,12 @@ const SeatCard = ({ seat }: { seat: SeatAssignment }) => {
  * starting a game snapshots those seats into the (never-persisted) game store.
  * The roster preview uses planSeats(), i.e. the exact function the engine loop will consume.
  */
-const GameSetupModal = ({ onClose }: GameSetupModalProps) => {
+const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
   const { config, saveSetup } = useGameConfig()
   const { settings, openSettings } = useSettings()
   const game = useGame()
 
-  const [mode, setLocalMode] = useState<GameMode>(config.mode)
+  const [mode, setLocalMode] = useState<GameMode>(initialMode ?? config.mode)
   const [aiMatchType, setLocalMatchType] = useState<AiMatchType>(config.aiMatchType)
   const [error, setError] = useState('')
 
