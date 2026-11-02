@@ -110,8 +110,15 @@ export async function recordEvent(db: D1Db, event: AnalyticsEvent, facts: Reques
 
   // game_end: duration comes from the SERVER clock, so a client cannot invent it. A late
   // `finished` may override an earlier `abandoned` (tab restored), but never the reverse.
+  // Ensure the game row exists even if game_start was dropped or arrived out of order.
   await db.batch([
     upsertSession,
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO games (game_id, session_id, started_at, mode, outcome)
+         VALUES (?, ?, ?, 'humanVsAi', 'in_progress')`,
+      )
+      .bind(event.gameId, event.sessionId, now),
     db
       .prepare(
         `UPDATE games SET
