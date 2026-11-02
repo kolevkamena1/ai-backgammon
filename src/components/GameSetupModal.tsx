@@ -1,16 +1,19 @@
-import ByokFields from '@/components/ByokFields'
 import { BUTTON, CARD } from '@/components/ui/controls'
 import Modal from '@/components/ui/Modal'
-import { useByokDraft } from '@/hooks/useByokDraft'
 import { useGame } from '@/hooks/useGame'
 import { useGameConfig } from '@/hooks/useGameConfig'
 import { useSettings } from '@/hooks/useSettings'
 import { logger } from '@/lib/logger'
-import { DEFAULT_OPPONENT_CONFIG } from '@/state/gameConfigStore'
 import type { AiMatchType, GameMode, SeatAssignment } from '@/types/gameConfig'
 import { cn } from '@/utils/cn'
-import { planSeats, SEAT_LABELS, describeEngine, DIFFICULTY_LABELS, seatProblems, validateEngine } from '@/utils/gameConfig'
-import { Bot, Check, Swords, User } from 'lucide-react'
+import {
+  DIFFICULTY_LABELS,
+  SEAT_LABELS,
+  describeEngine,
+  planSeats,
+  seatProblems,
+} from '@/utils/gameConfig'
+import { Bot, Check, KeyRound, Swords, User } from 'lucide-react'
 import { useState, type ComponentType, type FormEvent, type SVGProps } from 'react'
 
 interface GameSetupModalProps {
@@ -115,20 +118,23 @@ const SeatCard = ({ seat }: { seat: SeatAssignment }) => {
  * The roster preview uses planSeats(), i.e. the exact function the engine loop will consume.
  */
 const GameSetupModal = ({ onClose }: GameSetupModalProps) => {
-  const { config, opponentConfigured, maskedOpponentKey, saveSetup, clearOpponent } = useGameConfig()
-  const { settings } = useSettings()
+  const { config, saveSetup } = useGameConfig()
+  const { settings, openSettings } = useSettings()
   const game = useGame()
 
   const [mode, setLocalMode] = useState<GameMode>(config.mode)
   const [aiMatchType, setLocalMatchType] = useState<AiMatchType>(config.aiMatchType)
-  const { draft, patch, reset, commit } = useByokDraft(config.opponent)
   const [error, setError] = useState('')
 
   const isAiVsAi = mode === 'aiVsAi'
   const isCustomMatch = isAiVsAi && aiMatchType === 'custom'
-  const plan = planSeats(settings, { mode, aiMatchType, opponent: draft })
-  const personalProblems = validateEngine(settings)
+  const plan = planSeats(settings, { mode, aiMatchType, opponent: config.opponent })
 
+  const handleOpenByokSettings = (): void => {
+    saveSetup({ mode, aiMatchType, opponent: config.opponent })
+    onClose()
+    openSettings()
+  }
 
   const handleSave = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
@@ -137,7 +143,7 @@ const GameSetupModal = ({ onClose }: GameSetupModalProps) => {
       return
     }
 
-    const setup = { mode, aiMatchType, opponent: commit() }
+    const setup = { mode, aiMatchType, opponent: config.opponent }
 
     try {
       saveSetup(setup)
@@ -155,18 +161,11 @@ const GameSetupModal = ({ onClose }: GameSetupModalProps) => {
     }
   }
 
-  const handleClearOpponent = (): void => {
-    clearOpponent()
-    reset({ ...DEFAULT_OPPONENT_CONFIG })
-    setError('')
-    logger.info('opponent credential cleared')
-  }
-
   return (
     <Modal
       titleId="game-setup-title"
       title="New game"
-      subtitle="Choose who plays which seat. Nothing starts until the engine lands."
+      subtitle="Choose who plays which seat. Manage BYOK 1 & BYOK 2 credentials in Settings."
       icon={Swords}
       onClose={onClose}
       closeLabel="Close game setup"
@@ -181,7 +180,7 @@ const GameSetupModal = ({ onClose }: GameSetupModalProps) => {
               value="humanVsAi"
               checked={mode === 'humanVsAi'}
               title="Human vs AI"
-              description="You play White; the AI plays Black."
+              description="You play White; BYOK 1 plays Black."
               icon={User}
               onSelect={() => setLocalMode('humanVsAi')}
               autoFocus
@@ -200,14 +199,14 @@ const GameSetupModal = ({ onClose }: GameSetupModalProps) => {
 
         {isAiVsAi ? (
           <fieldset className="space-y-2">
-            <legend className="mb-1.5 text-xs font-medium text-slate-300">Opponent</legend>
+            <legend className="mb-1.5 text-xs font-medium text-slate-300">AI engines</legend>
             <div className="grid gap-2 sm:grid-cols-2">
               <Choice
                 group="ai-match-type"
                 value="mirror"
                 checked={aiMatchType === 'mirror'}
-                title="Mirror match"
-                description="One engine plays both seats, reusing your key."
+                title="Single BYOK (Mirror)"
+                description="BYOK 1 plays both White and Black."
                 icon={Swords}
                 onSelect={() => setLocalMatchType('mirror')}
               />
@@ -215,8 +214,8 @@ const GameSetupModal = ({ onClose }: GameSetupModalProps) => {
                 group="ai-match-type"
                 value="custom"
                 checked={isCustomMatch}
-                title="Custom match"
-                description="A second, separately configured engine plays Black."
+                title="Two BYOK (BYOK 1 vs 2)"
+                description="BYOK 1 plays White; BYOK 2 plays Black."
                 icon={Bot}
                 onSelect={() => setLocalMatchType('custom')}
               />
@@ -224,51 +223,33 @@ const GameSetupModal = ({ onClose }: GameSetupModalProps) => {
           </fieldset>
         ) : null}
 
-        {isAiVsAi && aiMatchType === 'mirror' ? (
-          <p className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs leading-relaxed text-slate-400">
-            No second credential is stored for a mirror match — both seats use the BYOK from
-            Settings, so there is nothing to keep in sync.
-          </p>
-        ) : null}
-
-        {isCustomMatch ? (
-          <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
-                Opponent BYOK
-              </h3>
-              <button
-                type="button"
-                onClick={handleClearOpponent}
-                disabled={!opponentConfigured}
-                className={cn(BUTTON, 'px-2 py-1 text-xs text-red-300 hover:bg-red-500/10')}
-              >
-                Remove opponent key
-              </button>
-            </div>
-            <ByokFields
-              idPrefix="opponent"
-              value={draft}
-              onChange={patch}
-              storedTail={opponentConfigured ? maskedOpponentKey.slice(-4) : undefined}
-            />
-          </div>
-        ) : null}
-
         <div>
-          <h3 className="mb-1.5 text-xs font-medium text-slate-300">Roster</h3>
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <h3 className="text-xs font-medium text-slate-300">Roster</h3>
+            <button
+              type="button"
+              onClick={handleOpenByokSettings}
+              className={cn(
+                BUTTON,
+                'border border-slate-700 bg-slate-900 px-2.5 py-1 text-xs text-sky-300 hover:bg-slate-800',
+              )}
+            >
+              <KeyRound className="size-3.5" aria-hidden />
+              Configure BYOK 1 &amp; 2
+            </button>
+          </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <SeatCard seat={plan.light} />
             <SeatCard seat={plan.dark} />
           </div>
         </div>
 
-        {personalProblems.length > 0 ? (
+        {!plan.ready ? (
           <p className="text-xs text-amber-300">
-            Your own engine is not configured yet — add a key in Settings, then return here.
+            One or more AI seats still need credentials — click{' '}
+            <strong>Configure BYOK 1 &amp; 2</strong> above to set them in BYOK Settings.
           </p>
         ) : null}
-
 
         {error ? (
           <p

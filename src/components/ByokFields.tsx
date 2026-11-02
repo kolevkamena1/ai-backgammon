@@ -41,6 +41,8 @@ interface ByokFieldsProps {
   keyPlaceholder?: string
   /** Focus the key field on mount (Settings does; the setup modal must not steal focus). */
   autoFocusKey?: boolean
+  /** Disables all controls and suppresses background endpoint metadata requests. */
+  disabled?: boolean
 }
 
 const PROVIDERS: ReadonlyArray<{ value: AiProvider; label: string }> = [
@@ -86,6 +88,7 @@ const ByokFields = ({
   storedTail,
   keyPlaceholder = 'sk-\u2026',
   autoFocusKey = false,
+  disabled = false,
 }: ByokFieldsProps) => {
   const [revealKey, setRevealKey] = useState(false)
   const [availableModels, setAvailableModels] = useState<AiModelMetadata[]>([])
@@ -103,6 +106,7 @@ const ByokFields = ({
 
   const effectiveModel = value.model.trim() || DEFAULT_MODELS[value.provider]
   const canQueryEndpoint =
+    !disabled &&
     value.apiKey.trim().length > 0 &&
     (value.provider !== 'custom' || (value.baseUrl ?? '').trim().length > 0)
 
@@ -326,7 +330,7 @@ const ByokFields = ({
             <button
               type="button"
               onClick={() => void handleFetchMetadataNow()}
-              disabled={loadingMetadata || effectiveModel.length === 0}
+              disabled={disabled || loadingMetadata || effectiveModel.length === 0}
               className={cn(
                 BUTTON,
                 'border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800',
