@@ -21,7 +21,15 @@ import {
 import { getInitialBoardState, toPointViews } from '@/utils/gameLogic'
 import { cn } from '@/utils/cn'
 import { RotateCcw } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import Point, { type PointState } from './Point'
 
 interface BoardProps {
@@ -35,6 +43,10 @@ interface BoardProps {
   selectableSources?: ReadonlySet<MoveSource>
   selectedFrom?: MoveSource | null
   onSelectPoint?: (target: MoveSource | MoveTarget) => void
+  /** Initiates a drag from a legal source (`1..24` or `'bar'`). */
+  onDragStartSource?: (source: MoveSource) => void
+  /** Completes a drop onto a legal destination (`1..24` or `'off'`). */
+  onDropTarget?: (target: MoveSource | MoveTarget, draggedSource?: MoveSource | null) => void
   /** Visual material preset for the board, triangles, and checkers. */
   design?: BoardDesignId
   className?: string
@@ -73,16 +85,22 @@ const Tray = ({
   count,
   live,
   onSelect,
+  onDragOver,
+  onDrop,
 }: {
   seat: PlayerColor
   count: number
   live: boolean
   onSelect?: () => void
+  onDragOver?: (event: DragEvent<HTMLButtonElement>) => void
+  onDrop?: (event: DragEvent<HTMLButtonElement>) => void
 }) => {
+  const [isDragOver, setIsDragOver] = useState(false)
   const label = `${SEAT_NAMES[seat]} off ${count}`
   const look = cn(
     'board-tray flex w-9 shrink-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 text-center',
     live ? 'bg-emerald-500/25 text-slate-50' : 'bg-board-field/70 text-point-light/50',
+    live && isDragOver && 'bg-emerald-500/45 ring-2 ring-emerald-300',
   )
 
   const body = (
@@ -94,7 +112,40 @@ const Tray = ({
 
   if (onSelect) {
     return (
-      <button type="button" aria-label={`Bear off into the ${SEAT_NAMES[seat]} tray`} title={label} onClick={onSelect} className={cn(look, 'cursor-pointer appearance-none border-0 transition-colors hover:bg-emerald-500/40')}>
+      <button
+        type="button"
+        aria-label={`Bear off into the ${SEAT_NAMES[seat]} tray`}
+        title={label}
+        onClick={onSelect}
+        onDragOver={
+          onDragOver
+            ? (event) => {
+                event.preventDefault()
+                if (event.dataTransfer) {
+                  event.dataTransfer.dropEffect = 'move'
+                }
+                if (!isDragOver) setIsDragOver(true)
+                onDragOver(event)
+              }
+            : undefined
+        }
+        onDragLeave={() => {
+          if (isDragOver) setIsDragOver(false)
+        }}
+        onDrop={
+          onDrop
+            ? (event) => {
+                event.preventDefault()
+                setIsDragOver(false)
+                onDrop(event)
+              }
+            : undefined
+        }
+        className={cn(
+          look,
+          'cursor-pointer appearance-none border-0 transition-colors hover:bg-emerald-500/40',
+        )}
+      >
         {body}
       </button>
     )
@@ -114,12 +165,18 @@ const BarCell = ({
   live,
   selected,
   onSelect,
+  draggable = false,
+  onDragStart,
+  onDragEnd,
 }: {
   seat: PlayerColor
   count: number
   live: boolean
   selected: boolean
   onSelect?: () => void
+  draggable?: boolean
+  onDragStart?: (event: DragEvent<HTMLButtonElement>) => void
+  onDragEnd?: (event: DragEvent<HTMLButtonElement>) => void
 }) => {
   const look = cn(
     'rounded-md px-1 py-1 text-center text-[10px] font-semibold',
@@ -139,8 +196,15 @@ const BarCell = ({
         type="button"
         aria-label={`Bring ${SEAT_NAMES[seat]} in from the bar`}
         title={`${SEAT_NAMES[seat]} has ${count} checker${count === 1 ? '' : 's'} on the bar`}
+        draggable={draggable}
         onClick={onSelect}
-        className={cn(look, 'cursor-pointer appearance-none border-0 transition-colors hover:bg-emerald-500/45')}
+        onDragStart={draggable ? onDragStart : undefined}
+        onDragEnd={draggable ? onDragEnd : undefined}
+        className={cn(
+          look,
+          'cursor-pointer appearance-none border-0 transition-colors hover:bg-emerald-500/45',
+          draggable && 'cursor-grab active:cursor-grabbing',
+        )}
       >
         {body}
       </button>
@@ -162,10 +226,13 @@ const Board = ({
   selectableSources,
   selectedFrom = null,
   onSelectPoint,
+  onDragStartSource,
+  onDropTarget,
   design = DEFAULT_BOARD_DESIGN,
   className,
 }: BoardProps) => {
   const sectionRef = useRef<HTMLElement | null>(null)
+  const draggedSourceRef = useRef<MoveSource | null>(null)
   const [boardSize, setBoardSize] = useState<BoardDimensions | null>(() => loadStoredBoardSize())
   const [activeHandle, setActiveHandle] = useState<ResizeHandle | null>(null)
   const dragRef = useRef<{
@@ -262,15 +329,50 @@ const Board = ({
     return 'none'
   }
 
+  const beginDragSource = (source: MoveSource, event: DragEvent<HTMLButtonElement>): void => {
+    draggedSourceRef.current = source
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move'
+      try {
+        event.dataTransfer.setData('text/plain', String(source))
+      } catch {
+        // Ignore browser environments that disallow setData on synthetic DragEvents
+      }
+    }
+    if (onDragStartSource) {
+      onDragStartSource(source)
+    } else if (onSelectPoint && selectedFrom !== source) {
+      onSelectPoint(source)
+    }
+  }
+
+  const endDragSource = (): void => {
+    draggedSourceRef.current = null
+  }
+
+  const dropOnTarget = (target: MoveSource | MoveTarget): void => {
+    const from = draggedSourceRef.current
+    draggedSourceRef.current = null
+    if (onDropTarget) {
+      onDropTarget(target, from)
+    } else if (onSelectPoint && legalTargets?.has(target)) {
+      onSelectPoint(target)
+    }
+  }
+
   const quadrantStyle: CSSProperties | undefined = metrics
     ? { height: `${metrics.quadrantHeight}px` }
     : undefined
+
+  const canInteractWithPoints = Boolean(onSelectPoint || onDragStartSource || onDropTarget)
 
   const renderQuadrant = (indices: readonly PointIndex[], orientation: 'top' | 'bottom') => (
     <div className={QUADRANT} style={quadrantStyle}>
       {indices.map((index) => {
         const point = byIndex.get(index)
         const state = stateFor(index)
+        const isDraggable = canInteractWithPoints && (selectableSources?.has(index) ?? false)
+        const isDropTarget = canInteractWithPoints && (legalTargets?.has(index) ?? false)
 
         return (
           <Point
@@ -280,6 +382,11 @@ const Board = ({
             checkers={point?.checkers ?? 0}
             owner={point?.owner ?? null}
             state={state}
+            draggable={isDraggable}
+            onDragStart={isDraggable ? (e) => beginDragSource(index, e) : undefined}
+            onDragEnd={isDraggable ? endDragSource : undefined}
+            onDragOver={isDropTarget ? () => undefined : undefined}
+            onDrop={isDropTarget ? () => dropOnTarget(index) : undefined}
             // Static triangles stay static: only relevant points become tab stops.
             onSelect={onSelectPoint && state !== 'none' ? () => onSelectPoint(index) : undefined}
           />
@@ -400,6 +507,8 @@ const Board = ({
           count={board.off.dark}
           live={trayLive('dark')}
           onSelect={trayLive('dark') && onSelectPoint ? () => onSelectPoint('off') : undefined}
+          onDragOver={trayLive('dark') && canInteractWithPoints ? () => undefined : undefined}
+          onDrop={trayLive('dark') && canInteractWithPoints ? () => dropOnTarget('off') : undefined}
         />
 
         <div className="board-surface grid min-w-0 flex-1 grid-cols-[1fr_auto_1fr] grid-rows-2 gap-x-2 rounded-xl bg-board-field p-2">
@@ -411,6 +520,13 @@ const Board = ({
               count={board.bar.dark}
               live={barLive('dark')}
               selected={turn === 'dark' && selectedFrom === 'bar'}
+              draggable={barLive('dark') && canInteractWithPoints}
+              onDragStart={
+                barLive('dark') && canInteractWithPoints
+                  ? (e) => beginDragSource('bar', e)
+                  : undefined
+              }
+              onDragEnd={barLive('dark') && canInteractWithPoints ? endDragSource : undefined}
               onSelect={barLive('dark') && onSelectPoint ? () => onSelectPoint('bar') : undefined}
             />
 
@@ -423,6 +539,13 @@ const Board = ({
               count={board.bar.light}
               live={barLive('light')}
               selected={turn === 'light' && selectedFrom === 'bar'}
+              draggable={barLive('light') && canInteractWithPoints}
+              onDragStart={
+                barLive('light') && canInteractWithPoints
+                  ? (e) => beginDragSource('bar', e)
+                  : undefined
+              }
+              onDragEnd={barLive('light') && canInteractWithPoints ? endDragSource : undefined}
               onSelect={barLive('light') && onSelectPoint ? () => onSelectPoint('bar') : undefined}
             />
           </div>
@@ -439,6 +562,8 @@ const Board = ({
           count={board.off.light}
           live={trayLive('light')}
           onSelect={trayLive('light') && onSelectPoint ? () => onSelectPoint('off') : undefined}
+          onDragOver={trayLive('light') && canInteractWithPoints ? () => undefined : undefined}
+          onDrop={trayLive('light') && canInteractWithPoints ? () => dropOnTarget('off') : undefined}
         />
       </div>
     </section>

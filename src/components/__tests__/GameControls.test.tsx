@@ -38,6 +38,8 @@ function WiredBoard() {
       selectableSources={game.selectableSources}
       selectedFrom={game.selectedFrom}
       onSelectPoint={game.handlePointClick}
+      onDragStartSource={game.handlePointDragStart}
+      onDropTarget={game.handlePointDrop}
     />
   )
 }
@@ -286,6 +288,143 @@ describe('click-to-move through the wired board', () => {
     expect(pointButton(13)).toBeTruthy()
     click(pointButton(13))
     expect(useGameStore.getState().selectedFrom).toBe(13)
+  })
+})
+
+describe('drag-and-drop moves through the wired board', () => {
+  const dragEvent = (type: string): Event => {
+    const event = new Event(type, { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', {
+      value: {
+        effectAllowed: 'none',
+        dropEffect: 'none',
+        setData: vi.fn(),
+        getData: vi.fn(),
+        setDragImage: vi.fn(),
+      },
+    })
+    return event
+  }
+
+  it('drags a checker from a legal point and drops it onto a legal destination point', () => {
+    // Opening layout with a single 5: 13 -> 8 and 8 -> 3 are the only legal moves.
+    seedBoard({ ...getInitialBoardState(), dice: [5], phase: 'playing' })
+    act(() => root.render(<WiredBoard />))
+
+    const source13 = pointButton(13)
+    expect(source13?.getAttribute('draggable')).toBe('true')
+
+    act(() => {
+      source13?.dispatchEvent(dragEvent('dragstart'))
+    })
+
+    // Starting the drag selects point 13 and highlights point 8 as a legal green target.
+    expect(useGameStore.getState().selectedFrom).toBe(13)
+    expect(tints(8)).toContain('bg-emerald-300/60')
+
+    const target8 = pointButton(8)
+    act(() => {
+      target8?.dispatchEvent(dragEvent('dragover'))
+      target8?.dispatchEvent(dragEvent('drop'))
+    })
+
+    const state = useGameStore.getState()
+    expect(state.history).toHaveLength(1)
+    expect(state.selectedFrom).toBeNull()
+    expect(state.board?.points[12]).toBe(4)
+    expect(state.board?.points[7]).toBe(4)
+    expect(state.board?.turn).toBe('dark')
+  })
+
+  it('drags a checker from the bar onto a legal entry point', () => {
+    const points = [...getInitialBoardState().points]
+    points[12] = 4
+
+    seedBoard({
+      ...getInitialBoardState(),
+      points,
+      bar: { light: 1, dark: 0 },
+      dice: [4],
+      phase: 'playing',
+    })
+    act(() => root.render(<WiredBoard />))
+
+    const barBtn = aria('Bring White in from the bar')
+    expect(barBtn?.getAttribute('draggable')).toBe('true')
+
+    act(() => {
+      barBtn?.dispatchEvent(dragEvent('dragstart'))
+    })
+    expect(useGameStore.getState().selectedFrom).toBe('bar')
+
+    const entry21 = pointButton(21)
+    act(() => {
+      entry21?.dispatchEvent(dragEvent('dragover'))
+      entry21?.dispatchEvent(dragEvent('drop'))
+    })
+
+    const state = useGameStore.getState()
+    expect(state.board?.bar.light).toBe(0)
+    expect(state.board?.points[20]).toBe(1)
+    expect(state.history).toHaveLength(1)
+  })
+
+  it('drags a checker from the home board into the bear-off tray', () => {
+    const points = new Array<number>(24).fill(0)
+    points[1] = 2 // 2 White checkers on point 2
+    points[0] = -2 // 2 Black checkers on point 1
+
+    seedBoard({
+      points,
+      bar: { light: 0, dark: 0 },
+      off: { light: 13, dark: 13 },
+      turn: 'light',
+      dice: [2],
+      phase: 'playing',
+      winner: null,
+    })
+    act(() => root.render(<WiredBoard />))
+
+    const source2 = pointButton(2)
+    expect(source2?.getAttribute('draggable')).toBe('true')
+
+    act(() => {
+      source2?.dispatchEvent(dragEvent('dragstart'))
+    })
+    expect(useGameStore.getState().selectedFrom).toBe(2)
+
+    const trayBtn = aria('Bear off into the White tray')
+    expect(trayBtn).toBeTruthy()
+
+    act(() => {
+      trayBtn?.dispatchEvent(dragEvent('dragover'))
+      trayBtn?.dispatchEvent(dragEvent('drop'))
+    })
+
+    const state = useGameStore.getState()
+    expect(state.board?.off.light).toBe(14)
+    expect(state.board?.points[1]).toBe(1)
+    expect(state.history).toHaveLength(1)
+  })
+
+  it('ignores drops onto non-target points', () => {
+    seedBoard({ ...getInitialBoardState(), dice: [5], phase: 'playing' })
+    act(() => root.render(<WiredBoard />))
+
+    const source13 = pointButton(13)
+    act(() => {
+      source13?.dispatchEvent(dragEvent('dragstart'))
+    })
+
+    // Point 6 has checkers (so it is a button), but it is not a legal target for 13 with die 5.
+    const nonTarget6 = pointButton(6)
+    act(() => {
+      nonTarget6?.dispatchEvent(dragEvent('drop'))
+    })
+
+    const state = useGameStore.getState()
+    expect(state.history).toHaveLength(0)
+    expect(state.board?.points[12]).toBe(5)
   })
 })
 

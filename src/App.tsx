@@ -186,6 +186,8 @@ const App = () => {
           selectableSources={game.selectableSources}
           selectedFrom={game.selectedFrom}
           onSelectPoint={game.handlePointClick}
+          onDragStartSource={game.handlePointDragStart}
+          onDropTarget={game.handlePointDrop}
           design={boardDesign}
         />
 

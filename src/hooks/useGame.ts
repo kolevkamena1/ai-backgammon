@@ -106,6 +106,41 @@ export function useGame() {
     selectPoint(null)
   }
 
+  const handlePointDragStart = (source: MoveSource): void => {
+    if (board === null || isFinished || canInteract === false) {
+      return
+    }
+    if (selectableSources.has(source) === false) {
+      return
+    }
+    if (selectedFrom !== source) {
+      selectPoint(source)
+      logger.debug('legal moves for dragged source', {
+        from: String(source),
+        count: allLegalMoves.filter((move) => move.from === source).length,
+      })
+    }
+  }
+
+  const handlePointDrop = (
+    target: MoveSource | MoveTarget,
+    draggedSource?: MoveSource | null,
+  ): void => {
+    if (board === null || isFinished || canInteract === false) {
+      return
+    }
+    const from = draggedSource ?? selectedFrom
+    if (from === null) {
+      return
+    }
+    const move = allLegalMoves.find(
+      (candidate) => candidate.from === from && candidate.to === target,
+    )
+    if (move !== undefined) {
+      makeMove(move)
+    }
+  }
+
   return {
     board,
     seatPlan,
@@ -129,6 +164,8 @@ export function useGame() {
     aiSeatThinking,
     active: board !== null,
     handlePointClick,
+    handlePointDragStart,
+    handlePointDrop,
     startNewGame,
     roll,
     makeMove,

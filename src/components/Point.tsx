@@ -1,10 +1,11 @@
 import type { PlayerColor, PointIndex } from '@/types/game'
 import { cn } from '@/utils/cn'
+import { useState, type DragEvent } from 'react'
 import Checker from './Checker'
 
 type PointOrientation = 'top' | 'bottom'
 
-/** How a point participates in the current click-to-move selection. */
+/** How a point participates in the current click-to-move or drag-to-move selection. */
 export type PointState = 'none' | 'selectable' | 'selected' | 'target'
 
 interface PointProps {
@@ -17,6 +18,12 @@ interface PointProps {
   state?: PointState
   /** When provided the point becomes a real button; otherwise it stays a static graphic. */
   onSelect?: () => void
+  /** True when the top checker on this point has at least one legal move and can be dragged. */
+  draggable?: boolean
+  onDragStart?: (event: DragEvent<HTMLButtonElement>) => void
+  onDragEnd?: (event: DragEvent<HTMLButtonElement>) => void
+  onDragOver?: (event: DragEvent<HTMLButtonElement>) => void
+  onDrop?: (event: DragEvent<HTMLButtonElement>) => void
 }
 
 const CLIP_PATH: Record<PointOrientation, string> = {
@@ -60,7 +67,13 @@ const Point = ({
   owner = null,
   state = 'none',
   onSelect,
+  draggable = false,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDrop,
 }: PointProps) => {
+  const [isDragOver, setIsDragOver] = useState(false)
   // Alternates within a row and stays continuous across the bar.
   const isDarkPoint = (index + (orientation === 'top' ? 1 : 0)) % 2 === 0
   const visible = Math.min(checkers, MAX_VISIBLE_CHECKERS)
@@ -69,6 +82,44 @@ const Point = ({
     checkers === 0 ? 'empty' : `${checkers} ${owner ?? 'unowned'} checker${checkers === 1 ? '' : 's'}`
   }`
   const overlay = OVERLAY[state]
+
+  const handleDragStart = (event: DragEvent<HTMLButtonElement>): void => {
+    const discs = event.currentTarget.querySelectorAll<HTMLElement>('.checker-disc')
+    const grabbed =
+      orientation === 'top' ? discs[discs.length - 1] : discs[0]
+    if (grabbed && typeof event.dataTransfer?.setDragImage === 'function') {
+      const rect = grabbed.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) {
+        event.dataTransfer.setDragImage(grabbed, rect.width / 2, rect.height / 2)
+      }
+    }
+    onDragStart?.(event)
+  }
+
+  const handleDragOver = (event: DragEvent<HTMLButtonElement>): void => {
+    if (!onDragOver) return
+    event.preventDefault()
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'move'
+    }
+    if (!isDragOver) {
+      setIsDragOver(true)
+    }
+    onDragOver(event)
+  }
+
+  const handleDragLeave = (): void => {
+    if (isDragOver) {
+      setIsDragOver(false)
+    }
+  }
+
+  const handleDrop = (event: DragEvent<HTMLButtonElement>): void => {
+    if (!onDrop) return
+    event.preventDefault()
+    setIsDragOver(false)
+    onDrop(event)
+  }
 
   const inner = (
     <>
@@ -82,7 +133,16 @@ const Point = ({
         )}
       />
 
-      {overlay ? <div className={cn('absolute inset-0', CLIP_PATH[orientation], overlay)} /> : null}
+      {overlay ? (
+        <div
+          className={cn(
+            'absolute inset-0 transition-opacity',
+            CLIP_PATH[orientation],
+            overlay,
+            isDragOver && state === 'target' && 'brightness-125',
+          )}
+        />
+      ) : null}
 
       <span
         className={cn(
@@ -127,8 +187,18 @@ const Point = ({
       <button
         type="button"
         aria-label={description}
+        draggable={draggable}
         onClick={onSelect}
-        className={cn(layout, 'cursor-pointer appearance-none border-0 bg-transparent p-0 text-left')}
+        onDragStart={draggable ? handleDragStart : undefined}
+        onDragEnd={draggable ? onDragEnd : undefined}
+        onDragOver={onDragOver ? handleDragOver : undefined}
+        onDragLeave={onDragOver ? handleDragLeave : undefined}
+        onDrop={onDrop ? handleDrop : undefined}
+        className={cn(
+          layout,
+          'cursor-pointer appearance-none border-0 bg-transparent p-0 text-left',
+          draggable && 'cursor-grab active:cursor-grabbing',
+        )}
       >
         {inner}
       </button>
