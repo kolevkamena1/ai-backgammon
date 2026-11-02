@@ -1,6 +1,7 @@
 import type { AiDelta, AiErrorInfo, AiResult } from '@/types/ai'
 import type { BoardState, DieFace, DiceRoll, Move, MoveSource, PlayerColor } from '@/types/game'
 import type { GameConfigSnapshot, SeatAssignment, SeatPlan } from '@/types/gameConfig'
+import type { GameSnapshot, MoveRecord } from '@/types/gameLog'
 import type { AiEngineConfig } from '@/types/settings'
 import {
   AI_MOVE_DELAY_MS,
@@ -15,8 +16,10 @@ import {
   canPlay,
   endTurn,
   expandRoll,
+  formatMove,
   getInitialBoardState,
   getLegalMoves,
+  isHitMove,
   rollPair,
 } from '@/utils/gameLogic'
 import { create } from 'zustand'
@@ -63,6 +66,16 @@ interface GameStoreState {
   aiThought: AiThought | null
   /** Pacing between moves inside one AI turn, so a human can follow the board. Tests set 0. */
   aiMoveDelayMs: number
+  /** True when the game flow or AI auto-advance is paused by user. */
+  isPaused: boolean
+  /** 1-based turn sequence counter. */
+  turnNumber: number
+  /** Recorded dice roll history for exact replay on undo/resume. */
+  recordedRolls: DiceRoll[]
+  /** Step-by-step game state history for fine-grained undo/redo and log time-travel. */
+  stepHistory: GameSnapshot[]
+  /** Pointer to active snapshot in stepHistory. */
+  currentStepIndex: number
   startNewGame: (config: GameConfigSnapshot, personal: AiEngineConfig) => boolean
   roll: () => DieFace[] | null
   makeMove: (move: Move) => boolean
@@ -77,6 +90,11 @@ interface GameStoreState {
   /** Hides the thought panel without touching the board. */
   clearAiThought: () => void
   resetGame: () => void
+  togglePause: () => void
+  setPaused: (paused: boolean) => void
+  undo: () => void
+  redo: () => void
+  jumpToStep: (stepIndex: number) => void
 }
 
 /**
@@ -196,12 +214,23 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
     // reason at all. Silence (the model ignored the field, or filled it with junk) also clears the
     // placeholder the stream opened, so the panel never freezes on a half-sentence that was never a
     // reply — the move played, the engine just had nothing to say about it.
-    set({
-      aiThought:
-        result.explanation === null
-          ? null
-          : { seat: color, text: result.explanation, phase: 'final' as const },
-    })
+    const thought =
+      result.explanation === null
+        ? null
+        : { seat: color, text: result.explanation, phase: 'final' as const }
+
+    // Also persist the thought onto the latest snapshot in stepHistory so it stays visible in the log
+    const { stepHistory, currentStepIndex } = get()
+    if (result.explanation !== null && stepHistory[currentStepIndex]) {
+      const updatedHistory = [...stepHistory]
+      updatedHistory[currentStepIndex] = {
+        ...updatedHistory[currentStepIndex],
+        aiThought: result.explanation,
+      }
+      set({ aiThought: thought, stepHistory: updatedHistory })
+    } else {
+      set({ aiThought: thought })
+    }
 
     return 'moved'
   }
@@ -218,6 +247,11 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
     lastAiError: null,
     aiThought: null,
     aiMoveDelayMs: AI_MOVE_DELAY_MS,
+    isPaused: false,
+    turnNumber: 1,
+    recordedRolls: [],
+    stepHistory: [],
+    currentStepIndex: 0,
 
     startNewGame: (config, personal) => {
       const seatPlan = planSeats(personal, config)
@@ -231,8 +265,22 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       }
 
       cancelAi()
+      const initialBoard = getInitialBoardState()
+      const initialSnapshot: GameSnapshot = {
+        stepIndex: 0,
+        turnNumber: 1,
+        player: 'light',
+        board: initialBoard,
+        lastRoll: null,
+        diceRemaining: [],
+        selectedFrom: null,
+        turnPassed: null,
+        aiThought: null,
+        description: 'Game started',
+      }
+
       set({
-        board: getInitialBoardState(),
+        board: initialBoard,
         seatPlan,
         config,
         lastRoll: null,
@@ -242,13 +290,18 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         isAiThinking: false,
         lastAiError: null,
         aiThought: null,
+        isPaused: false,
+        turnNumber: 1,
+        recordedRolls: [],
+        stepHistory: [initialSnapshot],
+        currentStepIndex: 0,
       })
       logger.debug('game started', { mode: config.mode, aiMatchType: config.aiMatchType })
       return true
     },
 
     roll: () => {
-      const { board } = get()
+      const { board, turnNumber, recordedRolls, stepHistory, currentStepIndex } = get()
 
       if (board === null || board.phase === 'finished') {
         return null
@@ -258,30 +311,86 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         return null
       }
 
-      const pair = rollPair()
+      // Exact replay: if we undid and are rolling on a turn that already had a recorded roll, replay it.
+      const turnIdx = turnNumber - 1
+      let pair: DiceRoll
+      let updatedRolls = recordedRolls
+
+      if (turnIdx >= 0 && turnIdx < recordedRolls.length) {
+        pair = recordedRolls[turnIdx]
+      } else {
+        pair = rollPair()
+        updatedRolls = [...recordedRolls, pair]
+      }
+
       const dice = expandRoll(pair)
       const rolled: BoardState = { ...board, dice, phase: 'playing' }
+
+      const baseHistory =
+        currentStepIndex < stepHistory.length - 1
+          ? stepHistory.slice(0, currentStepIndex + 1)
+          : stepHistory
 
       // Real rule, and it keeps the UI from dead-ending: a roll that fits nothing passes.
       if (canPlay(rolled, rolled.turn, dice) === false) {
         logger.debug('rolled but nothing is playable; turn passes', { dice })
+        const nextBoard = endTurn(rolled)
+        const snapshot: GameSnapshot = {
+          stepIndex: baseHistory.length,
+          turnNumber,
+          player: rolled.turn,
+          board: nextBoard,
+          lastRoll: pair,
+          diceRemaining: [],
+          selectedFrom: null,
+          turnPassed: 'unplayable-roll',
+          aiThought: null,
+          description: `Rolled ${pair[0]}-${pair[1]} (Pass)`,
+        }
+
         set({
-          board: endTurn(rolled),
+          board: nextBoard,
           lastRoll: pair,
           selectedFrom: null,
           turnPassed: 'unplayable-roll',
           lastAiError: null,
+          turnNumber: turnNumber + 1,
+          recordedRolls: updatedRolls,
+          stepHistory: [...baseHistory, snapshot],
+          currentStepIndex: snapshot.stepIndex,
         })
         return dice
       }
 
-      set({ board: rolled, lastRoll: pair, selectedFrom: null, turnPassed: null, lastAiError: null })
+      const snapshot: GameSnapshot = {
+        stepIndex: baseHistory.length,
+        turnNumber,
+        player: rolled.turn,
+        board: rolled,
+        lastRoll: pair,
+        diceRemaining: dice,
+        selectedFrom: null,
+        turnPassed: null,
+        aiThought: null,
+        description: `Rolled ${pair[0]}-${pair[1]}`,
+      }
+
+      set({
+        board: rolled,
+        lastRoll: pair,
+        selectedFrom: null,
+        turnPassed: null,
+        lastAiError: null,
+        recordedRolls: updatedRolls,
+        stepHistory: [...baseHistory, snapshot],
+        currentStepIndex: snapshot.stepIndex,
+      })
       logger.debug('rolled', { dice })
       return dice
     },
 
     makeMove: (move) => {
-      const { board, history } = get()
+      const { board, history, turnNumber, stepHistory, currentStepIndex } = get()
 
       if (board === null || board.phase === 'finished') {
         logger.warn('move refused: no active game')
@@ -304,6 +413,16 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       }
 
       try {
+        const isHit = isHitMove(board, move, player)
+        const formatted = formatMove(move, isHit)
+        const moveRecord: MoveRecord = {
+          from: move.from,
+          to: move.to,
+          die: move.die,
+          isHit,
+          formatted,
+        }
+
         let next = applyMove(board, move, player)
 
         // A human move ends the story the engine was telling: its last sentence describes a
@@ -314,13 +433,36 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
 
         // Stranded dice: still our turn, dice left, but nothing can be played with them.
         const stranded =
-          next.phase !== 'finished' && next.turn === player && next.dice.length > 0 &&
+          next.phase !== 'finished' &&
+          next.turn === player &&
+          next.dice.length > 0 &&
           canPlay(next, player, next.dice) === false
 
         if (stranded) {
           logger.debug('no move left with the remaining dice; turn passes', { remaining: next.dice })
           next = endTurn(next)
         }
+
+        const baseHistory =
+          currentStepIndex < stepHistory.length - 1
+            ? stepHistory.slice(0, currentStepIndex + 1)
+            : stepHistory
+
+        const nextSnapshot: GameSnapshot = {
+          stepIndex: baseHistory.length,
+          turnNumber,
+          player,
+          board: next,
+          lastRoll: get().lastRoll,
+          diceRemaining: [...next.dice],
+          selectedFrom: null,
+          turnPassed: stranded ? 'stranded-dice' : null,
+          aiThought: keepThought ? get().aiThought?.text ?? null : null,
+          description: formatted,
+          lastMove: moveRecord,
+        }
+
+        const nextTurnNumber = next.turn !== player ? turnNumber + 1 : turnNumber
 
         set({
           board: next,
@@ -329,6 +471,9 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           turnPassed: stranded ? 'stranded-dice' : null,
           lastAiError: null,
           aiThought: keepThought ? get().aiThought : null,
+          turnNumber: nextTurnNumber,
+          stepHistory: [...baseHistory, nextSnapshot],
+          currentStepIndex: nextSnapshot.stepIndex,
         })
 
         if (next.phase === 'finished' && next.winner !== null) {
@@ -348,17 +493,44 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
     },
 
     passTurn: () => {
-      const { board } = get()
+      const { board, turnNumber, stepHistory, currentStepIndex } = get()
       if (board === null || board.phase === 'finished') {
         return
       }
-      set({ board: endTurn(board), selectedFrom: null, turnPassed: null, lastAiError: null })
+      const next = endTurn(board)
+      const baseHistory =
+        currentStepIndex < stepHistory.length - 1
+          ? stepHistory.slice(0, currentStepIndex + 1)
+          : stepHistory
+
+      const snapshot: GameSnapshot = {
+        stepIndex: baseHistory.length,
+        turnNumber,
+        player: board.turn,
+        board: next,
+        lastRoll: get().lastRoll,
+        diceRemaining: [],
+        selectedFrom: null,
+        turnPassed: null,
+        aiThought: null,
+        description: 'Passed turn',
+      }
+
+      set({
+        board: next,
+        selectedFrom: null,
+        turnPassed: null,
+        lastAiError: null,
+        turnNumber: turnNumber + 1,
+        stepHistory: [...baseHistory, snapshot],
+        currentStepIndex: snapshot.stepIndex,
+      })
     },
 
     aiMakeMove: async () => {
       const seat = seatToAct()
 
-      if (seat === null || seat.kind !== 'ai' || get().isAiThinking) {
+      if (seat === null || seat.kind !== 'ai' || get().isAiThinking || get().isPaused) {
         return false
       }
 
@@ -381,7 +553,13 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       const seat = seatToAct()
       const board = get().board
 
-      if (seat === null || seat.kind !== 'ai' || board === null || board.phase === 'finished') {
+      if (
+        seat === null ||
+        seat.kind !== 'ai' ||
+        board === null ||
+        board.phase === 'finished' ||
+        get().isPaused
+      ) {
         return
       }
       // Single flight: React may mount the trigger twice, and two components can observe the
@@ -402,6 +580,10 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         }
 
         for (let step = 0; step < MAX_AI_MOVES_PER_TURN; step += 1) {
+          if (get().isPaused) {
+            break
+          }
+
           const current = get().board
 
           if (
@@ -463,6 +645,91 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         isAiThinking: false,
         lastAiError: null,
         aiThought: null,
+        isPaused: false,
+        turnNumber: 1,
+        recordedRolls: [],
+        stepHistory: [],
+        currentStepIndex: 0,
+      })
+    },
+
+    togglePause: () => {
+      const nextPaused = !get().isPaused
+      if (nextPaused) {
+        cancelAi()
+      }
+      set({ isPaused: nextPaused })
+    },
+
+    setPaused: (paused: boolean) => {
+      if (paused) {
+        cancelAi()
+      }
+      set({ isPaused: paused })
+    },
+
+    undo: () => {
+      const { currentStepIndex, stepHistory } = get()
+      if (currentStepIndex <= 0) {
+        return
+      }
+      cancelAi()
+      const targetIndex = currentStepIndex - 1
+      const snap = stepHistory[targetIndex]
+      set({
+        board: snap.board,
+        lastRoll: snap.lastRoll,
+        turnPassed: snap.turnPassed,
+        aiThought: snap.aiThought
+          ? { seat: snap.player, text: snap.aiThought, phase: 'final' }
+          : null,
+        selectedFrom: null,
+        turnNumber: snap.turnNumber,
+        currentStepIndex: targetIndex,
+        isPaused: true,
+      })
+    },
+
+    redo: () => {
+      const { currentStepIndex, stepHistory } = get()
+      if (currentStepIndex >= stepHistory.length - 1) {
+        return
+      }
+      cancelAi()
+      const targetIndex = currentStepIndex + 1
+      const snap = stepHistory[targetIndex]
+      set({
+        board: snap.board,
+        lastRoll: snap.lastRoll,
+        turnPassed: snap.turnPassed,
+        aiThought: snap.aiThought
+          ? { seat: snap.player, text: snap.aiThought, phase: 'final' }
+          : null,
+        selectedFrom: null,
+        turnNumber: snap.turnNumber,
+        currentStepIndex: targetIndex,
+        isPaused: true,
+      })
+    },
+
+    jumpToStep: (targetIndex: number) => {
+      const { stepHistory, currentStepIndex } = get()
+      if (targetIndex < 0 || targetIndex >= stepHistory.length || targetIndex === currentStepIndex) {
+        return
+      }
+      cancelAi()
+      const snap = stepHistory[targetIndex]
+      set({
+        board: snap.board,
+        lastRoll: snap.lastRoll,
+        turnPassed: snap.turnPassed,
+        aiThought: snap.aiThought
+          ? { seat: snap.player, text: snap.aiThought, phase: 'final' }
+          : null,
+        selectedFrom: null,
+        turnNumber: snap.turnNumber,
+        currentStepIndex: targetIndex,
+        isPaused: true,
       })
     },
   }

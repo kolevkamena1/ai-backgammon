@@ -438,6 +438,22 @@ export function applyMove(board: BoardState, move: Move, player: PlayerColor): B
   return dice.length === 0 ? endTurn(next) : next
 }
 
+/** Determines whether a move hits an opposing blot onto the bar. */
+export function isHitMove(board: BoardState, move: Move, player: PlayerColor): boolean {
+  if (move.to === 'off') {
+    return false
+  }
+  const landing = pointValue(board, move.to)
+  return landing !== 0 && landing * sign(player) < 0
+}
+
+/** Standard backgammon notation for a single move (e.g., "13 → 8", "13 → 8*", "Bar → 20", "2 → Off"). */
+export function formatMove(move: Move, isHit = false): string {
+  const fromStr = move.from === 'bar' ? 'Bar' : String(move.from)
+  const toStr = move.to === 'off' ? 'Off' : String(move.to)
+  return `${fromStr} → ${toStr}${isHit ? '*' : ''}`
+}
+
 /** View model for the board components: 24 triangles with unsigned counts and owners. */
 export function toPointViews(board: BoardState): Point[] {
   return board.points.map((value, position): Point => ({

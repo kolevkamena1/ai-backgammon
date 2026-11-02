@@ -2,6 +2,7 @@ import type { Move, MoveSource, MoveTarget } from '@/types/game'
 import type { SeatAssignment } from '@/types/gameConfig'
 import { logger } from '@/lib/logger'
 import { useGameStore } from '@/state/gameStore'
+import { deriveTurnEntries } from '@/utils/gameLog'
 import { getLegalMoves } from '@/utils/gameLogic'
 import { useMemo } from 'react'
 
@@ -22,6 +23,10 @@ export function useGame() {
   const isAiThinking = useGameStore((state) => state.isAiThinking)
   const lastAiError = useGameStore((state) => state.lastAiError)
   const aiThought = useGameStore((state) => state.aiThought)
+  const isPaused = useGameStore((state) => state.isPaused)
+  const turnNumber = useGameStore((state) => state.turnNumber)
+  const stepHistory = useGameStore((state) => state.stepHistory)
+  const currentStepIndex = useGameStore((state) => state.currentStepIndex)
   const startNewGame = useGameStore((state) => state.startNewGame)
   const roll = useGameStore((state) => state.roll)
   const makeMove = useGameStore((state) => state.makeMove)
@@ -33,18 +38,30 @@ export function useGame() {
   const dismissAiError = useGameStore((state) => state.dismissAiError)
   const retryAiTurn = useGameStore((state) => state.retryAiTurn)
   const clearAiThought = useGameStore((state) => state.clearAiThought)
+  const togglePause = useGameStore((state) => state.togglePause)
+  const setPaused = useGameStore((state) => state.setPaused)
+  const undo = useGameStore((state) => state.undo)
+  const redo = useGameStore((state) => state.redo)
+  const jumpToStep = useGameStore((state) => state.jumpToStep)
 
   const currentSeat: SeatAssignment | null =
     board !== null && seatPlan !== null ? seatPlan[board.turn] : null
   const isHumanTurn = currentSeat !== null && currentSeat.kind === 'human'
   const isFinished = board?.phase === 'finished'
+  const canUndo = currentStepIndex > 0
+  const canRedo = currentStepIndex < stepHistory.length - 1
+
+  const turnEntries = useMemo(
+    () => deriveTurnEntries(stepHistory, seatPlan),
+    [stepHistory, seatPlan],
+  )
 
   /**
    * A human may always click on their own turn. In dev that is extended to AI seats so a match can
-   * be stepped through by hand, and it is suspended while an AI chain is moving pieces. Vite
+   * be stepped through by hand, and it is suspended while an AI chain is moving pieces or paused. Vite
    * statically replaces `import.meta.env.DEV`, so production bundles keep only the human branch.
    */
-  const canInteract = (isHumanTurn || import.meta.env.DEV) && isAiThinking === false
+  const canInteract = (isHumanTurn || import.meta.env.DEV) && isAiThinking === false && isPaused === false
 
   // Gated on canInteract so a turn nobody may act on renders no highlighted triangles.
   const allLegalMoves = useMemo<Move[]>(
@@ -177,6 +194,18 @@ export function useGame() {
     dismissAiError,
     retryAiTurn,
     clearAiThought,
+    isPaused,
+    turnNumber,
+    stepHistory,
+    currentStepIndex,
+    turnEntries,
+    canUndo,
+    canRedo,
+    togglePause,
+    setPaused,
+    undo,
+    redo,
+    jumpToStep,
   }
 }
 

@@ -16,6 +16,7 @@ export function useAiTurn(): void {
   const seatPlan = useGameStore((state) => state.seatPlan)
   const isAiThinking = useGameStore((state) => state.isAiThinking)
   const lastAiError = useGameStore((state) => state.lastAiError)
+  const isPaused = useGameStore((state) => state.isPaused)
   const runAiTurn = useGameStore((state) => state.runAiTurn)
 
   const seat = board !== null && seatPlan !== null ? seatPlan[board.turn] : null
@@ -26,7 +27,8 @@ export function useAiTurn(): void {
     seat.kind === 'ai' &&
     board.phase !== 'finished' &&
     isAiThinking === false &&
-    lastAiError === null
+    lastAiError === null &&
+    isPaused === false
 
   useEffect(() => {
     if (shouldRun === false) {
