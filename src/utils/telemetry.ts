@@ -25,7 +25,7 @@ interface GameTracker {
 }
 
 function enabled(): boolean {
-  return !import.meta.env.DEV && navigator.doNotTrack !== '1'
+  return !import.meta.env.DEV
 }
 
 function sessionId(): string {
