@@ -14,9 +14,11 @@ export function useSettings() {
   const difficulty = useSettingsStore((state) => state.difficulty)
   const params = useSettingsStore((state) => state.params)
   const theme = useSettingsStore((state) => state.theme)
+  const boardDesign = useSettingsStore((state) => state.boardDesign)
   const isSettingsOpen = useSettingsStore((state) => state.isSettingsOpen)
   const setTheme = useSettingsStore((state) => state.setTheme)
   const toggleTheme = useSettingsStore((state) => state.toggleTheme)
+  const setBoardDesign = useSettingsStore((state) => state.setBoardDesign)
   const saveSettings = useSettingsStore((state) => state.saveSettings)
   const clearSettings = useSettingsStore((state) => state.clearSettings)
   const openSettings = useSettingsStore((state) => state.openSettings)
@@ -35,6 +37,7 @@ export function useSettings() {
     difficulty,
     params,
     theme,
+    boardDesign,
     isSettingsOpen,
     /** Gates AI affordances until a key exists. */
     isConfigured: apiKey.trim().length > 0,
@@ -43,6 +46,7 @@ export function useSettings() {
     defaults: DEFAULT_SETTINGS,
     setTheme,
     toggleTheme,
+    setBoardDesign,
     saveSettings,
     clearSettings,
     openSettings,

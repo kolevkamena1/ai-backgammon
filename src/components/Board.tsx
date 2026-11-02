@@ -6,6 +6,7 @@ import type {
   Point as PointModel,
   PointIndex,
 } from '@/types/game'
+import { DEFAULT_BOARD_DESIGN, type BoardDesignId } from '@/utils/boardDesigns'
 import {
   computeBoardMetrics,
   computeResizedDimensions,
@@ -34,6 +35,8 @@ interface BoardProps {
   selectableSources?: ReadonlySet<MoveSource>
   selectedFrom?: MoveSource | null
   onSelectPoint?: (target: MoveSource | MoveTarget) => void
+  /** Visual material preset for the board, triangles, and checkers. */
+  design?: BoardDesignId
   className?: string
 }
 
@@ -78,7 +81,7 @@ const Tray = ({
 }) => {
   const label = `${SEAT_NAMES[seat]} off ${count}`
   const look = cn(
-    'flex w-9 shrink-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 text-center',
+    'board-tray flex w-9 shrink-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 text-center',
     live ? 'bg-emerald-500/25 text-slate-50' : 'bg-board-field/70 text-point-light/50',
   )
 
@@ -159,6 +162,7 @@ const Board = ({
   selectableSources,
   selectedFrom = null,
   onSelectPoint,
+  design = DEFAULT_BOARD_DESIGN,
   className,
 }: BoardProps) => {
   const sectionRef = useRef<HTMLElement | null>(null)
@@ -301,9 +305,10 @@ const Board = ({
     <section
       ref={sectionRef}
       aria-label="Backgammon board"
+      data-board-design={design}
       style={boardStyle}
       className={cn(
-        'group relative w-full rounded-2xl border border-amber-900/70 bg-board-frame p-3 shadow-2xl select-none sm:p-4',
+        'board-frame group relative w-full rounded-2xl border border-amber-900/70 bg-board-frame p-3 shadow-2xl select-none sm:p-4',
         boardSize === null && 'max-w-3xl',
         activeHandle !== null && 'ring-2 ring-sky-400/70',
         className,
@@ -397,10 +402,10 @@ const Board = ({
           onSelect={trayLive('dark') && onSelectPoint ? () => onSelectPoint('off') : undefined}
         />
 
-        <div className="grid min-w-0 flex-1 grid-cols-[1fr_auto_1fr] grid-rows-2 gap-x-2 rounded-xl bg-board-field p-2">
+        <div className="board-surface grid min-w-0 flex-1 grid-cols-[1fr_auto_1fr] grid-rows-2 gap-x-2 rounded-xl bg-board-field p-2">
           <div className="col-start-1 row-start-1">{renderQuadrant(LEFT_TOP, 'top')}</div>
 
-          <div className="col-start-2 row-span-2 row-start-1 flex w-14 flex-col items-center justify-between gap-1 rounded-md bg-bar py-1">
+          <div className="board-bar col-start-2 row-span-2 row-start-1 flex w-14 flex-col items-center justify-between gap-1 rounded-md bg-bar py-1">
             <BarCell
               seat="dark"
               count={board.bar.dark}

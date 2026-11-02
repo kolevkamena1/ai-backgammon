@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 import Board from '@/components/Board'
+import Checker from '@/components/Checker'
+import Point from '@/components/Point'
+import { useSettingsStore } from '@/state/settingsStore'
+import { BOARD_DESIGNS } from '@/utils/boardDesigns'
 import {
   computeBoardMetrics,
   computeResizedDimensions,
   DEFAULT_BOARD_DIMENSIONS,
 } from '@/utils/boardResize'
-import Checker from '@/components/Checker'
-import Point from '@/components/Point'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -135,5 +137,27 @@ describe('checker contrast', () => {
     expect(larger.checkerSize).toBeGreaterThan(base.checkerSize)
     expect(smaller.checkerSize).toBeLessThan(base.checkerSize)
     expect(larger.quadrantHeight).toBeGreaterThan(base.quadrantHeight)
+  })
+
+  it('supports all five artisanal board and checker visual designs', () => {
+    expect(BOARD_DESIGNS.map((d) => d.id)).toEqual([
+      'levantine',
+      'lucite',
+      'bridle',
+      'coastal',
+      'artdeco',
+    ])
+
+    for (const design of BOARD_DESIGNS) {
+      useSettingsStore.getState().setBoardDesign(design.id)
+      expect(useSettingsStore.getState().boardDesign).toBe(design.id)
+
+      act(() => {
+        root.render(<Board design={design.id} />)
+      })
+
+      const section = host.querySelector('section[aria-label="Backgammon board"]')
+      expect(section?.getAttribute('data-board-design')).toBe(design.id)
+    }
   })
 })

@@ -8,8 +8,9 @@ import { useGameConfig } from '@/hooks/useGameConfig'
 import { useSettings } from '@/hooks/useSettings'
 import type { SeatAssignment } from '@/types/gameConfig'
 import { cn } from '@/utils/cn'
+import { BOARD_DESIGNS } from '@/utils/boardDesigns'
 import { SEAT_LABELS, describeEngine, describeMode, planSeats, seatProblems } from '@/utils/gameConfig'
-import { Dices, KeyRound, Moon, Settings, ShieldCheck, Sparkles, Sun, Swords } from 'lucide-react'
+import { Dices, KeyRound, Moon, Palette, Settings, ShieldCheck, Sparkles, Sun, Swords } from 'lucide-react'
 import { useEffect } from 'react'
 
 /** One roster line per seat: who plays it, and through which engine. */
@@ -28,10 +29,12 @@ const App = () => {
   const {
     settings,
     theme,
+    boardDesign,
     isConfigured,
     isSettingsOpen,
     maskedApiKey,
     toggleTheme,
+    setBoardDesign,
     openSettings,
     closeSettings,
   } = useSettings()
@@ -133,7 +136,49 @@ const App = () => {
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col items-center gap-6 px-4 py-6">
+      <main
+        data-board-design={boardDesign}
+        className="mx-auto flex w-full max-w-7xl flex-1 flex-col items-center gap-5 px-4 py-5"
+      >
+        <nav
+          aria-label="Board visual design"
+          className="flex w-full max-w-3xl flex-wrap items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2"
+        >
+          <span className="mr-1 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-300">
+            <Palette className="size-3.5 text-sky-400" aria-hidden />
+            Board style:
+          </span>
+          {BOARD_DESIGNS.map((design) => {
+            const active = boardDesign === design.id
+            return (
+              <button
+                key={design.id}
+                type="button"
+                onClick={() => setBoardDesign(design.id)}
+                aria-pressed={active}
+                title={design.subtitle}
+                className={cn(
+                  'inline-flex items-center gap-2 rounded-lg border px-2.5 py-1 text-xs font-medium transition',
+                  active
+                    ? 'border-sky-500 bg-sky-500/15 text-slate-50 shadow-sm'
+                    : 'border-slate-700/80 bg-slate-950/60 text-slate-300 hover:border-slate-600 hover:bg-slate-800/70',
+                )}
+              >
+                <span className="flex items-center -space-x-1" aria-hidden>
+                  {design.swatches.map((hex, idx) => (
+                    <span
+                      key={idx}
+                      style={{ backgroundColor: hex }}
+                      className="size-3 rounded-full border border-black/30 shadow-xs"
+                    />
+                  ))}
+                </span>
+                <span>{design.name}</span>
+              </button>
+            )
+          })}
+        </nav>
+
         <Board
           board={game.board ?? undefined}
           turn={game.board?.turn ?? null}
@@ -141,6 +186,7 @@ const App = () => {
           selectableSources={game.selectableSources}
           selectedFrom={game.selectedFrom}
           onSelectPoint={game.handlePointClick}
+          design={boardDesign}
         />
 
         <section aria-label="Game controls and match setup" className="grid w-full max-w-3xl gap-3 sm:grid-cols-2">

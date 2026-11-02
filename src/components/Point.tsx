@@ -76,7 +76,9 @@ const Point = ({
         className={cn(
           'absolute inset-0',
           CLIP_PATH[orientation],
-          isDarkPoint ? 'bg-point-dark' : 'bg-point-light',
+          isDarkPoint
+            ? 'bg-point-dark point-triangle-dark'
+            : 'bg-point-light point-triangle-light',
         )}
       />
 
@@ -84,7 +86,7 @@ const Point = ({
 
       <span
         className={cn(
-          'absolute inset-x-0 select-none text-center text-[10px] font-semibold leading-tight',
+          'point-index-label absolute inset-x-0 select-none text-center text-[10px] font-semibold leading-tight',
           LABEL_ANCHOR[orientation],
           isDarkPoint ? 'text-point-light' : 'text-point-dark',
         )}
