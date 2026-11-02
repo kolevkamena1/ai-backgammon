@@ -155,5 +155,13 @@ describe('SettingsModal (side-by-side BYOK 1 & BYOK 2)', () => {
       'Prioritize building a 6-prime.',
     )
   })
+
+  it('defaults to the warm soft light theme and toggles between light and dark', () => {
+    expect(useSettingsStore.getState().theme).toBe('light')
+    useSettingsStore.getState().toggleTheme()
+    expect(useSettingsStore.getState().theme).toBe('dark')
+    useSettingsStore.getState().toggleTheme()
+    expect(useSettingsStore.getState().theme).toBe('light')
+  })
 })
 

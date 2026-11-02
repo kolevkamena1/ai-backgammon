@@ -13,7 +13,10 @@ export function useSettings() {
   const baseUrl = useSettingsStore((state) => state.baseUrl)
   const difficulty = useSettingsStore((state) => state.difficulty)
   const params = useSettingsStore((state) => state.params)
+  const theme = useSettingsStore((state) => state.theme)
   const isSettingsOpen = useSettingsStore((state) => state.isSettingsOpen)
+  const setTheme = useSettingsStore((state) => state.setTheme)
+  const toggleTheme = useSettingsStore((state) => state.toggleTheme)
   const saveSettings = useSettingsStore((state) => state.saveSettings)
   const clearSettings = useSettingsStore((state) => state.clearSettings)
   const openSettings = useSettingsStore((state) => state.openSettings)
@@ -31,12 +34,15 @@ export function useSettings() {
     baseUrl,
     difficulty,
     params,
+    theme,
     isSettingsOpen,
     /** Gates AI affordances until a key exists. */
     isConfigured: apiKey.trim().length > 0,
     /** Safe to render anywhere: masked tail of the stored key. */
     maskedApiKey: maskSecret(apiKey),
     defaults: DEFAULT_SETTINGS,
+    setTheme,
+    toggleTheme,
     saveSettings,
     clearSettings,
     openSettings,

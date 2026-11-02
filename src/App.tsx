@@ -9,7 +9,8 @@ import { useSettings } from '@/hooks/useSettings'
 import type { SeatAssignment } from '@/types/gameConfig'
 import { cn } from '@/utils/cn'
 import { SEAT_LABELS, describeEngine, describeMode, planSeats, seatProblems } from '@/utils/gameConfig'
-import { Dices, KeyRound, Settings, ShieldCheck, Sparkles, Swords } from 'lucide-react'
+import { Dices, KeyRound, Moon, Settings, ShieldCheck, Sparkles, Sun, Swords } from 'lucide-react'
+import { useEffect } from 'react'
 
 /** One roster line per seat: who plays it, and through which engine. */
 function seatText(seat: SeatAssignment): string {
@@ -24,10 +25,23 @@ function seatText(seat: SeatAssignment): string {
 const PANEL = 'rounded-xl border border-slate-800 bg-slate-900/60 p-4'
 
 const App = () => {
-  const { settings, isConfigured, isSettingsOpen, maskedApiKey, openSettings, closeSettings } =
-    useSettings()
+  const {
+    settings,
+    theme,
+    isConfigured,
+    isSettingsOpen,
+    maskedApiKey,
+    toggleTheme,
+    openSettings,
+    closeSettings,
+  } = useSettings()
   const { config, isSetupOpen, openSetup, closeSetup } = useGameConfig()
   const game = useGame()
+
+  // Keep the root <html data-theme="..."> attribute synced with the user's chosen theme.
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+  }, [theme])
 
   // Exactly one AI driver for the whole app; the store itself guards single-flight.
   useAiTurn()
@@ -94,6 +108,26 @@ const App = () => {
             >
               <Settings className="size-4" aria-hidden />
               Settings
+            </button>
+
+            <button
+              type="button"
+              onClick={toggleTheme}
+              aria-label={theme === 'light' ? 'Switch to dark theme' : 'Switch to warm light theme'}
+              title={theme === 'light' ? 'Switch to dark theme' : 'Switch to warm light theme'}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 transition hover:border-slate-600 hover:bg-slate-700"
+            >
+              {theme === 'light' ? (
+                <>
+                  <Moon className="size-4 text-amber-500" aria-hidden />
+                  <span>Dark</span>
+                </>
+              ) : (
+                <>
+                  <Sun className="size-4 text-amber-400" aria-hidden />
+                  <span>Light</span>
+                </>
+              )}
             </button>
           </div>
         </div>
