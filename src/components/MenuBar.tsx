@@ -215,13 +215,13 @@ export default function MenuBar({
                 icon={<Swords className="size-4 text-sky-400" aria-hidden />}
                 hasSubmenu
                 active={activeSubmenu === 'new-game'}
-                onClick={() => setActiveSubmenu('new-game')}
+                onClick={() => setActiveSubmenu((curr) => (curr === 'new-game' ? null : 'new-game'))}
               />
 
               {activeSubmenu === 'new-game' && (
                 <div
                   role="menu"
-                  className="absolute left-full top-0 -ml-1 min-w-[210px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl"
+                  className="absolute left-full top-0 -ml-1 min-w-[210px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl z-[60]"
                 >
                   <MenuItem
                     label="Human vs AI"
@@ -312,13 +312,13 @@ export default function MenuBar({
                 icon={<Palette className="size-4 text-sky-400" aria-hidden />}
                 hasSubmenu
                 active={activeSubmenu === 'board-style'}
-                onClick={() => setActiveSubmenu('board-style')}
+                onClick={() => setActiveSubmenu((curr) => (curr === 'board-style' ? null : 'board-style'))}
               />
 
               {activeSubmenu === 'board-style' && (
                 <div
                   role="menu"
-                  className="absolute left-full top-0 -ml-1 min-w-[310px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl"
+                  className="absolute left-full top-0 -ml-1 min-w-[310px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl z-[60]"
                 >
                   {BOARD_DESIGNS.map((design) => {
                     const isChecked = boardDesign === design.id
@@ -377,13 +377,13 @@ export default function MenuBar({
                 icon={theme === 'light' ? <Sun className="size-4 text-amber-400" /> : <Moon className="size-4 text-sky-400" />}
                 hasSubmenu
                 active={activeSubmenu === 'theme'}
-                onClick={() => setActiveSubmenu('theme')}
+                onClick={() => setActiveSubmenu((curr) => (curr === 'theme' ? null : 'theme'))}
               />
 
               {activeSubmenu === 'theme' && (
                 <div
                   role="menu"
-                  className="absolute left-full top-0 -ml-1 min-w-[200px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl"
+                  className="absolute left-full top-0 -ml-1 min-w-[200px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl z-[60]"
                 >
                   <MenuItem
                     label="Warm Soft Light"

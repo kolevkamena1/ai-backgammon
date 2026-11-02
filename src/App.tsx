@@ -56,10 +56,10 @@ const App = () => {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-slate-950 text-slate-100">
-      <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-900/95 shadow-md backdrop-blur-md shrink-0">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-3 sm:px-4 py-2">
-          <div className="flex items-center gap-3 sm:gap-4 overflow-x-auto">
-            {/* 'AI Backgammon' branding on the far lefthand side */}
+      <header className="sticky top-0 z-50 border-b border-slate-800 bg-slate-900/95 shadow-md backdrop-blur-md shrink-0">
+        <div className="flex w-full items-center justify-between px-3 sm:px-4 py-2">
+          <div className="flex items-center gap-3 sm:gap-4">
+            {/* 'AI Backgammon' branding at the start of the line - most lefthand */}
             <div className="flex items-center gap-2.5 pr-3 sm:pr-4 border-r border-slate-700/60 shrink-0">
               <Dices className="size-5 text-amber-400 shrink-0" aria-hidden />
               <div className="flex flex-col">
