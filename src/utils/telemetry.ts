@@ -43,14 +43,22 @@ function sessionId(): string {
 
 function send(event: AnalyticsEvent): void {
   const body = JSON.stringify(event)
+  console.log('[telemetry] sending:', event.type, event)
   try {
-    if (navigator.sendBeacon(COLLECT_URL, new Blob([body], { type: 'application/json' }))) return
-  } catch {
-    // Fall through to fetch.
+    if (navigator.sendBeacon(COLLECT_URL, new Blob([body], { type: 'application/json' }))) {
+      console.log('[telemetry] sendBeacon queued:', event.type)
+      return
+    }
+  } catch (err) {
+    console.warn('[telemetry] sendBeacon failed, trying fetch:', err)
   }
-  void fetch(COLLECT_URL, { method: 'POST', body, keepalive: true, headers: { 'content-type': 'application/json' } }).catch(
-    () => undefined,
-  )
+  void fetch(COLLECT_URL, { method: 'POST', body, keepalive: true, headers: { 'content-type': 'application/json' } })
+    .then((res) => {
+      console.log('[telemetry] fetch response for', event.type, res.status)
+    })
+    .catch((err) => {
+      console.error('[telemetry] fetch failed for', event.type, err)
+    })
 }
 
 function referrerHost(): string | null {
@@ -174,6 +182,7 @@ export function startTelemetry(): () => void {
   window.addEventListener('pagehide', onPageHide)
 
   return () => {
+    endGame('abandoned')
     unsubscribe()
     window.removeEventListener('pagehide', onPageHide)
   }
