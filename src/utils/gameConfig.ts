@@ -1,6 +1,7 @@
 import type { PlayerColor } from '@/types/game'
 import type { GameConfigSnapshot, SeatAssignment, SeatPlan } from '@/types/gameConfig'
 import type { AiDifficulty, AiEngineConfig, AiInferenceParams, AiProvider, AiThinkingLevel } from '@/types/settings'
+import { MAX_CUSTOM_SYSTEM_PROMPT_CHARS } from '@/utils/aiPrompt'
 import { maskSecret } from '@/utils/formatSecret'
 
 /**
@@ -83,6 +84,9 @@ export function sanitizeInferenceParams(raw: unknown): AiInferenceParams | undef
   }
   if (isThinkingLevel(record.thinkingLevel)) {
     out.thinkingLevel = record.thinkingLevel
+  }
+  if (typeof record.systemPrompt === 'string' && record.systemPrompt.trim().length > 0) {
+    out.systemPrompt = record.systemPrompt.trim().slice(0, MAX_CUSTOM_SYSTEM_PROMPT_CHARS)
   }
 
   return Object.keys(out).length > 0 ? out : undefined

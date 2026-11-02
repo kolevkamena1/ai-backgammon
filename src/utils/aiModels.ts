@@ -15,6 +15,7 @@ import {
   DEFAULT_MODELS,
   normalizeBaseUrl,
 } from '@/utils/aiClient'
+import { defaultStrategyPrompt, MAX_CUSTOM_SYSTEM_PROMPT_CHARS } from '@/utils/aiPrompt'
 import { difficultyOf } from '@/utils/gameConfig'
 
 const OPENAI_BASE_URL = 'https://api.openai.com/v1'
@@ -50,6 +51,7 @@ export interface ResolvedInferenceParams {
   topP: number
   contextWindow: number
   thinkingLevel: AiThinkingLevel
+  systemPrompt: string
 }
 
 const defaultFetch: FetchLike = (url, init) => globalThis.fetch(url, init)
@@ -634,6 +636,7 @@ export function resolveDefaultParams(
     topP,
     contextWindow,
     thinkingLevel,
+    systemPrompt: defaultStrategyPrompt(difficulty),
   }
 }
 
@@ -678,6 +681,10 @@ export function resolveEffectiveParams(
       custom.thinkingLevel === 'high'
         ? custom.thinkingLevel
         : defaults.thinkingLevel,
+    systemPrompt:
+      typeof custom.systemPrompt === 'string' && custom.systemPrompt.trim().length > 0
+        ? custom.systemPrompt.slice(0, MAX_CUSTOM_SYSTEM_PROMPT_CHARS)
+        : defaults.systemPrompt,
   }
 }
 

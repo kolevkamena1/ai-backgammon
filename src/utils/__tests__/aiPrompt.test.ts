@@ -4,9 +4,11 @@ import {
   AI_REPLY_CONTRACT,
   buildMovePrompt,
   buildSystemPrompt,
+  defaultStrategyPrompt,
   describeMove,
   renderPoints,
   renderPosition,
+  SYSTEM_PROMPT_PRESETS,
 } from '@/utils/aiPrompt'
 import { getInitialBoardState, getLegalMoves } from '@/utils/gameLogic'
 import { describe, expect, it } from 'vitest'
@@ -172,5 +174,26 @@ describe('buildMovePrompt', () => {
     const both = `${prompt.system}\n${prompt.user}`
     expect(both).not.toMatch(/sk-/)
     expect(both).not.toMatch(/api[-_]?key/i)
+  })
+
+  it('incorporates a custom system prompt while keeping the JSON move contract intact', () => {
+    const custom = 'Play like an aggressive blitz grandmaster and explain pip equity.'
+    const system = buildSystemPrompt('light', 'medium', custom)
+
+    expect(system).toContain(custom)
+    expect(system).toContain(AI_REPLY_CONTRACT)
+    expect(system).toContain(AI_JSON_CONTRACT)
+    expect(system).toContain('Never invent a move')
+
+    // Passing the default strategy prompt for the level produces the exact legacy string.
+    expect(buildSystemPrompt('light', 'medium', defaultStrategyPrompt('medium'))).toBe(
+      buildSystemPrompt('light', 'medium'),
+    )
+
+    for (const preset of SYSTEM_PROMPT_PRESETS) {
+      const presetSystem = buildSystemPrompt('dark', 'hard', preset.prompt)
+      expect(presetSystem).toContain(preset.prompt)
+      expect(presetSystem).toContain(AI_JSON_CONTRACT)
+    }
   })
 })

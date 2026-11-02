@@ -1012,6 +1012,7 @@ describe('streaming', () => {
           topP: 0.85,
           contextWindow: 32_768,
           thinkingLevel: 'medium',
+          systemPrompt: 'Focus on building a 6-prime.',
         },
       },
       PLAYING,
@@ -1026,6 +1027,9 @@ describe('streaming', () => {
     expect(customBody.top_p).toBe(0.85)
     expect(customBody.num_ctx).toBe(32_768)
     expect(customBody.reasoning_effort).toBe('medium')
+    expect((customBody.messages as Array<{ content: string }>)[0].content).toContain(
+      'Focus on building a 6-prime.',
+    )
 
     const googleCall = await ask(
       {

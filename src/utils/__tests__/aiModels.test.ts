@@ -8,6 +8,7 @@ import {
   resolveDefaultParams,
   resolveEffectiveParams,
 } from '@/utils/aiModels'
+import { defaultStrategyPrompt } from '@/utils/aiPrompt'
 import { describe, expect, it } from 'vitest'
 
 function mockFetch(
@@ -184,6 +185,7 @@ describe('resolveDefaultParams and resolveEffectiveParams', () => {
       topP: 0.95,
       contextWindow: 1_048_576,
       thinkingLevel: 'off',
+      systemPrompt: defaultStrategyPrompt('medium'),
     })
 
     const customized = resolveEffectiveParams(
@@ -197,6 +199,7 @@ describe('resolveDefaultParams and resolveEffectiveParams', () => {
           topP: 0.85,
           contextWindow: 65_536,
           thinkingLevel: 'high',
+          systemPrompt: 'Play a relentless blitz game.',
         },
       }),
       metadata,
@@ -208,6 +211,7 @@ describe('resolveDefaultParams and resolveEffectiveParams', () => {
       topP: 0.85,
       contextWindow: 65_536,
       thinkingLevel: 'high',
+      systemPrompt: 'Play a relentless blitz game.',
     })
   })
 })

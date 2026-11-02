@@ -15,8 +15,18 @@ import {
   resolveDefaultParams,
   resolveEffectiveParams,
 } from '@/utils/aiModels'
+import {
+  buildSystemPrompt,
+  MAX_CUSTOM_SYSTEM_PROMPT_CHARS,
+  SYSTEM_PROMPT_PRESETS,
+} from '@/utils/aiPrompt'
 import { cn } from '@/utils/cn'
-import { AI_DIFFICULTIES, DEFAULT_DIFFICULTY, parseDifficulty } from '@/utils/gameConfig'
+import {
+  AI_DIFFICULTIES,
+  DEFAULT_DIFFICULTY,
+  DIFFICULTY_LABELS,
+  parseDifficulty,
+} from '@/utils/gameConfig'
 import { Eye, EyeOff, RefreshCw, RotateCcw, SlidersHorizontal, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
@@ -520,6 +530,79 @@ const ByokFields = ({
             <code>thinking.budget_tokens</code> (Anthropic), <code>thinkingBudget</code> (Gemini),
             or <code>enable_thinking</code> (DashScope).
           </p>
+        </div>
+
+        <div className="space-y-1.5 pt-1">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label htmlFor={id('system-prompt')} className={LABEL}>
+              System prompt <span className="text-slate-500">(strategy &amp; persona)</span>
+            </label>
+            <span className="font-mono text-[11px] text-slate-500">
+              {effective.systemPrompt.length}/{MAX_CUSTOM_SYSTEM_PROMPT_CHARS}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-slate-400">Presets:</span>
+            <button
+              type="button"
+              onClick={() => patchParams({ systemPrompt: undefined })}
+              className={cn(
+                BUTTON,
+                'border px-2 py-0.5 text-[11px]',
+                value.params?.systemPrompt === undefined ||
+                  value.params.systemPrompt.trim() === defaults.systemPrompt.trim()
+                  ? 'border-sky-500/60 bg-sky-500/15 text-sky-200'
+                  : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800',
+              )}
+              title={`Default strategy for ${DIFFICULTY_LABELS[difficulty]} difficulty`}
+            >
+              Default ({DIFFICULTY_LABELS[difficulty]})
+            </button>
+            {SYSTEM_PROMPT_PRESETS.map((preset) => {
+              const active = value.params?.systemPrompt?.trim() === preset.prompt.trim()
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => patchParams({ systemPrompt: preset.prompt })}
+                  className={cn(
+                    BUTTON,
+                    'border px-2 py-0.5 text-[11px]',
+                    active
+                      ? 'border-sky-500/60 bg-sky-500/15 text-sky-200'
+                      : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800',
+                  )}
+                  title={preset.prompt}
+                >
+                  {preset.label}
+                </button>
+              )
+            })}
+          </div>
+
+          <textarea
+            id={id('system-prompt')}
+            rows={4}
+            maxLength={MAX_CUSTOM_SYSTEM_PROMPT_CHARS}
+            className={cn(FIELD, 'resize-y font-sans text-xs leading-relaxed')}
+            placeholder={defaults.systemPrompt}
+            value={effective.systemPrompt}
+            onChange={(event) => patchParams({ systemPrompt: event.target.value })}
+          />
+          <p className={HINT}>
+            Pre-filled from the selected difficulty. Board-numbering rules and the mandatory JSON
+            move-format contract stay attached automatically so the engine can parse every reply.
+          </p>
+
+          <details className="rounded-lg border border-slate-800/80 bg-slate-900/50 px-2.5 py-1.5 text-xs">
+            <summary className="cursor-pointer select-none font-medium text-slate-300 hover:text-slate-100">
+              Preview full system prompt sent to provider
+            </summary>
+            <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-slate-300">
+              {buildSystemPrompt('light', difficulty, value.params?.systemPrompt)}
+            </pre>
+          </details>
         </div>
       </fieldset>
     </>

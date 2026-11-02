@@ -58,6 +58,48 @@ export const DIFFICULTY_INSTRUCTIONS: Record<AiDifficulty, string> = {
   hard: "Play aggressively and defensively. Analyze the opponent's threats 2 moves ahead. Prioritize building primes and blocking the opponent's escape. Take calculated risks to win.",
 }
 
+/** Maximum characters accepted for a user-supplied custom system prompt. */
+export const MAX_CUSTOM_SYSTEM_PROMPT_CHARS = 4000
+
+/** Default strategy + explanation instructions for a given difficulty level. */
+export function defaultStrategyPrompt(difficulty: AiDifficulty = 'medium'): string {
+  return `${DIFFICULTY_INSTRUCTIONS[difficulty]} ${EXPLANATION_HINTS[difficulty]}`
+}
+
+export interface SystemPromptPreset {
+  readonly id: string
+  readonly label: string
+  readonly prompt: string
+}
+
+/** Quick-fill strategy and persona templates for the system prompt control. */
+export const SYSTEM_PROMPT_PRESETS: readonly SystemPromptPreset[] = [
+  {
+    id: 'blitz',
+    label: 'Blitz Attacker',
+    prompt:
+      'Play a fearless attacking blitz. Hit every loose blot in reach, fight for inner-board points to trap the opponent on the bar, and explain the attacking pressure in one punchy sentence.',
+  },
+  {
+    id: 'prime',
+    label: 'Prime Builder',
+    prompt:
+      'Prioritize building a contiguous 5- or 6-point prime and slotting builders with calculated risk. Explain how your move strengthens the blockade or traps the opponent’s back checkers.',
+  },
+  {
+    id: 'racer',
+    label: 'Safe Racer',
+    prompt:
+      'Minimize blots and play a clean positional race. Prioritize escaping back checkers early, stacking safe points, and keeping pip wastage low. State the safety or pip advantage clearly.',
+  },
+  {
+    id: 'coach',
+    label: 'Backgammon Coach',
+    prompt:
+      'Play sound tournament backgammon and write your explanation like a friendly master coach teaching the player the key tactical concept behind the move.',
+  },
+]
+
 /** `bar -> 19 using die 6`, `13 -> 8 using die 5`, `3 -> off (bear off) using die 3`. */
 export function describeMove(move: Move): string {
   const from = move.from === 'bar' ? 'bar' : `point ${move.from}`
@@ -117,11 +159,23 @@ export function renderPosition(
 /**
  * The rules of the game plus the strength of play. `difficulty` defaults to the middle level so
  * every existing caller (and every test) keeps working while the setup flow gains a selector.
+ * When `customSystemPrompt` is provided (and differs from the difficulty default), it supplies the
+ * strategy and explanation persona while keeping the board numbering and JSON output contract intact.
  */
-export function buildSystemPrompt(player: PlayerColor, difficulty: AiDifficulty = 'medium'): string {
+export function buildSystemPrompt(
+  player: PlayerColor,
+  difficulty: AiDifficulty = 'medium',
+  customSystemPrompt?: string,
+): string {
+  const trimmed = customSystemPrompt?.trim() ?? ''
+  const useCustom =
+    trimmed.length > 0 && trimmed !== defaultStrategyPrompt(difficulty)
+
   return [
     `You are a backgammon engine playing ${SEAT_NAME[player]}. Reply with exactly one move.`,
-    `Playing strength: ${difficulty}. ${DIFFICULTY_INSTRUCTIONS[difficulty]}`,
+    useCustom
+      ? `Playing strength: ${difficulty}.\nCustom strategy & persona: ${trimmed.slice(0, MAX_CUSTOM_SYSTEM_PROMPT_CHARS)}`
+      : `Playing strength: ${difficulty}. ${DIFFICULTY_INSTRUCTIONS[difficulty]}`,
     'Numbering runs 1 to 24. Positive counts on a point are White checkers, negative are Black.',
     'A checker on the bar must be re-entered before anything else may move.',
     'Bearing off is written as "to": "off".',
@@ -133,7 +187,9 @@ export function buildSystemPrompt(player: PlayerColor, difficulty: AiDifficulty 
     'first and then the move, so the sentence arrives before the choice:',
     AI_REPLY_CONTRACT,
     `The explanation is one sentence, under ${EXPLANATION_CHAR_BUDGET} characters, first person, and carries no`,
-    `double quotes inside it. ${EXPLANATION_HINTS[difficulty]}`,
+    useCustom
+      ? 'double quotes inside it. Follow the custom strategy & persona above for how you choose and explain the move.'
+      : `double quotes inside it. ${EXPLANATION_HINTS[difficulty]}`,
     'The move may be given in full instead as',
     AI_JSON_CONTRACT,
   ].join('\n')
@@ -148,9 +204,10 @@ export function buildMovePrompt(
   player: PlayerColor,
   legalMoves: readonly Move[],
   difficulty: AiDifficulty = 'medium',
+  customSystemPrompt?: string,
 ): AiPrompt {
   return {
-    system: buildSystemPrompt(player, difficulty),
+    system: buildSystemPrompt(player, difficulty, customSystemPrompt),
     user: `${renderPosition(board, player, legalMoves)}\n\nChoose one now. Reply with the JSON object only.`,
   }
 }

@@ -31,6 +31,11 @@ export interface AiInferenceParams {
   contextWindow?: number
   /** Reasoning / extended thinking effort. */
   thinkingLevel?: AiThinkingLevel
+  /**
+   * Custom strategy and persona instructions for the system prompt. Combined with the mandatory
+   * board-numbering and JSON move-output contract so the model still replies with a valid move.
+   */
+  systemPrompt?: string
 }
 
 /**
