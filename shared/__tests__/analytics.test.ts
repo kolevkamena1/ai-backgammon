@@ -59,9 +59,9 @@ describe('parseUserAgent', () => {
 
 describe('misc helpers', () => {
   it('checks same-origin beacons', () => {
-    expect(isSameOrigin('https://backgamm.kamenonline.com', 'https://backgamm.kamenonline.com/api/collect')).toBe(true)
-    expect(isSameOrigin('https://evil.example', 'https://backgamm.kamenonline.com/api/collect')).toBe(false)
-    expect(isSameOrigin(null, 'https://backgamm.kamenonline.com/api/collect')).toBe(true)
+    expect(isSameOrigin('https://backgammon.kamenonline.com', 'https://backgammon.kamenonline.com/api/collect')).toBe(true)
+    expect(isSameOrigin('https://evil.example', 'https://backgammon.kamenonline.com/api/collect')).toBe(false)
+    expect(isSameOrigin(null, 'https://backgammon.kamenonline.com/api/collect')).toBe(true)
   })
 
   it('bounds filters', () => {

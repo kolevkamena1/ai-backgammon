@@ -605,9 +605,9 @@ never sent. Do Not Track is honoured and `npm run dev` sends nothing. Raw rows a
    `[[d1_databases]]` block in `wrangler.toml` (uncomment it), then
    `npx wrangler d1 migrations apply ai-backgammon-stats --remote`.
 2. **Secret** — Pages → Settings → Variables: add `ANALYTICS_SALT` (long random string, *encrypted*).
-3. **Custom domain** — Pages → Custom domains → `backgamm.kamenonline.com`.
+3. **Custom domain** — Pages → Custom domains → `backgammon.kamenonline.com`.
 4. **Protect it** — Zero Trust → Access → Applications → *Self-hosted*. Add **two** paths on
-   `backgamm.kamenonline.com`: `/stats*` and `/api/stats*`. Policy: *Allow* → Emails → your address
+   `backgammon.kamenonline.com`: `/stats*` and `/api/stats*`. Policy: *Allow* → Emails → your address
    only. Copy the application's **Audience (AUD) tag** and your team domain.
 5. **Pin the app to the policy** — Pages variables: `ACCESS_TEAM_DOMAIN` (`yourteam.cloudflareaccess.com`)
    and `ACCESS_AUD`. The API verifies the Access JWT itself (signature, issuer, audience, expiry), so
