@@ -1,4 +1,3 @@
-import { useCallback } from 'react'
 import Board from '@/components/Board'
 import GameControls from '@/components/GameControls'
 import GameSetupModal from '@/components/GameSetupModal'
@@ -38,11 +37,6 @@ const App = () => {
   const previewPlan = planSeats(settings, config)
   const plan = game.seatPlan ?? previewPlan
   const blocked = seatProblems(plan.light).length + seatProblems(plan.dark).length
-
-  const onSelectPoint = useCallback(
-    (target: Parameters<typeof game.handlePointClick>[0]) => game.handlePointClick(target),
-    [game],
-  )
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -112,7 +106,7 @@ const App = () => {
           legalTargets={game.legalTargets}
           selectableSources={game.selectableSources}
           selectedFrom={game.selectedFrom}
-          onSelectPoint={onSelectPoint}
+          onSelectPoint={game.handlePointClick}
         />
 
         <section aria-label="Game controls and match setup" className="grid w-full max-w-3xl gap-3 sm:grid-cols-2">

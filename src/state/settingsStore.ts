@@ -1,6 +1,6 @@
 import { createSafeStorage } from '@/state/createSafeStorage'
 import type { AiDifficulty, AiProvider, AppSettings } from '@/types/settings'
-import { DEFAULT_DIFFICULTY } from '@/utils/gameConfig'
+import { DEFAULT_DIFFICULTY, sanitizeEngineConfig } from '@/utils/gameConfig'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
@@ -60,6 +60,10 @@ export const useSettingsStore = create<SettingsState>()(
         model: state.model,
         baseUrl: state.baseUrl,
         difficulty: state.difficulty,
+      }),
+      merge: (persisted, current): SettingsState => ({
+        ...current,
+        ...sanitizeEngineConfig(persisted, DEFAULT_SETTINGS),
       }),
     },
   ),

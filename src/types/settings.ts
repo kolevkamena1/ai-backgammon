@@ -16,8 +16,9 @@ export type AiDifficulty = 'easy' | 'medium' | 'hard'
 export interface AiEngineConfig {
   provider: AiProvider
   /**
-   * Stored client-side only. Never logged in the clear (see `src/lib/logger.ts`) and never
-   * sent anywhere but the selected provider — this app has no backend to proxy through.
+   * Stored in `localStorage` only. Never logged in the clear (see `src/lib/logger.ts`) and
+   * forwarded only to the selected provider through the same-origin `/api/ai-proxy` relay, which
+   * never stores or logs it.
    */
   apiKey: string
   /** Optional model override; an empty string means "use the provider default". */

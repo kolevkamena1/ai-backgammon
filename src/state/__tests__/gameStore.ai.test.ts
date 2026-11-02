@@ -314,8 +314,19 @@ describe('aiThought', () => {
       // whose SSE the client reads. Buffered providers never get this state.
       expect(useGameStore.getState().aiThought).toEqual({ seat: 'light', text: '', phase: 'streaming' })
 
-      options?.onDelta?.({ kind: 'explanation', text: 'I bring a builder' })
-      options?.onDelta?.({ kind: 'explanation', text: 'I bring a builder forward.' })
+      options?.onDelta?.({ kind: 'explanation', text: '{"ex' })
+      // Partial JSON keys before the string opens must not leak raw braces onto the board.
+      expect(useGameStore.getState().aiThought).toEqual({ seat: 'light', text: '', phase: 'streaming' })
+
+      options?.onDelta?.({
+        kind: 'explanation',
+        text: '{"explanation": "I bring a builder forward.", "choice": 1}',
+      })
+      expect(useGameStore.getState().aiThought).toEqual({
+        seat: 'light',
+        text: 'I bring a builder forward.',
+        phase: 'streaming',
+      })
 
       const [move] = getLegalMoves(board, player, board.dice)
       return { success: true, move, choice: 1, explanation: 'I bring a builder forward.' }

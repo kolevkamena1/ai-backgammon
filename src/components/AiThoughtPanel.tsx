@@ -1,6 +1,6 @@
-import type { PlayerColor } from '@/types/game'
 import type { AiThought } from '@/state/gameStore'
 import { cn } from '@/utils/cn'
+import { SEAT_LABELS } from '@/utils/gameConfig'
 import { Brain, X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
@@ -9,8 +9,6 @@ interface AiThoughtPanelProps {
   thought: AiThought
   onDismiss: () => void
 }
-
-const SEAT_NAME: Record<PlayerColor, string> = { light: 'White', dark: 'Black' }
 
 const PANEL = 'flex gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2'
 const HEADING = 'text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400'
@@ -46,7 +44,7 @@ const AiThoughtPanel = ({ thought, onDismiss }: AiThoughtPanelProps) => {
       <Brain className="size-4 shrink-0 text-sky-400" aria-hidden />
       <div className="min-w-40 flex-1 space-y-1">
         <p className={HEADING}>
-          {SEAT_NAME[thought.seat]}
+          {SEAT_LABELS[thought.seat]}
           {streaming ? ' is reasoning' : ' says'}
         </p>
         <p className={BODY} aria-live="polite" aria-busy={streaming}>

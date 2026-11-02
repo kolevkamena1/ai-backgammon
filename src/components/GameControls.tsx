@@ -1,16 +1,16 @@
+import type { AiErrorCode } from '@/types/ai'
 import type { PlayerColor } from '@/types/game'
 import type { SeatAssignment } from '@/types/gameConfig'
+import type { TurnPassReason } from '@/state/gameStore'
 import { BUTTON } from '@/components/ui/controls'
 import { useGame } from '@/hooks/useGame'
 import { useSettings } from '@/hooks/useSettings'
-import { describeEngine, DIFFICULTY_LABELS } from '@/utils/gameConfig'
+import { describeEngine, DIFFICULTY_LABELS, SEAT_LABELS } from '@/utils/gameConfig'
 import { cn } from '@/utils/cn'
 import { Dices, RefreshCw, RotateCcw, TriangleAlert, X } from 'lucide-react'
 import AiThoughtPanel from './AiThoughtPanel'
 import Checker from './Checker'
 import Die from './Die'
-
-const SEAT_NAME: Record<PlayerColor, string> = { light: 'White', dark: 'Black' }
 
 const PANEL = 'flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-4'
 const HEADING = 'text-sm font-semibold text-slate-100'
@@ -20,7 +20,7 @@ const SECONDARY = cn(BUTTON, 'border border-slate-700 bg-slate-800 text-slate-10
 const GHOST = cn(BUTTON, 'px-2 py-1 text-xs text-slate-300 hover:bg-slate-800')
 
 /** Codes that only Settings can fix, so the banner offers the Settings button next to Retry. */
-const SETTINGS_CODES: ReadonlySet<string> = new Set([
+const SETTINGS_CODES: ReadonlySet<AiErrorCode> = new Set([
   'unauthorized',
   'forbidden',
   'missing-key',
@@ -32,7 +32,7 @@ const SETTINGS_CODES: ReadonlySet<string> = new Set([
 ])
 
 /** Why a turn ended without a move, in the player's words. */
-const PASS_COPY: Record<string, string> = {
+const PASS_COPY: Record<TurnPassReason, string> = {
   'unplayable-roll': 'No legal move with that roll, so the turn passed automatically.',
   'stranded-dice': 'The dice left over fit nothing, so the turn passed automatically.',
 }
@@ -71,7 +71,7 @@ const GameControls = () => {
   }
 
   const seat: PlayerColor = board.turn
-  const seatName = SEAT_NAME[seat]
+  const seatName = SEAT_LABELS[seat]
   const providerName =
     currentSeat.kind === 'ai' ? describeEngine(currentSeat.engine).providerName : null
 
@@ -149,7 +149,7 @@ const GameControls = () => {
 
       {game.isFinished && board.winner !== null ? (
         <p className="text-sm font-semibold text-emerald-300">
-          {SEAT_NAME[board.winner]} bore off all 15 checkers and wins.
+          {SEAT_LABELS[board.winner]} bore off all 15 checkers and wins.
         </p>
       ) : null}
 

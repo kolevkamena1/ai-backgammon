@@ -77,23 +77,26 @@ const SeatCard = ({ seat }: { seat: SeatAssignment }) => {
       {seat.kind === 'human' ? (
         <p className="mt-1.5 text-sm text-slate-100">You</p>
       ) : (
-        <div className="mt-1.5 space-y-0.5">
-          <p className="text-sm text-slate-100">
-            {describeEngine(seat.engine).providerName}
-            <span className="ml-1.5 text-xs text-slate-400">
-              {DIFFICULTY_LABELS[describeEngine(seat.engine).difficulty]}
-            </span>
-          </p>
-          {seat.kind === 'ai' && describeEngine(seat.engine).model ? (
-            <p className="font-mono text-xs text-slate-400">{describeEngine(seat.engine).model}</p>
-          ) : null}
-          {seat.kind === 'ai' && describeEngine(seat.engine).endpoint ? (
-            <p className="font-mono text-xs break-all text-slate-400">
-              {describeEngine(seat.engine).endpoint}
-            </p>
-          ) : null}
-          <p className="font-mono text-xs text-slate-500">{describeEngine(seat.engine).maskedKey}</p>
-        </div>
+        (() => {
+          const summary = describeEngine(seat.engine)
+          return (
+            <div className="mt-1.5 space-y-0.5">
+              <p className="text-sm text-slate-100">
+                {summary.providerName}
+                <span className="ml-1.5 text-xs text-slate-400">
+                  {DIFFICULTY_LABELS[summary.difficulty]}
+                </span>
+              </p>
+              {summary.model ? (
+                <p className="font-mono text-xs text-slate-400">{summary.model}</p>
+              ) : null}
+              {summary.endpoint ? (
+                <p className="font-mono text-xs break-all text-slate-400">{summary.endpoint}</p>
+              ) : null}
+              <p className="font-mono text-xs text-slate-500">{summary.maskedKey}</p>
+            </div>
+          )
+        })()
       )}
 
       {problems.map((problem) => (

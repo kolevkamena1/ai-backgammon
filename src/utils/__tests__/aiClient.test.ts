@@ -8,6 +8,7 @@ import {
   AI_TIMEOUT_MS,
   DEFAULT_MODELS,
   extractJsonObject,
+  extractPartialExplanation,
   getAiMove,
   isTransient,
   mapHttpError,
@@ -987,5 +988,15 @@ describe('streaming', () => {
     expect(AI_STREAM_TOTAL_MS).toBeLessThan(PRODUCTION_POLICY.streamTimeoutMs)
     // And the first-byte budget still applies: a stream that never started has not earned more time.
     expect(AI_TIMEOUT_MS).toBeLessThan(DEV_POLICY.streamTimeoutMs)
+  })
+
+  it('extracts only the explanation sentence from partial JSON deltas', () => {
+    expect(extractPartialExplanation('{"ex')).toBeNull()
+    expect(extractPartialExplanation('{"explanation": "')).toBeNull()
+    expect(extractPartialExplanation('{"explanation": "I make my five-point')).toBe('I make my five-point')
+    expect(extractPartialExplanation('{"explanation": "I make my \\"five\\"-point.", "choice": 2}')).toBe(
+      'I make my "five"-point.',
+    )
+    expect(extractPartialExplanation('{"choice": 2}')).toBeNull()
   })
 })

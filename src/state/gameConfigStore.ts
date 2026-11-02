@@ -1,7 +1,7 @@
 import { createSafeStorage } from '@/state/createSafeStorage'
 import type { AiMatchType, GameConfigSnapshot, GameMode } from '@/types/gameConfig'
 import type { AiEngineConfig } from '@/types/settings'
-import { DEFAULT_DIFFICULTY } from '@/utils/gameConfig'
+import { DEFAULT_DIFFICULTY, sanitizeEngineConfig } from '@/utils/gameConfig'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
@@ -68,6 +68,27 @@ export const useGameConfigStore = create<GameConfigState>()(
         aiMatchType: state.aiMatchType,
         opponent: state.opponent,
       }),
+      merge: (persisted, current): GameConfigState => {
+        const record =
+          typeof persisted === 'object' && persisted !== null
+            ? (persisted as Record<string, unknown>)
+            : {}
+        const mode: GameMode =
+          record.mode === 'humanVsAi' || record.mode === 'aiVsAi'
+            ? record.mode
+            : DEFAULT_GAME_CONFIG.mode
+        const aiMatchType: AiMatchType =
+          record.aiMatchType === 'mirror' || record.aiMatchType === 'custom'
+            ? record.aiMatchType
+            : DEFAULT_GAME_CONFIG.aiMatchType
+
+        return {
+          ...current,
+          mode,
+          aiMatchType,
+          opponent: sanitizeEngineConfig(record.opponent, DEFAULT_OPPONENT_CONFIG),
+        }
+      },
     },
   ),
 )

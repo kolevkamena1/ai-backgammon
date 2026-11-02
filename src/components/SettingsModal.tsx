@@ -68,9 +68,10 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
         <div className="flex gap-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
           <ShieldAlert className="size-4 shrink-0 text-amber-400" aria-hidden />
           <p className="text-xs leading-relaxed text-slate-400">
-            The key is saved in this browser&rsquo;s <code>localStorage</code> and is sent straight to
-            your provider from the client. Anyone with access to this device can read it — use a
-            dedicated, revocable key.
+            The key is saved in this browser&rsquo;s <code>localStorage</code> and is forwarded to
+            your provider through the same-origin <code>/api/ai-proxy</code> relay (never stored or
+            logged there). Anyone with access to this device can read it — use a dedicated,
+            revocable key.
           </p>
         </div>
 

@@ -345,6 +345,34 @@ describe('getLegalMoves', () => {
     expect(moves).toHaveLength(1)
     expect(moves[0]).toEqual({ from: 13, to: 8, die: 5 })
   })
+
+  it('requires playing the sequence that uses the most dice when one order strands a die', () => {
+    // With [4, 2], die 4 cannot be played first (10->6 and 7->3 are blocked by Dark, and 2->off is
+    // illegal while checkers remain outside home). Both 10->8 and 7->5 are legal single-step moves
+    // with die 2, but 7->5 strands the 4 (5->1 is blocked), whereas 10->8 opens 8->4.
+    const board = boardWith({
+      10: L(1),
+      7: L(1),
+      2: L(13),
+      6: D(2),
+      3: D(2),
+      1: D(2),
+    })
+    const moves = getLegalMoves(board, 'light', [4, 2])
+    expect(moves).toEqual([{ from: 10, to: 8, die: 2 }])
+  })
+
+  it('requires the larger die when either die can be played alone but not both', () => {
+    // From point 20 with [5, 2], both 20->15 and 20->18 are open, but Dark on 13 blocks the second
+    // step on both lines (15->13 and 18->13), and the 14 checkers on point 2 cannot bear off.
+    const board = boardWith({
+      20: L(1),
+      2: L(14),
+      13: D(2),
+    })
+    const moves = getLegalMoves(board, 'light', [5, 2])
+    expect(moves).toEqual([{ from: 20, to: 15, die: 5 }])
+  })
 })
 
 describe('applyMove', () => {

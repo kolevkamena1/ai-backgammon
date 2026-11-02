@@ -216,6 +216,11 @@ const RELAY_REQUEST_HEADERS: readonly string[] = [
 ]
 
 const defaultFetch: ProxyFetch = (url, init) => globalThis.fetch(url, init)
+const utf8Encoder = new TextEncoder()
+
+function utf8Bytes(text: string): number {
+  return utf8Encoder.encode(text).byteLength
+}
 
 function jsonRejection(status: number, code: ProxyRejectCode, message: string): ProxyOutcome {
   return {
@@ -424,6 +429,11 @@ export async function handleProxyRequest(
     return jsonRejection(400, 'bad-request', 'The AI proxy expects a JSON envelope.')
   }
 
+  const declaredLength = Number.parseInt(request.headers.get('content-length') ?? '', 10)
+  if (Number.isFinite(declaredLength) && declaredLength > policy.maxRequestBytes) {
+    return jsonRejection(413, 'request-too-large', 'The request envelope is too large.')
+  }
+
   let raw: string
   try {
     raw = await request.text()
@@ -431,7 +441,7 @@ export async function handleProxyRequest(
     return jsonRejection(400, 'bad-request', 'The request body could not be read.')
   }
 
-  if (raw.length > policy.maxRequestBytes) {
+  if (utf8Bytes(raw) > policy.maxRequestBytes) {
     return jsonRejection(413, 'request-too-large', 'The request envelope is too large.')
   }
 
@@ -473,7 +483,8 @@ export async function handleProxyRequest(
   // One signal covers the whole exchange including the body, so the ceiling has to match the shape of
   // the answer the client is expecting. Decided here, before the fetch, because a signal created after
   // the headers arrive cannot retroactively protect a stream that is already running.
-  const signal = AbortSignal.timeout(wantsStream ? policy.streamTimeoutMs : policy.timeoutMs)
+  const activeTimeoutMs = wantsStream ? policy.streamTimeoutMs : policy.timeoutMs
+  const signal = AbortSignal.timeout(activeTimeoutMs)
 
   let upstream: ProxyUpstreamResponse
   try {
@@ -484,7 +495,7 @@ export async function handleProxyRequest(
     // No logging here: this module is bundled for the edge, where the app logger does not exist,
     // and the reason string could be echoed into a response. The outcome's code is the signal.
     return timedOut
-      ? jsonRejection(504, 'gateway-timeout', `The provider did not answer within ${Math.round(policy.timeoutMs / 1000)}s.`)
+      ? jsonRejection(504, 'gateway-timeout', `The provider did not answer within ${Math.round(activeTimeoutMs / 1000)}s.`)
       : jsonRejection(502, 'bad-gateway', 'The provider could not be reached from the proxy.')
   }
 
@@ -511,7 +522,7 @@ export async function handleProxyRequest(
     return jsonRejection(502, 'bad-gateway', 'The provider response body could not be read.')
   }
 
-  if (text.length > policy.maxResponseBytes) {
+  if (utf8Bytes(text) > policy.maxResponseBytes) {
     return jsonRejection(413, 'response-too-large', 'The provider response was too large to relay.')
   }
 

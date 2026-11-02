@@ -139,9 +139,21 @@ export function normalizeBaseUrl(raw: string): string {
   return /\/v\d+([.-]?\d*)?([a-z]*)$/i.test(trimmed) ? trimmed : `${trimmed}/v1`
 }
 
-function delay(ms: number): Promise<void> {
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted === true) {
+    return Promise.resolve()
+  }
+
   return new Promise((resolve) => {
-    setTimeout(resolve, ms)
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      resolve()
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
   })
 }
 
@@ -440,6 +452,80 @@ export function parseExplanation(record: Record<string, unknown>): string | null
   }
 
   const collapsed = raw.replace(/\s+/g, ' ').trim()
+  if (collapsed.length === 0) {
+    return null
+  }
+
+  return collapsed.length > AI_EXPLANATION_MAX_CHARS
+    ? `${collapsed.slice(0, AI_EXPLANATION_MAX_CHARS - 1)}\u2026`
+    : collapsed
+}
+
+const PARTIAL_EXPLANATION_KEY = /"(?:explanation|reason|why)"\s*:\s*"/
+
+/**
+ * Pulls the in-flight explanation string out of a partially streamed JSON reply so the UI never
+ * flashes raw `{ "explanation": ...` braces or the trailing `"choice": n}` field while tokens
+ * arrive. Returns `null` until the string value has started (or when the reply has no explanation
+ * field at all).
+ */
+export function extractPartialExplanation(raw: string): string | null {
+  const match = PARTIAL_EXPLANATION_KEY.exec(raw)
+
+  if (match === null) {
+    const trimmed = raw.trim()
+    // If the stream is building a JSON object or fenced block, wait until the field opens.
+    if (trimmed.length === 0 || trimmed.startsWith('{') || trimmed.startsWith('`') || trimmed.includes('{')) {
+      return null
+    }
+    const collapsed = trimmed.replace(/\s+/g, ' ')
+    return collapsed.length > AI_EXPLANATION_MAX_CHARS
+      ? `${collapsed.slice(0, AI_EXPLANATION_MAX_CHARS - 1)}\u2026`
+      : collapsed
+  }
+
+  const start = match.index + match[0].length
+  let out = ''
+
+  for (let index = start; index < raw.length; index += 1) {
+    const ch = raw[index]
+
+    if (ch === '"') {
+      break
+    }
+
+    if (ch === '\\') {
+      if (index + 1 >= raw.length) {
+        // Split mid-escape: wait for the next chunk rather than flashing a bare backslash.
+        break
+      }
+      const next = raw[index + 1]
+      if (next === '"' || next === '\\' || next === '/') {
+        out += next
+        index += 1
+      } else if (next === 'n' || next === 'r' || next === 't') {
+        out += ' '
+        index += 1
+      } else if (next === 'u') {
+        const hex = raw.slice(index + 2, index + 6)
+        if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+          out += String.fromCharCode(Number.parseInt(hex, 16))
+          index += 5
+        } else {
+          // Incomplete \uXXXX sequence at the end of the chunk.
+          break
+        }
+      } else {
+        out += next
+        index += 1
+      }
+      continue
+    }
+
+    out += ch
+  }
+
+  const collapsed = out.replace(/\s+/g, ' ').trim()
   if (collapsed.length === 0) {
     return null
   }
@@ -799,6 +885,7 @@ async function withTransientRetry(
   provider: AiProvider,
   cancelled: () => boolean,
   consumed: () => boolean = () => false,
+  signal?: AbortSignal,
 ): Promise<AiResult> {
   for (let attemptNo = 0; attemptNo <= AI_TRANSIENT_RETRIES; attemptNo += 1) {
     const result = await attempt()
@@ -819,7 +906,10 @@ async function withTransientRetry(
       AI_RETRY_MAX_WAIT_MS,
     )
     logger.warn('retrying ai move', { provider, code: failure.code, waitMs })
-    await delay(waitMs)
+    await delay(waitMs, signal)
+    if (cancelled()) {
+      return fail(signal?.aborted === true ? 'aborted' : 'timeout', 'The request was cancelled.')
+    }
   }
 
   // Unreachable: the loop always returns or breaks out via `attemptNo === AI_TRANSIENT_RETRIES`.
@@ -950,6 +1040,7 @@ export async function getAiMove(
       // A reply that already started arriving is never replayed: the provider was paid for those
       // tokens, and a second attempt would double the cost of a turn the player can see failing.
       () => sawBytes,
+      controller.signal,
     )
   } finally {
     stopTimer(connectTimer)

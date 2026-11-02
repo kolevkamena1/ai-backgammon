@@ -2,7 +2,12 @@ import type { AiDelta, AiErrorInfo, AiResult } from '@/types/ai'
 import type { BoardState, DieFace, DiceRoll, Move, MoveSource, PlayerColor } from '@/types/game'
 import type { GameConfigSnapshot, SeatAssignment, SeatPlan } from '@/types/gameConfig'
 import type { AiEngineConfig } from '@/types/settings'
-import { AI_MOVE_DELAY_MS, getAiMove, supportsStreaming } from '@/utils/aiClient'
+import {
+  AI_MOVE_DELAY_MS,
+  extractPartialExplanation,
+  getAiMove,
+  supportsStreaming,
+} from '@/utils/aiClient'
 import { logger } from '@/lib/logger'
 import { planSeats } from '@/utils/gameConfig'
 import {
@@ -141,12 +146,17 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         return
       }
 
+      const partial = extractPartialExplanation(delta.text)
+      if (partial === null) {
+        return
+      }
+
       const now = Date.now()
       if (now - lastPaint < AI_THOUGHT_THROTTLE_MS) {
         return
       }
       lastPaint = now
-      set({ aiThought: { seat: color, text: delta.text, phase: 'streaming' } })
+      set({ aiThought: { seat: color, text: partial, phase: 'streaming' } })
     }
 
     const result: AiResult = await getAiMove(engine, snapshot, color, {
@@ -353,6 +363,8 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       }
 
       const token = aiToken
+      controller?.abort()
+      controller = new AbortController()
       set({ isAiThinking: true, lastAiError: null })
 
       try {
@@ -360,6 +372,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       } finally {
         if (token === aiToken) {
           set({ isAiThinking: false })
+          controller = null
         }
       }
     },

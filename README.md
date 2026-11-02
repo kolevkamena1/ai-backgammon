@@ -90,16 +90,11 @@ Conventions worth knowing before editing either file:
 
 ### Known rules gaps
 
-Generation is deliberately **move-at-a-time**: after each `applyMove` the options are re-derived
-from the new position, which is what click-to-move needs. Two rules that require searching the
-whole sequence are therefore not enforced yet:
-
-* playing the **maximum number of pips** when the dice offer a choice;
-* preferring the larger die when only a single move fits.
-
-Both are flagged in `getLegalMoves()` and are the next thing to fix: a model that obeys them can
-be steered into a turn the engine considers worse. Undo, the doubling cube and match scoring are
-also absent.
+Generation is **move-at-a-time**: after each `applyMove` the options are re-derived from the new
+position, which is what click-to-move needs, while `getLegalMoves()` searches the full turn so
+both sequence-level rules (playing the maximum number of dice and preferring the larger die when
+only one fits) are enforced. The opening single-die roll, undo, the doubling cube and match scoring
+are still absent.
 
 ## AI inference
 

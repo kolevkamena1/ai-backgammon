@@ -50,6 +50,33 @@ const PROVIDER_NAMES: Record<AiProvider, string> = {
   custom: 'Custom endpoint',
 }
 
+function isProvider(value: unknown): value is AiProvider {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(PROVIDER_NAMES, value)
+}
+
+/**
+ * Coerces an untrusted persisted payload into a valid `AiEngineConfig`, falling back field-by-field
+ * to `fallback` so a tampered or stale `localStorage` entry cannot crash the UI.
+ */
+export function sanitizeEngineConfig(raw: unknown, fallback: AiEngineConfig): AiEngineConfig {
+  if (typeof raw !== 'object' || raw === null) {
+    return { ...fallback }
+  }
+  const record = raw as Record<string, unknown>
+  const fallbackDifficulty = fallback.difficulty ?? DEFAULT_DIFFICULTY
+
+  return {
+    provider: isProvider(record.provider) ? record.provider : fallback.provider,
+    apiKey: typeof record.apiKey === 'string' ? record.apiKey : fallback.apiKey,
+    model: typeof record.model === 'string' ? record.model : fallback.model,
+    baseUrl: typeof record.baseUrl === 'string' ? record.baseUrl : (fallback.baseUrl ?? ''),
+    difficulty:
+      typeof record.difficulty === 'string'
+        ? parseDifficulty(record.difficulty, fallbackDifficulty)
+        : fallbackDifficulty,
+  }
+}
+
 /** What still stops an engine from playing. Empty means ready. */
 export function validateEngine(engine: AiEngineConfig): string[] {
   const problems: string[] = []
