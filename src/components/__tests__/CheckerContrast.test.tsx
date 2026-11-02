@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import Board, {
+import Board from '@/components/Board'
+import {
   computeBoardMetrics,
   computeResizedDimensions,
   DEFAULT_BOARD_DIMENSIONS,
-} from '@/components/Board'
+} from '@/utils/boardResize'
 import Checker from '@/components/Checker'
 import Point from '@/components/Point'
 import { act } from 'react'
