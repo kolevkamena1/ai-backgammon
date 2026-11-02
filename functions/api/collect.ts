@@ -24,7 +24,16 @@ const NO_CONTENT = (): Response => new Response(null, { status: 204, headers: { 
  */
 export const onRequestPost = async ({ request, env, waitUntil }: PagesContext): Promise<Response> => {
   const db = env.DB
-  if (db === undefined || !isSameOrigin(request.headers.get('origin'), request.url)) return NO_CONTENT()
+  if (db === undefined) {
+    console.error('[collect] env.DB is not bound. Ensure D1 binding "DB" is attached in Cloudflare Pages Settings -> Functions.')
+    return NO_CONTENT()
+  }
+
+  const origin = request.headers.get('origin')
+  if (!isSameOrigin(origin, request.url)) {
+    console.warn('[collect] origin mismatch:', { origin, url: request.url })
+    return NO_CONTENT()
+  }
 
   const declared = Number(request.headers.get('content-length') ?? '0')
   if (declared > MAX_BODY_BYTES) return NO_CONTENT()
@@ -34,7 +43,10 @@ export const onRequestPost = async ({ request, env, waitUntil }: PagesContext): 
     if (text.length > MAX_BODY_BYTES) return NO_CONTENT()
 
     const event = parseEvent(JSON.parse(text))
-    if (event === null) return NO_CONTENT()
+    if (event === null) {
+      console.warn('[collect] invalid event body payload')
+      return NO_CONTENT()
+    }
 
     const ua = parseUserAgent(request.headers.get('user-agent'))
     const botScore = request.cf?.botManagement?.score ?? null
@@ -54,8 +66,8 @@ export const onRequestPost = async ({ request, env, waitUntil }: PagesContext): 
 
     // Opportunistic retention (Pages Functions have no cron): ~1% of visits trigger the purge.
     if (event.type === 'visit' && Math.random() < 0.01) waitUntil(purgeOld(db).catch(() => undefined))
-  } catch {
-    // Swallowed on purpose - see the doc comment.
+  } catch (err) {
+    console.error('[collect] error recording event in D1:', err)
   }
 
   return NO_CONTENT()

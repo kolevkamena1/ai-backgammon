@@ -46,7 +46,7 @@ export async function recordEvent(db: D1Db, event: AnalyticsEvent, facts: Reques
       `INSERT INTO sessions (session_id, first_seen, last_seen, day, ip_hash, country, asn, as_org,
          referrer_host, utm_source, device_type, browser, os, language, viewport_w, viewport_h,
          is_bot, bot_score, landing_path)
-       VALUES (?1,?2,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(session_id) DO UPDATE SET
          last_seen = excluded.last_seen,
          referrer_host = COALESCE(sessions.referrer_host, excluded.referrer_host),
@@ -58,6 +58,7 @@ export async function recordEvent(db: D1Db, event: AnalyticsEvent, facts: Reques
     )
     .bind(
       event.sessionId,
+      now,
       now,
       utcDay(new Date()),
       facts.ipHash,
@@ -114,13 +115,14 @@ export async function recordEvent(db: D1Db, event: AnalyticsEvent, facts: Reques
     db
       .prepare(
         `UPDATE games SET
-           ended_at = ?1,
-           duration_s = CAST((julianday(?1) - julianday(started_at)) * 86400 AS INTEGER),
-           outcome = ?2, winner = ?3, turns = ?4, moves = ?5, undo_count = ?6, pause_count = ?7,
-           ai_errors = ?8
-         WHERE game_id = ?9 AND session_id = ?10 AND outcome != 'finished'`,
+           ended_at = ?,
+           duration_s = CAST((julianday(?) - julianday(started_at)) * 86400 AS INTEGER),
+           outcome = ?, winner = ?, turns = ?, moves = ?, undo_count = ?, pause_count = ?,
+           ai_errors = ?
+         WHERE game_id = ? AND session_id = ? AND outcome != 'finished'`,
       )
       .bind(
+        now,
         now,
         event.outcome,
         event.winner,
