@@ -47,7 +47,6 @@ function send(event: AnalyticsEvent): void {
   void fetch(COLLECT_URL, {
     method: 'POST',
     body,
-    keepalive: true,
     headers: { 'content-type': 'application/json' },
   })
     .then((res) => {
