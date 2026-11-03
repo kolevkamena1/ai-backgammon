@@ -32,7 +32,26 @@ function toParams(query: Query, extra: Record<string, string> = {}): string {
 }
 
 async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(path, { headers: { accept: 'application/json' } })
+  let response: Response
+  try {
+    response = await fetch(path, {
+      credentials: 'same-origin',
+      headers: { accept: 'application/json' },
+    })
+  } catch (cause) {
+    // If the browser blocked a redirect (e.g. to cloudflareaccess.com login page)
+    throw new Error(
+      'Network request failed or was redirected to Cloudflare Access login. Please log in or refresh your session.',
+      { cause },
+    )
+  }
+
+  // Cloudflare Access login redirect returned as an opaque or HTML page
+  if (response.redirected && response.url.includes('cloudflareaccess.com')) {
+    window.location.href = response.url
+    throw new Error('Redirecting to Cloudflare Access authentication...')
+  }
+
   if (response.status === 403 || response.status === 401) {
     const data = (await response.json().catch(() => null)) as { error?: string; reason?: string } | null
     const details = data?.reason ? ` [${data.reason}]` : ''
