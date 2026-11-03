@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { deriveTurnEntries } from '@/utils/gameLog'
+import { derivePendingTurns, deriveTurnEntries, formatClock, formatElapsed } from '@/utils/gameLog'
 import type { GameSnapshot } from '@/types/gameLog'
 import { getInitialBoardState } from '@/utils/gameLogic'
 
 describe('deriveTurnEntries', () => {
   it('skips step 0 (initial board state) and groups steps by turnNumber', () => {
     const initialBoard = getInitialBoardState()
+    const baseTime = 1700000000000
     const snapshots: GameSnapshot[] = [
       {
         stepIndex: 0,
@@ -18,6 +19,7 @@ describe('deriveTurnEntries', () => {
         turnPassed: null,
         aiThought: null,
         description: 'Game started',
+        at: baseTime,
       },
       {
         stepIndex: 1,
@@ -30,6 +32,7 @@ describe('deriveTurnEntries', () => {
         turnPassed: null,
         aiThought: null,
         description: 'Rolled 5-3',
+        at: baseTime + 1000,
       },
       {
         stepIndex: 2,
@@ -40,7 +43,7 @@ describe('deriveTurnEntries', () => {
         diceRemaining: [3],
         selectedFrom: null,
         turnPassed: null,
-        aiThought: null,
+        aiThought: 'Moving from 13 to 8',
         description: '13 → 8',
         lastMove: {
           from: 13,
@@ -49,6 +52,7 @@ describe('deriveTurnEntries', () => {
           isHit: false,
           formatted: '13 → 8',
         },
+        at: baseTime + 2000,
       },
       {
         stepIndex: 3,
@@ -59,7 +63,7 @@ describe('deriveTurnEntries', () => {
         diceRemaining: [],
         selectedFrom: null,
         turnPassed: null,
-        aiThought: null,
+        aiThought: 'Closing to 5',
         description: '8 → 5',
         lastMove: {
           from: 8,
@@ -68,6 +72,7 @@ describe('deriveTurnEntries', () => {
           isHit: false,
           formatted: '8 → 5',
         },
+        at: baseTime + 3000,
       },
     ]
 
@@ -78,12 +83,17 @@ describe('deriveTurnEntries', () => {
     expect(entries[0].roll).toEqual([5, 3])
     expect(entries[0].moves).toHaveLength(2)
     expect(entries[0].moves[0].formatted).toBe('13 → 8')
+    expect(entries[0].moves[0].reasoning).toBe('Moving from 13 to 8')
     expect(entries[0].moves[1].formatted).toBe('8 → 5')
+    expect(entries[0].moves[1].reasoning).toBe('Closing to 5')
     expect(entries[0].stepIndices).toEqual([1, 2, 3])
+    expect(entries[0].rolledAt).toBe(baseTime + 1000)
+    expect(entries[0].elapsedMs).toBe(1000)
   })
 
-  it('records hits and AI thoughts correctly', () => {
+  it('records hits and per-move AI thoughts correctly without overwriting', () => {
     const initialBoard = getInitialBoardState()
+    const baseTime = 1700000000000
     const snapshots: GameSnapshot[] = [
       {
         stepIndex: 1,
@@ -94,8 +104,9 @@ describe('deriveTurnEntries', () => {
         diceRemaining: [4, 2],
         selectedFrom: null,
         turnPassed: null,
-        aiThought: 'Advancing blot to attack opponent home',
+        aiThought: null,
         description: 'Rolled 4-2',
+        at: baseTime,
       },
       {
         stepIndex: 2,
@@ -106,7 +117,7 @@ describe('deriveTurnEntries', () => {
         diceRemaining: [2],
         selectedFrom: null,
         turnPassed: null,
-        aiThought: 'Advancing blot to attack opponent home',
+        aiThought: 'Hitting on 5 to disrupt White',
         description: '1 → 5*',
         lastMove: {
           from: 1,
@@ -115,6 +126,27 @@ describe('deriveTurnEntries', () => {
           isHit: true,
           formatted: '1 → 5*',
         },
+        at: baseTime + 1500,
+      },
+      {
+        stepIndex: 3,
+        turnNumber: 2,
+        player: 'dark',
+        board: { ...initialBoard, turn: 'light', dice: [] },
+        lastRoll: [4, 2],
+        diceRemaining: [],
+        selectedFrom: null,
+        turnPassed: null,
+        aiThought: 'Safely moving blot',
+        description: '6 → 8',
+        lastMove: {
+          from: 6,
+          to: 8,
+          die: 2,
+          isHit: false,
+          formatted: '6 → 8',
+        },
+        at: baseTime + 2500,
       },
     ]
 
@@ -122,8 +154,46 @@ describe('deriveTurnEntries', () => {
     expect(entries).toHaveLength(1)
     expect(entries[0].turnNumber).toBe(2)
     expect(entries[0].player).toBe('dark')
+    expect(entries[0].moves).toHaveLength(2)
     expect(entries[0].moves[0].isHit).toBe(true)
-    expect(entries[0].aiThought).toBe('Advancing blot to attack opponent home')
+    expect(entries[0].moves[0].reasoning).toBe('Hitting on 5 to disrupt White')
+    expect(entries[0].moves[1].isHit).toBe(false)
+    expect(entries[0].moves[1].reasoning).toBe('Safely moving blot')
   })
 })
 
+describe('derivePendingTurns and formatters', () => {
+  it('derives pending turns correctly', () => {
+    const entries = [
+      {
+        turnNumber: 1,
+        player: 'light' as const,
+        actorKind: 'human' as const,
+        actorName: 'White',
+        roll: [3, 1] as const,
+        moves: [],
+        passedReason: null,
+        rolledAt: 1000,
+        elapsedMs: 0,
+        stepIndices: [1],
+      },
+    ]
+    const recordedRolls = [[3, 1] as const, [4, 4] as const, [6, 2] as const]
+    const pending = derivePendingTurns(entries, recordedRolls, 2, 'dark')
+
+    expect(pending).toHaveLength(2)
+    expect(pending[0]).toEqual({ turnNumber: 2, player: 'dark', roll: [4, 4] })
+    expect(pending[1]).toEqual({ turnNumber: 3, player: 'light', roll: [6, 2] })
+  })
+
+  it('formats elapsed time correctly', () => {
+    expect(formatElapsed(14000)).toBe('+00:14')
+    expect(formatElapsed(134000)).toBe('+02:14')
+    expect(formatElapsed(3725000)).toBe('+1:02:05')
+  })
+
+  it('formats clock time', () => {
+    const formatted = formatClock(new Date(2026, 10, 3, 14, 5, 9).getTime())
+    expect(formatted).toBe('14:05:09')
+  })
+})

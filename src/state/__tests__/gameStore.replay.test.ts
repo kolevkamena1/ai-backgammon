@@ -16,7 +16,7 @@ const HUMAN_VS_AI_CONFIG: GameConfigSnapshot = {
   opponent: PERSONAL_AI,
 }
 
-describe('gameStore undo, redo and exact dice replay', () => {
+describe('gameStore rewind (keep dice vs. discard dice) and pause', () => {
   beforeEach(() => {
     useGameStore.getState().resetGame()
   })
@@ -33,7 +33,7 @@ describe('gameStore undo, redo and exact dice replay', () => {
     expect(state.recordedRolls).toEqual([])
   })
 
-  it('records dice roll and checker moves in stepHistory and replays exact dice after undo', () => {
+  it('rewindMovesFrom (Option a): keeps recorded dice and restores state right after roll', () => {
     useGameStore.getState().startNewGame(HUMAN_VS_AI_CONFIG, PERSONAL_AI)
 
     // Roll dice for turn 1
@@ -42,13 +42,7 @@ describe('gameStore undo, redo and exact dice replay', () => {
     const originalRoll = useGameStore.getState().lastRoll
     expect(originalRoll).not.toBeNull()
 
-    const stateAfterRoll = useGameStore.getState()
-    expect(stateAfterRoll.stepHistory).toHaveLength(2)
-    expect(stateAfterRoll.currentStepIndex).toBe(1)
-    expect(stateAfterRoll.recordedRolls).toHaveLength(1)
-    expect(stateAfterRoll.recordedRolls[0]).toEqual(originalRoll)
-
-    // Move a checker (24 to 24 - die, or legal move for light)
+    // Move a checker
     const board = useGameStore.getState().board!
     const die = board.dice[0]
     const from = 24
@@ -56,32 +50,57 @@ describe('gameStore undo, redo and exact dice replay', () => {
     const moved = useGameStore.getState().makeMove({ from, to, die })
     expect(moved).toBe(true)
 
-    const stateAfterMove = useGameStore.getState()
-    expect(stateAfterMove.stepHistory).toHaveLength(3)
-    expect(stateAfterMove.currentStepIndex).toBe(2)
+    expect(useGameStore.getState().stepHistory).toHaveLength(3)
 
-    // Undo move
-    useGameStore.getState().undo()
-    const stateAfterUndo = useGameStore.getState()
-    expect(stateAfterUndo.currentStepIndex).toBe(1)
-    expect(stateAfterUndo.isPaused).toBe(true)
-    expect(stateAfterUndo.board?.dice).toContain(die)
+    // Option a: rewind moves for turn 1, keep dice
+    const res = useGameStore.getState().rewindMovesFrom(1)
+    expect(res).toBe(true)
 
-    // Redo move
-    useGameStore.getState().redo()
-    const stateAfterRedo = useGameStore.getState()
-    expect(stateAfterRedo.currentStepIndex).toBe(2)
+    const stateAfterRewind = useGameStore.getState()
+    // History truncated back to roll snapshot (stepIndex 1)
+    expect(stateAfterRewind.stepHistory).toHaveLength(2)
+    expect(stateAfterRewind.currentStepIndex).toBe(1)
+    expect(stateAfterRewind.isPaused).toBe(true)
+    // Board has all original rolled dice back in hand
+    expect(stateAfterRewind.board?.dice).toEqual(dice)
+    // Recorded rolls preserved
+    expect(stateAfterRewind.recordedRolls).toEqual([originalRoll])
+    expect(stateAfterRewind.history).toHaveLength(0)
+  })
 
-    // Jump to step 0
-    useGameStore.getState().jumpToStep(0)
-    const stateAtStart = useGameStore.getState()
-    expect(stateAtStart.currentStepIndex).toBe(0)
-    expect(stateAtStart.board?.dice).toHaveLength(0)
+  it('rewindRollsFrom (Option b): removes moves and rolls from turn N onward and leaves dice random', () => {
+    useGameStore.getState().startNewGame(HUMAN_VS_AI_CONFIG, PERSONAL_AI)
 
-    // Roll again from turn 1: exact dice roll replay!
-    const replayedDice = useGameStore.getState().roll()
-    expect(replayedDice).not.toBeNull()
-    expect(useGameStore.getState().lastRoll).toEqual(originalRoll)
+    // Roll dice for turn 1
+    const dice = useGameStore.getState().roll()
+    expect(dice).not.toBeNull()
+
+    // Move a checker
+    const board = useGameStore.getState().board!
+    const die = board.dice[0]
+    useGameStore.getState().makeMove({ from: 24, to: 24 - die, die })
+
+    // Option b: rewind rolls for turn 1
+    const res = useGameStore.getState().rewindRollsFrom(1)
+    expect(res).toBe(true)
+
+    const stateAfterRewind = useGameStore.getState()
+    // History truncated back to before the roll (stepIndex 0)
+    expect(stateAfterRewind.stepHistory).toHaveLength(1)
+    expect(stateAfterRewind.currentStepIndex).toBe(0)
+    expect(stateAfterRewind.isPaused).toBe(true)
+    expect(stateAfterRewind.board?.dice).toHaveLength(0)
+    // Recorded rolls for turn 1 and beyond are removed
+    expect(stateAfterRewind.recordedRolls).toEqual([])
+  })
+
+  it('refuses rewind while AI is thinking', () => {
+    useGameStore.getState().startNewGame(HUMAN_VS_AI_CONFIG, PERSONAL_AI)
+    useGameStore.getState().roll()
+    useGameStore.setState({ isAiThinking: true })
+
+    expect(useGameStore.getState().rewindMovesFrom(1)).toBe(false)
+    expect(useGameStore.getState().rewindRollsFrom(1)).toBe(false)
   })
 
   it('supports pause and resume', () => {

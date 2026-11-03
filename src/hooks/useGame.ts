@@ -2,7 +2,7 @@ import type { Move, MoveSource, MoveTarget } from '@/types/game'
 import type { SeatAssignment } from '@/types/gameConfig'
 import { logger } from '@/lib/logger'
 import { useGameStore } from '@/state/gameStore'
-import { deriveTurnEntries } from '@/utils/gameLog'
+import { derivePendingTurns, deriveTurnEntries } from '@/utils/gameLog'
 import { getLegalMoves } from '@/utils/gameLogic'
 import { useMemo } from 'react'
 
@@ -40,20 +40,24 @@ export function useGame() {
   const clearAiThought = useGameStore((state) => state.clearAiThought)
   const togglePause = useGameStore((state) => state.togglePause)
   const setPaused = useGameStore((state) => state.setPaused)
-  const undo = useGameStore((state) => state.undo)
-  const redo = useGameStore((state) => state.redo)
-  const jumpToStep = useGameStore((state) => state.jumpToStep)
+  const rewindMovesFrom = useGameStore((state) => state.rewindMovesFrom)
+  const rewindRollsFrom = useGameStore((state) => state.rewindRollsFrom)
+  const recordedRolls = useGameStore((state) => state.recordedRolls)
 
   const currentSeat: SeatAssignment | null =
     board !== null && seatPlan !== null ? seatPlan[board.turn] : null
   const isHumanTurn = currentSeat !== null && currentSeat.kind === 'human'
   const isFinished = board?.phase === 'finished'
-  const canUndo = currentStepIndex > 0
-  const canRedo = currentStepIndex < stepHistory.length - 1
-
   const turnEntries = useMemo(
     () => deriveTurnEntries(stepHistory, seatPlan),
     [stepHistory, seatPlan],
+  )
+
+  /** Dice kept by a "keep dice" rewind that are still waiting to be replayed. */
+  const pendingTurns = useMemo(
+    () =>
+      board === null ? [] : derivePendingTurns(turnEntries, recordedRolls, turnNumber, board.turn),
+    [board, turnEntries, recordedRolls, turnNumber],
   )
 
   /**
@@ -199,13 +203,11 @@ export function useGame() {
     stepHistory,
     currentStepIndex,
     turnEntries,
-    canUndo,
-    canRedo,
+    pendingTurns,
     togglePause,
     setPaused,
-    undo,
-    redo,
-    jumpToStep,
+    rewindMovesFrom,
+    rewindRollsFrom,
   }
 }
 

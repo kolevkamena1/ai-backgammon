@@ -28,7 +28,7 @@ import { create } from 'zustand'
 export type TurnPassReason = 'unplayable-roll' | 'stranded-dice'
 
 /**
- * What the engine said about its move. Transient by design — the store is never persisted, and a
+ * What the engine said about its move. Transient by design â€” the store is never persisted, and a
  * rationale about a position that no longer exists is worse than no rationale, so it is cleared on
  * a human move, an abandoned game and a new game.
  */
@@ -72,11 +72,14 @@ interface GameStoreState {
   gameId: string | null
   /** 1-based turn sequence counter. */
   turnNumber: number
-  /** Recorded dice roll history for exact replay on undo/resume. */
+  /**
+   * Every roll of the game, indexed by `turnNumber - 1`. A turn whose roll is already recorded
+   * replays it instead of rolling fresh, which is how "rewind, keep dice" reproduces the sequence.
+   */
   recordedRolls: DiceRoll[]
-  /** Step-by-step game state history for fine-grained undo/redo and log time-travel. */
+  /** Step-by-step game state history (roll, move, pass); the source of the game log. */
   stepHistory: GameSnapshot[]
-  /** Pointer to active snapshot in stepHistory. */
+  /** Index of the latest snapshot in stepHistory (always the last one: rewinds truncate). */
   currentStepIndex: number
   startNewGame: (config: GameConfigSnapshot, personal: AiEngineConfig) => boolean
   roll: () => DieFace[] | null
@@ -94,9 +97,18 @@ interface GameStoreState {
   resetGame: () => void
   togglePause: () => void
   setPaused: (paused: boolean) => void
-  undo: () => void
-  redo: () => void
-  jumpToStep: (stepIndex: number) => void
+  /**
+   * Deletes the moves of turn `turnNumber` and of every later turn, but keeps their dice: the
+   * board returns to the moment right after that turn's roll and the recorded rolls replay in
+   * order. Refused while an AI request is in flight. Leaves the game paused.
+   */
+  rewindMovesFrom: (turnNumber: number) => boolean
+  /**
+   * Deletes turn `turnNumber` and every later turn, dice included: the board returns to the
+   * moment before that turn's roll and every roll from there on is random again. Refused while
+   * an AI request is in flight. Leaves the game paused.
+   */
+  rewindRollsFrom: (turnNumber: number) => boolean
 }
 
 /**
@@ -114,7 +126,21 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Active game state. NOT persisted: `seatPlan` holds `AiEngineConfig` objects — API keys — so
+ * Index of the snapshot that rolled the dice for `turnNumber`: the first step logged under that
+ * turn (step 0 is the opening layout, never a roll). -1 when the turn has not been rolled.
+ */
+function findRollStep(stepHistory: GameSnapshot[], turnNumber: number): number {
+  return stepHistory.findIndex(
+    (snap) =>
+      snap.stepIndex > 0 &&
+      snap.turnNumber === turnNumber &&
+      snap.lastMove === undefined &&
+      snap.description.startsWith('Rolled'),
+  )
+}
+
+/**
+ * Active game state. NOT persisted: `seatPlan` holds `AiEngineConfig` objects â€” API keys â€” so
  * writing this store to localStorage would create a third copy of your credentials for no
  * benefit. All rules live in `utils/gameLogic.ts` and all transport in `utils/aiClient.ts`;
  * this file only sequences them.
@@ -215,7 +241,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
     // Only after the move is on the board: a reason for a move that did not happen is worse than no
     // reason at all. Silence (the model ignored the field, or filled it with junk) also clears the
     // placeholder the stream opened, so the panel never freezes on a half-sentence that was never a
-    // reply — the move played, the engine just had nothing to say about it.
+    // reply â€” the move played, the engine just had nothing to say about it.
     const thought =
       result.explanation === null
         ? null
@@ -235,6 +261,33 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
     }
 
     return 'moved'
+  }
+
+  /**
+   * Makes `kept` the whole history and puts the board back to its last snapshot. Shared by both
+   * rewinds; anything in flight is cancelled and the game is left paused until Resume.
+   */
+  const restore = (kept: GameSnapshot[], turnNumber: number, recordedRolls: DiceRoll[]): void => {
+    const last = kept[kept.length - 1]
+
+    cancelAi()
+    set({
+      board: last.board,
+      lastRoll: last.lastRoll,
+      history: kept.flatMap((snap) =>
+        snap.lastMove ? [{ from: snap.lastMove.from, to: snap.lastMove.to, die: snap.lastMove.die }] : [],
+      ),
+      selectedFrom: null,
+      turnPassed: null,
+      isAiThinking: false,
+      lastAiError: null,
+      aiThought: null,
+      isPaused: true,
+      turnNumber,
+      recordedRolls,
+      stepHistory: kept,
+      currentStepIndex: kept.length - 1,
+    })
   }
 
   return {
@@ -280,6 +333,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         turnPassed: null,
         aiThought: null,
         description: 'Game started',
+        at: Date.now(),
       }
 
       set({
@@ -350,6 +404,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           turnPassed: 'unplayable-roll',
           aiThought: null,
           description: `Rolled ${pair[0]}-${pair[1]} (Pass)`,
+          at: Date.now(),
         }
 
         set({
@@ -377,6 +432,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         turnPassed: null,
         aiThought: null,
         description: `Rolled ${pair[0]}-${pair[1]}`,
+        at: Date.now(),
       }
 
       set({
@@ -461,9 +517,13 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           diceRemaining: [...next.dice],
           selectedFrom: null,
           turnPassed: stranded ? 'stranded-dice' : null,
-          aiThought: keepThought ? get().aiThought?.text ?? null : null,
+          // Always empty here: `takeOneMove` writes this move's own explanation onto this snapshot
+          // once the move is on the board. Copying the live thought would hand the PREVIOUS move's
+          // reasoning to a move the model said nothing about.
+          aiThought: null,
           description: formatted,
           lastMove: moveRecord,
+          at: Date.now(),
         }
 
         const nextTurnNumber = next.turn !== player ? turnNumber + 1 : turnNumber
@@ -518,6 +578,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         turnPassed: null,
         aiThought: null,
         description: 'Passed turn',
+        at: Date.now(),
       }
 
       set({
@@ -673,69 +734,37 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       set({ isPaused: paused })
     },
 
-    undo: () => {
-      const { currentStepIndex, stepHistory } = get()
-      if (currentStepIndex <= 0) {
-        return
+    rewindMovesFrom: (turnNumber) => {
+      const { stepHistory, recordedRolls } = get()
+      const rollIndex = findRollStep(stepHistory, turnNumber)
+
+      if (get().isAiThinking || rollIndex === -1) {
+        return false
       }
-      cancelAi()
-      const targetIndex = currentStepIndex - 1
-      const snap = stepHistory[targetIndex]
-      set({
-        board: snap.board,
-        lastRoll: snap.lastRoll,
-        turnPassed: snap.turnPassed,
-        aiThought: snap.aiThought
-          ? { seat: snap.player, text: snap.aiThought, phase: 'final' }
-          : null,
-        selectedFrom: null,
-        turnNumber: snap.turnNumber,
-        currentStepIndex: targetIndex,
-        isPaused: true,
-      })
+
+      // A playable roll restores the position with the same dice in hand. A roll that passed
+      // automatically has no "after the roll" position to stand on, so it goes back to before the
+      // roll: the recorded dice are kept, so the replay rolls (and passes) exactly the same.
+      const rolled = stepHistory[rollIndex]
+      const keep = rolled.turnPassed === 'unplayable-roll' ? rollIndex : rollIndex + 1
+
+      restore(stepHistory.slice(0, keep), turnNumber, recordedRolls)
+      logger.debug('rewound moves, dice kept', { turnNumber })
+      return true
     },
 
-    redo: () => {
-      const { currentStepIndex, stepHistory } = get()
-      if (currentStepIndex >= stepHistory.length - 1) {
-        return
-      }
-      cancelAi()
-      const targetIndex = currentStepIndex + 1
-      const snap = stepHistory[targetIndex]
-      set({
-        board: snap.board,
-        lastRoll: snap.lastRoll,
-        turnPassed: snap.turnPassed,
-        aiThought: snap.aiThought
-          ? { seat: snap.player, text: snap.aiThought, phase: 'final' }
-          : null,
-        selectedFrom: null,
-        turnNumber: snap.turnNumber,
-        currentStepIndex: targetIndex,
-        isPaused: true,
-      })
-    },
+    rewindRollsFrom: (turnNumber) => {
+      const { stepHistory, recordedRolls } = get()
+      const rollIndex = findRollStep(stepHistory, turnNumber)
 
-    jumpToStep: (targetIndex: number) => {
-      const { stepHistory, currentStepIndex } = get()
-      if (targetIndex < 0 || targetIndex >= stepHistory.length || targetIndex === currentStepIndex) {
-        return
+      if (get().isAiThinking || rollIndex === -1) {
+        return false
       }
-      cancelAi()
-      const snap = stepHistory[targetIndex]
-      set({
-        board: snap.board,
-        lastRoll: snap.lastRoll,
-        turnPassed: snap.turnPassed,
-        aiThought: snap.aiThought
-          ? { seat: snap.player, text: snap.aiThought, phase: 'final' }
-          : null,
-        selectedFrom: null,
-        turnNumber: snap.turnNumber,
-        currentStepIndex: targetIndex,
-        isPaused: true,
-      })
+
+      // Forgetting the rolls of this turn and later is what makes the next roll random again.
+      restore(stepHistory.slice(0, rollIndex), turnNumber, recordedRolls.slice(0, turnNumber - 1))
+      logger.debug('rewound moves and dice', { turnNumber })
+      return true
     },
   }
 })

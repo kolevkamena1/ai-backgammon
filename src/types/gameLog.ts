@@ -18,9 +18,21 @@ export interface GameSnapshot {
   diceRemaining: DieFace[]
   selectedFrom: MoveSource | null
   turnPassed: TurnPassReason | null
+  /**
+   * The engine's explanation for THIS step's move only. Never inherited from an earlier step, so a
+   * move the model said nothing about shows nothing instead of the previous move's reasoning.
+   */
   aiThought: string | null
   description: string
   lastMove?: MoveRecord
+  /** Wall-clock time (epoch ms) the step happened; feeds the log's time column. */
+  at: number
+}
+
+/** One played move inside a turn, together with the reasoning the engine gave for it. */
+export interface LoggedMove extends MoveRecord {
+  stepIndex: number
+  reasoning: string | null
 }
 
 export interface TurnLogEntry {
@@ -29,8 +41,19 @@ export interface TurnLogEntry {
   actorKind: 'human' | 'ai'
   actorName: string
   roll: DiceRoll | null
-  moves: MoveRecord[]
+  /** Every move of the turn in order; a doubles roll can hold four, each with its own reasoning. */
+  moves: LoggedMove[]
   passedReason: TurnPassReason | null
-  aiThought: string | null
+  /** When the dice were rolled (epoch ms). */
+  rolledAt: number
+  /** Milliseconds between the game start and the roll; null when the start step is missing. */
+  elapsedMs: number | null
   stepIndices: number[]
+}
+
+/** A turn whose dice are already known (kept by a rewind) but which has not been replayed yet. */
+export interface PendingTurn {
+  turnNumber: number
+  player: PlayerColor
+  roll: DiceRoll
 }
