@@ -86,13 +86,10 @@ describe('Doubling Cube stake raising mechanism', () => {
     expect(state.cube.owner).toBe('centered')
     expect(state.cube.proposedBy).toBeNull()
 
-    // Propose double for light
+    // Propose double for light against AI dark: AI dark evaluates and accepts immediately
     const proposed = useGameStore.getState().proposeDouble('light')
     expect(proposed).toBe(true)
-    expect(useGameStore.getState().cube.proposedBy).toBe('light')
 
-    // Accept double (Take)
-    useGameStore.getState().respondToDouble('dark', true)
     const afterAccept = useGameStore.getState()
     expect(afterAccept.cube.value).toBe(2)
     expect(afterAccept.cube.owner).toBe('dark') // Responder owns cube now
@@ -104,10 +101,15 @@ describe('Doubling Cube stake raising mechanism', () => {
 
   it('awards current stake points when double is declined (Drop/Resign)', () => {
     useGameStore.getState().startNewGame(MATCH_CONFIG, PERSONAL_AI)
-    useGameStore.getState().proposeDouble('light')
 
-    // Decline double (Drop)
-    useGameStore.getState().respondToDouble('dark', false)
+    // Set dark to decline by setting severe deficit
+    const board = useGameStore.getState().board!
+    board.bar.dark = 3
+    board.off.light = 8
+    useGameStore.setState({ board })
+
+    // Propose double for light: AI dark sees deficit and resigns
+    useGameStore.getState().proposeDouble('light')
 
     const state = useGameStore.getState()
     expect(state.board?.phase).toBe('finished')
@@ -124,8 +126,11 @@ describe('Doubling Cube stake raising mechanism', () => {
     useGameStore.getState().startNewGame(shortMatch, PERSONAL_AI)
 
     // Game 1: double to 2, dark declines -> Light wins 1 pt
+    const b1 = useGameStore.getState().board!
+    b1.bar.dark = 3
+    b1.off.light = 8
+    useGameStore.setState({ board: b1 })
     useGameStore.getState().proposeDouble('light')
-    useGameStore.getState().respondToDouble('dark', false)
     expect(useGameStore.getState().match?.light).toBe(1)
 
     // Start game 2 in set
@@ -135,7 +140,6 @@ describe('Doubling Cube stake raising mechanism', () => {
 
     // Game 2: double to 2, dark accepts (stake 2), then light bears off all checkers -> 2 pts won
     useGameStore.getState().proposeDouble('light')
-    useGameStore.getState().respondToDouble('dark', true)
     expect(useGameStore.getState().cube.value).toBe(2)
 
     // Simulating light win

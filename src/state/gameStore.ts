@@ -484,6 +484,15 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         },
       })
       logger.info('double proposed', { proposer, currentCube: cube.value })
+
+      // If the respondent is an AI seat, evaluate and respond immediately!
+      const responder: PlayerColor = proposer === 'light' ? 'dark' : 'light'
+      const respondentSeat = get().seatPlan?.[responder]
+      if (respondentSeat && respondentSeat.kind === 'ai') {
+        const acceptDecision = evaluateAiAcceptDouble(board, responder)
+        get().respondToDouble(responder, acceptDecision.accept)
+      }
+
       return true
     },
 
