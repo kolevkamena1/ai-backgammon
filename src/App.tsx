@@ -3,6 +3,7 @@ import Board from '@/components/Board'
 import GameControls from '@/components/GameControls'
 import GameLog from '@/components/GameLog'
 import GameSetupModal from '@/components/GameSetupModal'
+import MatchScoreboard from '@/components/MatchScoreboard'
 import MenuBar from '@/components/MenuBar'
 import SettingsModal from '@/components/SettingsModal'
 import SplitPane from '@/components/SplitPane'
@@ -103,21 +104,28 @@ const App = () => {
           maxSplitPercent={85}
           className="h-full w-full"
           left={
-            <div className="flex h-full w-full items-center justify-center">
-              <Board
-                board={game.board ?? undefined}
-                turn={game.board?.turn ?? null}
-                legalTargets={game.legalTargets}
-                selectableSources={game.selectableSources}
-                selectedFrom={game.selectedFrom}
-                onSelectPoint={game.handlePointClick}
-                onDragStartSource={game.handlePointDragStart}
-                onDropTarget={game.handlePointDrop}
-                design={boardDesign}
-                cube={game.cube}
-                canDouble={game.canDouble}
-                onDouble={() => game.proposeDouble(game.board!.turn)}
-              />
+            <div className="flex h-full w-full flex-col items-center justify-center p-2 sm:p-3 overflow-hidden gap-2">
+              {game.match && game.match.targetPoints > 1 && (
+                <div className="shrink-0 w-full flex justify-center">
+                  <MatchScoreboard match={game.match} seatPlan={game.seatPlan} />
+                </div>
+              )}
+              <div className="flex flex-1 min-h-0 w-full items-center justify-center">
+                <Board
+                  board={game.board ?? undefined}
+                  turn={game.board?.turn ?? null}
+                  legalTargets={game.legalTargets}
+                  selectableSources={game.selectableSources}
+                  selectedFrom={game.selectedFrom}
+                  onSelectPoint={game.handlePointClick}
+                  onDragStartSource={game.handlePointDragStart}
+                  onDropTarget={game.handlePointDrop}
+                  design={boardDesign}
+                  cube={game.cube}
+                  canDouble={game.canDouble}
+                  onDouble={() => game.proposeDouble(game.board!.turn)}
+                />
+              </div>
             </div>
           }
           right={

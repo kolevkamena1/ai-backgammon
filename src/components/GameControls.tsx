@@ -110,27 +110,6 @@ const GameControls = () => {
         <span className={SUBTLE}>· {seatSummary(currentSeat)}</span>
       </div>
 
-      {/* Match Set Scoreboard */}
-      {game.match && game.match.targetPoints > 1 && (
-        <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-xs">
-          <div className="flex items-center gap-3">
-            <span className="font-semibold text-slate-300">
-              Match Set (Race to {game.match.targetPoints} pts)
-            </span>
-            {game.match.isCrawfordGame && (
-              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300 border border-amber-500/30">
-                Crawford Game
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-3 font-mono font-bold">
-            <span className="text-amber-100">White: {game.match.light}</span>
-            <span className="text-slate-500">·</span>
-            <span className="text-sky-300">Black: {game.match.dark}</span>
-          </div>
-        </div>
-      )}
-
       {/* Pending Double Offer Banner */}
       {game.isPendingDoubleOffer && (
         <div
