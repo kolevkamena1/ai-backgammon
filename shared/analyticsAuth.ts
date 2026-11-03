@@ -47,9 +47,28 @@ export function cleanTeamDomain(domain: string): string {
   return domain.replace(/^https?:\/\//, '').replace(/\/+$/, '').trim()
 }
 
+/**
+ * Machine-readable failure. A caller that needs to *react* to one outcome — the stats route refetches
+ * the key set on `unknown_kid` — must not have to string-match a message written for a human to read,
+ * because those messages are free to change wording at any time. `reason` stays the detailed,
+ * operator-facing text; `code` is the stable contract.
+ */
+export type VerifyFailureCode =
+  | 'missing_jwt_header'
+  | 'malformed_jwt_token'
+  | 'malformed_jwt_payload'
+  | 'unsupported_algorithm'
+  | 'audience_mismatch'
+  | 'issuer_mismatch'
+  | 'jwt_expired'
+  | 'jwt_not_yet_valid'
+  | 'unknown_kid'
+  | 'invalid_signature'
+  | 'verification_exception'
+
 export type VerifyResult =
   | { ok: true; identity: AccessIdentity }
-  | { ok: false; reason: string }
+  | { ok: false; code: VerifyFailureCode; reason: string }
 
 export async function verifyAccessJwtDetail(
   token: string | null,
@@ -60,16 +79,19 @@ export async function verifyAccessJwtDetail(
   if (token === null || token === '') {
     return {
       ok: false,
+      code: 'missing_jwt_header',
       reason: 'missing_jwt_header (Request has no Cf-Access-Jwt-Assertion. Ensure your Cloudflare Access application path includes both /stats* and /api/stats*)',
     }
   }
   const parts = token.split('.')
-  if (parts.length !== 3) return { ok: false, reason: 'malformed_jwt_token' }
+  if (parts.length !== 3) return { ok: false, code: 'malformed_jwt_token', reason: 'malformed_jwt_token' }
 
   const header = decodeJson(parts[0])
   const payload = decodeJson(parts[1])
-  if (header === null || payload === null) return { ok: false, reason: 'malformed_jwt_payload' }
-  if (header.alg !== 'RS256' || typeof header.kid !== 'string') return { ok: false, reason: `unsupported_algorithm_${String(header.alg)}` }
+  if (header === null || payload === null) return { ok: false, code: 'malformed_jwt_payload', reason: 'malformed_jwt_payload' }
+  if (header.alg !== 'RS256' || typeof header.kid !== 'string') {
+    return { ok: false, code: 'unsupported_algorithm', reason: `unsupported_algorithm_${String(header.alg)}` }
+  }
 
   const team = cleanTeamDomain(config.teamDomain)
   const aud = config.audience.trim()
@@ -79,25 +101,29 @@ export async function verifyAccessJwtDetail(
   if (!audiences.includes(aud)) {
     return {
       ok: false,
+      code: 'audience_mismatch',
       reason: `audience_mismatch (Expected ${aud.slice(0, 10)}..., but token has ${audiences.map((a) => typeof a === 'string' ? a.slice(0, 10) + '...' : String(a)).join(', ')}. Check ACCESS_AUD variable.)`,
     }
   }
   if (payload.iss !== `https://${team}`) {
     return {
       ok: false,
+      code: 'issuer_mismatch',
       reason: `issuer_mismatch (Expected https://${team}, but token issuer is ${String(payload.iss)}. Check ACCESS_TEAM_DOMAIN variable.)`,
     }
   }
   if (typeof payload.exp !== 'number' || payload.exp <= nowSeconds) {
-    return { ok: false, reason: 'jwt_expired' }
+    return { ok: false, code: 'jwt_expired', reason: 'jwt_expired' }
   }
   if (typeof payload.nbf === 'number' && payload.nbf > nowSeconds + 60) {
-    return { ok: false, reason: 'jwt_not_yet_valid' }
+    return { ok: false, code: 'jwt_not_yet_valid', reason: 'jwt_not_yet_valid' }
   }
 
+  // Deliberately outside the try below: whether this rejects is the caller's problem to answer with a
+  // 503, not a token failure to answer with a 403.
   const keys = await getKeys()
   const jwk = keys.find((key) => key.kid === header.kid && key.kty === 'RSA')
-  if (jwk === undefined) return { ok: false, reason: `unknown_kid_${header.kid}` }
+  if (jwk === undefined) return { ok: false, code: 'unknown_kid', reason: `unknown_kid_${header.kid}` }
 
   try {
     const key = await crypto.subtle.importKey(
@@ -113,10 +139,14 @@ export async function verifyAccessJwtDetail(
       base64UrlToBytes(parts[2]),
       new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
     )
-    if (!valid) return { ok: false, reason: 'invalid_signature' }
+    if (!valid) return { ok: false, code: 'invalid_signature', reason: 'invalid_signature' }
     return { ok: true, identity: { email: typeof payload.email === 'string' ? payload.email : null } }
   } catch (err) {
-    return { ok: false, reason: `verification_exception: ${err instanceof Error ? err.message : 'unknown'}` }
+    return {
+      ok: false,
+      code: 'verification_exception',
+      reason: `verification_exception: ${err instanceof Error ? err.message : 'unknown'}`,
+    }
   }
 }
 

@@ -36,6 +36,21 @@ export interface ProxyPolicy {
   readonly allowedHosts: readonly string[]
   /** Dev only: permits loopback/private hosts and plain http. A browser could reach those itself. */
   readonly allowPrivateTargets: boolean
+  /**
+   * Refuse a browser request that did not come from this site's own origin.
+   *
+   * Lives on the policy rather than in one mount because both mounts are the same relay answering
+   * the same public path: when the guard sat only in the Pages Function, `npm run dev` had no
+   * equivalent at all, and a hostile page a developer visited could POST to `http://localhost:5173`
+   * and drive a policy that deliberately allows private and plain-`http` targets. Two mount points
+   * for one core is exactly where a hand-copied security check drifts.
+   *
+   * The check is browser-shaped and therefore incomplete by construction: `Origin` and
+   * `Sec-Fetch-Site` are forbidden request headers, so no script on another page can omit them, but
+   * a non-browser client simply does not send them and is let through to the target allowlist. That
+   * residual is request *volume* and *who*, not *where* — see `WAF_RATE_LIMITS.md`.
+   */
+  readonly rejectCrossOrigin: boolean
   readonly timeoutMs: number
   /**
    * Wall-clock ceiling for a streamed exchange, which has to outlast `timeoutMs`: one abort signal
@@ -89,6 +104,13 @@ export interface ProxyOutcome {
 export interface ProxyIncomingRequest {
   readonly method: string
   readonly headers: { get(name: string): string | null }
+  /**
+   * The URL this relay endpoint itself was addressed at, needed only to compare an `Origin` header
+   * against it when `policy.rejectCrossOrigin` is set. Optional because it is the one field the core
+   * does not need for its main job — a mount that cannot supply it still relays correctly, but the
+   * guard then refuses any request carrying an Origin rather than guessing.
+   */
+  readonly url?: string
   text(): Promise<string>
 }
 
@@ -165,6 +187,7 @@ const MAX_STREAM_BYTES = 4 * KB * KB
 export const PRODUCTION_POLICY: ProxyPolicy = {
   allowedHosts: DEFAULT_ALLOWED_HOSTS,
   allowPrivateTargets: false,
+  rejectCrossOrigin: true,
   timeoutMs: RELAY_TIMEOUT_MS,
   streamTimeoutMs: RELAY_STREAM_TIMEOUT_MS,
   maxStreamBytes: MAX_STREAM_BYTES,
@@ -176,10 +199,17 @@ export const PRODUCTION_POLICY: ProxyPolicy = {
  * Dev is the user's own machine, already reachable from their browser, so the host list is not a
  * security boundary here. The same generous ceiling also means a local model that needs 40 s to load
  * a model into memory never turns into a proxy failure stacked on top of a client failure.
+ *
+ * `rejectCrossOrigin` is nevertheless **on**, and it is the one guard that must not follow the host
+ * list's logic: this policy deliberately reaches private and plain-`http` targets, and Vite binds to
+ * a port any page in the developer's own browser can address. Without the guard, a hostile site the
+ * developer visited could blind-POST through the local relay into the LAN. The generous limits are
+ * about latency; the origin rule is about who may knock at all.
  */
 export const DEV_POLICY: ProxyPolicy = {
   allowedHosts: DEFAULT_ALLOWED_HOSTS,
   allowPrivateTargets: true,
+  rejectCrossOrigin: true,
   timeoutMs: RELAY_TIMEOUT_MS,
   streamTimeoutMs: RELAY_STREAM_TIMEOUT_MS,
   maxStreamBytes: MAX_STREAM_BYTES,
@@ -235,7 +265,12 @@ function utf8Bytes(text: string): number {
   return utf8Encoder.encode(text).byteLength
 }
 
-function jsonRejection(status: number, code: ProxyRejectCode, message: string): ProxyOutcome {
+/**
+ * The core's refusal shape, exported because a mount can hit a refusal of its own before the core is
+ * ever reached — the Vite middleware has to stop buffering an oversized body mid-upload, and the only
+ * way dev and production keep answering identically is for that answer to come from here too.
+ */
+export function jsonRejection(status: number, code: ProxyRejectCode, message: string): ProxyOutcome {
   return {
     status,
     headers: {
@@ -431,6 +466,61 @@ function readEnvelopeHeaders(headers: Record<string, unknown>): Record<string, s
 }
 
 /**
+ * The cross-origin guard, as a refusal or `null` for "let it through".
+ *
+ * It reads the two headers itself rather than accepting them as arguments, because the request object
+ * a mount hands in is the only trustworthy copy of them: a separate `{ origin, secFetchSite }`
+ * parameter would be a second source of truth that a mount could populate differently from its own
+ * headers, which is the same drift that put this guard in one mount and not the other.
+ *
+ * The order is deliberate. `Sec-Fetch-Site` first, because it is the one value a browser running an
+ * attacker's page cannot be made to send for a cross-site request. Then the opaque `"null"` origin,
+ * which a sandboxed document produces — the relay has no legitimate use for it, unlike the telemetry
+ * sink where a `sendBeacon` can arrive that way. Only then the host comparison, and with `.host`
+ * rather than `.hostname`, so `localhost:5173` and `localhost:4173` are different origins and cannot
+ * impersonate each other across the dev/preview split.
+ */
+export function crossOriginRejection(
+  request: ProxyIncomingRequest,
+  policy: ProxyPolicy,
+): ProxyOutcome | null {
+  if (!policy.rejectCrossOrigin) {
+    return null
+  }
+
+  if (request.headers.get('sec-fetch-site') === 'cross-site') {
+    return jsonRejection(403, 'target-not-allowed', 'Cross-origin requests are not permitted.')
+  }
+
+  const origin = request.headers.get('origin')
+  if (origin === null || origin === '') {
+    // A non-browser client, which sends neither header. Refusing here would break the documented
+    // `curl` probe and achieve nothing: the target allowlist is what constrains where it may go.
+    return null
+  }
+
+  if (origin === 'null') {
+    return jsonRejection(403, 'target-not-allowed', 'An opaque origin is not permitted.')
+  }
+
+  const selfUrl = request.url
+  if (selfUrl === undefined || selfUrl === '') {
+    // Fail closed rather than guess: an Origin that cannot be compared is an Origin not accepted.
+    return jsonRejection(400, 'bad-request', 'The relay cannot verify an Origin without its own request URL.')
+  }
+
+  try {
+    if (new URL(origin).host !== new URL(selfUrl).host) {
+      return jsonRejection(403, 'target-not-allowed', 'Cross-origin requests are not permitted.')
+    }
+  } catch {
+    return jsonRejection(400, 'bad-request', 'The Origin header is not a valid URL.')
+  }
+
+  return null
+}
+
+/**
  * One proxied request. Never throws: every failure becomes a `ProxyOutcome` carrying
  * `x-ai-proxy-error` so the client can tell a relay refusal apart from a provider response.
  */
@@ -439,6 +529,14 @@ export async function handleProxyRequest(
   policy: ProxyPolicy,
   fetchImpl: ProxyFetch = defaultFetch,
 ): Promise<ProxyOutcome> {
+  // Before anything else, including the verb check: this is the guard that keeps a third-party page
+  // from driving the relay at all, and it answered ahead of the method check while it lived in the
+  // Pages Function, so it still does.
+  const refused = crossOriginRejection(request, policy)
+  if (refused !== null) {
+    return refused
+  }
+
   if (request.method !== 'POST') {
     return jsonRejection(405, 'method-not-allowed', 'The AI proxy only accepts POST requests.')
   }

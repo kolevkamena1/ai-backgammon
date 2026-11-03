@@ -69,7 +69,16 @@ async function fetchJson<T>(path: string): Promise<T> {
     const details = data?.reason ? ` [${data.reason}]` : ''
     throw new Error(`Forbidden${details} — check Cloudflare Access configuration.`)
   }
-  if (response.status === 503) throw new Error('The D1 database is not bound yet (see README → Admin stats).')
+  if (response.status === 503) {
+    // The API answers 503 for two unrelated outages and the advice is opposite: an unbound D1 needs
+    // the operator to attach a binding, while a failed Access certificate lookup clears by itself.
+    const data = (await response.json().catch(() => null)) as { error?: string } | null
+    throw new Error(
+      data?.error === 'jwks_unavailable'
+        ? 'Cloudflare Access certificate lookup failed, so the dashboard could not confirm your session. Try again in a minute.'
+        : 'The D1 database is not bound yet (see README → Admin stats).',
+    )
+  }
   if (!response.ok) throw new Error(`Request failed (${response.status})`)
   return (await response.json()) as T
 }

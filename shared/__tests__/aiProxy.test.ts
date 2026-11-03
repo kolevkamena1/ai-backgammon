@@ -19,12 +19,31 @@ import { describe, expect, it } from 'vitest'
 
 const SECRET = 'sk-secret-should-never-leak'
 
-function request(input: { method?: string; contentType?: string | null; body: string }): ProxyIncomingRequest {
+/** The URL a mount is addressed at, which is what the cross-origin guard compares an Origin against. */
+const SELF_URL = 'http://localhost:5173/api/ai-proxy'
+
+function request(input: {
+  method?: string
+  contentType?: string | null
+  body: string
+  origin?: string | null
+  secFetchSite?: string | null
+  /** `null` omits the field entirely, which is how the fail-closed path is reached. */
+  url?: string | null
+}): ProxyIncomingRequest {
+  const selfUrl = input.url === null ? undefined : (input.url ?? SELF_URL)
+
   return {
     method: input.method ?? 'POST',
+    ...(selfUrl === undefined ? {} : { url: selfUrl }),
     headers: {
-      get: (name: string) =>
-        name.toLowerCase() === 'content-type' ? (input.contentType ?? 'application/json') : null,
+      get: (name: string) => {
+        const key = name.toLowerCase()
+        if (key === 'content-type') return input.contentType ?? 'application/json'
+        if (key === 'origin') return input.origin ?? null
+        if (key === 'sec-fetch-site') return input.secFetchSite ?? null
+        return null
+      },
     },
     text: async () => input.body,
   }
@@ -622,3 +641,134 @@ describe('streamed relay', () => {
     expect(spy.calls[0].init.body).toBeUndefined()
   })
 })
+
+describe('cross-origin guard (shared core, both mounts)', () => {
+  type Probe = {
+    origin?: string | null
+    secFetchSite?: string | null
+    url?: string | null
+    method?: string
+    body?: string
+    policy?: ProxyPolicy
+  }
+
+  /** One request through the relay, plus how many upstream calls it took - zero when refused. */
+  const ask = async (probe: Probe) => {
+    const spy = upstream(() => reply({ text: '{"ok":true}' }))
+    const outcome = await handleProxyRequest(
+      request({
+        method: probe.method,
+        origin: probe.origin,
+        secFetchSite: probe.secFetchSite,
+        url: probe.url,
+        body: probe.body ?? envelope(),
+      }),
+      probe.policy ?? PRODUCTION_POLICY,
+      spy.fetchImpl,
+    )
+
+    return { outcome, calls: spy.calls }
+  }
+
+  it('is enabled on both shipped policies, because dev was the mount that lacked it', () => {
+    // The regression this whole block exists for: the guard lived in the Pages Function only, so the
+    // one policy that deliberately reaches private hosts was the one with nothing checking origin.
+    expect(PRODUCTION_POLICY.rejectCrossOrigin).toBe(true)
+    expect(DEV_POLICY.rejectCrossOrigin).toBe(true)
+  })
+
+  it('refuses a cross-site browser request without touching the upstream', async () => {
+    const { outcome, calls } = await ask({ secFetchSite: 'cross-site' })
+
+    expect(outcome.status).toBe(403)
+    expect(outcome.headers['x-ai-proxy-error']).toBe('target-not-allowed')
+    expect(calls).toHaveLength(0)
+  })
+
+  it('refuses the opaque null origin a sandboxed document sends', async () => {
+    const { outcome, calls } = await ask({ origin: 'null' })
+    const body = JSON.parse(outcome.body) as { error: { code: string; message: string } }
+
+    expect(outcome.status).toBe(403)
+    expect(body.error.code).toBe('target-not-allowed')
+    expect(body.error.message).toBe('An opaque origin is not permitted.')
+    expect(calls).toHaveLength(0)
+  })
+
+  it('refuses a foreign origin even when the target is on the allowlist', async () => {
+    // The two guards are independent and the origin one runs first: guessing an allowlisted host buys
+    // an attacker nothing, because the request never reaches `classifyTarget`.
+    const { outcome, calls } = await ask({ origin: 'https://evil.example' })
+
+    expect(outcome.status).toBe(403)
+    expect(outcome.headers['x-ai-proxy-error']).toBe('target-not-allowed')
+    expect(calls).toHaveLength(0)
+  })
+
+  it('refuses a foreign origin under DEV_POLICY too', async () => {
+    const { outcome, calls } = await ask({ origin: 'https://evil.test', policy: DEV_POLICY })
+
+    expect(outcome.status).toBe(403)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('compares host including the port, so a preview build cannot impersonate the dev server', async () => {
+    const { outcome, calls } = await ask({ origin: 'http://localhost:4173' })
+
+    expect(outcome.status).toBe(403)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('accepts the origin the relay is itself served from and relays normally', async () => {
+    const { outcome, calls } = await ask({ origin: 'http://localhost:5173' })
+
+    expect(outcome.status).toBe(200)
+    expect(outcome.headers['x-ai-proxy-error']).toBeUndefined()
+    expect(calls).toHaveLength(1)
+  })
+
+  it('lets a non-browser client through to the target allowlist', async () => {
+    // Origin and Sec-Fetch-Site are forbidden header names in a browser, so a page cannot omit them,
+    // but curl simply does not send them. The guard cannot be what stops a script; the allowlist is,
+    // and this pins where each one's responsibility ends.
+    const { outcome, calls } = await ask({ body: envelope({ targetUrl: 'https://evil.example/v1' }) })
+
+    expect(outcome.status).toBe(403)
+    expect(outcome.headers['x-ai-proxy-error']).toBe('target-not-allowed')
+    expect(calls).toHaveLength(0)
+  })
+
+  it('answers 400 when the origin is not a URL at all', async () => {
+    const { outcome } = await ask({ origin: 'not a url' })
+
+    expect(outcome.status).toBe(400)
+    expect(outcome.headers['x-ai-proxy-error']).toBe('bad-request')
+  })
+
+  it('fails closed when a mount supplies no URL to compare against', async () => {
+    const { outcome, calls } = await ask({ origin: 'http://localhost:5173', url: null })
+
+    expect(outcome.status).toBe(400)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('runs ahead of the method and content-type checks, as it did in the Pages Function', async () => {
+    // A cross-site GET must answer 403 target-not-allowed, not 405 method-not-allowed: refusing to
+    // reveal anything to a third-party page before it has even been identified is the point.
+    const { outcome } = await ask({ method: 'GET', secFetchSite: 'cross-site' })
+
+    expect(outcome.status).toBe(403)
+    expect(outcome.headers['x-ai-proxy-error']).toBe('target-not-allowed')
+  })
+
+  it('is skipped only by a policy that explicitly says so', async () => {
+    const { outcome, calls } = await ask({
+      origin: 'https://evil.example',
+      policy: { ...PRODUCTION_POLICY, rejectCrossOrigin: false },
+    })
+
+    expect(outcome.status).toBe(200)
+    expect(calls).toHaveLength(1)
+  })
+})
+

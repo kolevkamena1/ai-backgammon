@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { generateKeyPairSync, createSign } from 'node:crypto'
-import { hashIp, isSameOrigin, parseEvent, parseFilters, parseUserAgent, toCsv } from '../analytics.ts'
-import { verifyAccessJwt, type Jwk } from '../analyticsAuth.ts'
+import { hashIp, isSameOrigin, parseEvent, parseFilters, parseUserAgent, sanitizeLog, toCsv } from '../analytics.ts'
+import { verifyAccessJwt, verifyAccessJwtDetail, type Jwk } from '../analyticsAuth.ts'
 
 const SID = 'abcdef12-3456-7890-abcd-ef1234567890'
 
@@ -75,7 +75,7 @@ describe('misc helpers', () => {
   })
 })
 
-describe('verifyAccessJwt', () => {
+describe('Access JWT verification', () => {
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
   const jwk = { ...(publicKey.export({ format: 'jwk' }) as { kty: string; n: string; e: string }), kid: 'k1' } satisfies Jwk
   const config = { teamDomain: 'team.cloudflareaccess.com', audience: 'aud123' }
@@ -108,6 +108,54 @@ describe('verifyAccessJwt', () => {
 
   it('rejects a token whose key id is unknown', async () => {
     expect(await verifyAccessJwt(sign(good, { alg: 'RS256', kid: 'zzz' }), config, keys, now)).toBeNull()
+  })
+
+  // The stats route reacts to `unknown_kid` by refetching the cert set, because a rotated key would
+  // otherwise lock every admin out until the cache expired. That makes the structured `code` a
+  // contract, not a debug string - it has to survive any rewording of the human-readable `reason`.
+  it('reports a structured code for a key id the cached set does not know', async () => {
+    const result = await verifyAccessJwtDetail(sign(good, { alg: 'RS256', kid: 'zzz' }), config, keys, now)
+
+    expect(result.ok).toBe(false)
+    if (result.ok === false) {
+      expect(result.code).toBe('unknown_kid')
+      expect(result.reason).toContain('unknown_kid_zzz')
+    }
+  })
+
+  it('reports missing_jwt_header, audience_mismatch and expiry as codes', async () => {
+    const none = await verifyAccessJwtDetail(null, config, keys, now)
+    expect(none.ok === false && none.code).toBe('missing_jwt_header')
+
+    const wrongAud = await verifyAccessJwtDetail(sign({ ...good, aud: ['other'] }), config, keys, now)
+    expect(wrongAud.ok === false && wrongAud.code).toBe('audience_mismatch')
+
+    const stale = await verifyAccessJwtDetail(sign({ ...good, exp: now - 1 }), config, keys, now)
+    expect(stale.ok === false && stale.code).toBe('jwt_expired')
+  })
+
+  it('hands back the identity when the token verifies', async () => {
+    expect(await verifyAccessJwtDetail(sign(good), config, keys, now)).toEqual({
+      ok: true,
+      identity: { email: 'me@example.com' },
+    })
+  })
+})
+
+describe('sanitizeLog', () => {
+  it('removes the control characters that would forge extra log lines', () => {
+    expect(sanitizeLog('https://a.test\r\nFORGED: injected entry\u0000')).toBe(
+      'https://a.testFORGED: injected entry',
+    )
+  })
+
+  it('bounds the length so one hostile header cannot bloat the log', () => {
+    expect(sanitizeLog('x'.repeat(500))).toHaveLength(100)
+    expect(sanitizeLog('y'.repeat(500), 20)).toHaveLength(20)
+  })
+
+  it('leaves an ordinary value untouched', () => {
+    expect(sanitizeLog('https://kamenonline.com/api/event')).toBe('https://kamenonline.com/api/event')
   })
 })
 

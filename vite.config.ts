@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 // defineConfig from vitest/config is Vite's, widened with the `test` block, so the alias below
 // stays the single source of truth for both the app and the test run.
 import { defineConfig, type Plugin } from 'vitest/config'
-import { DEV_POLICY, handleProxyRequest, type ProxyIncomingRequest } from './shared/aiProxy.ts'
+import { DEV_POLICY, handleProxyRequest, jsonRejection, type ProxyIncomingRequest, type ProxyOutcome } from './shared/aiProxy.ts'
 
 // Must match `functions/api/ai-proxy/[[path]].ts` and `AI_PROXY_PATH` in the AI client.
 const AI_PROXY_PATH = '/api/ai-proxy'
@@ -18,21 +18,70 @@ const AI_PROXY_PATH = '/api/ai-proxy'
  * `apply: 'serve'` restricts this to `npm run dev`: `npm run preview` serves the built bundle
  * without any proxy, so only a deployed Pages site (or `wrangler pages dev`) exercises the
  * production policy.
+ *
+ * "Answering identically" is load-bearing, not a nice-to-have. `DEV_POLICY` deliberately reaches
+ * private hosts and plain `http`, and this port is reachable from every page the developer has open,
+ * so the cross-origin guard and the envelope size cap are enforced by the shared core and inherited
+ * here — the middleware supplies `url` for the guard and refuses a body mid-upload rather than
+ * buffering one. A bug fixed only at the edge would otherwise never show up until a visitor hit it.
  */
 function aiProxyDevMiddleware(): Plugin {
   return {
     name: 'ai-proxy-dev',
     apply: 'serve',
     configureServer(server) {
+      // The core compares an `Origin` against the URL this relay was addressed at, and a connect
+      // middleware sees `req.url` with the mount path already stripped, so the dev origin is rebuilt
+      // from the Host header. `server.config.server.https` is the honest source of the scheme —
+      // `req.socket.encrypted` is not even declared on a plain `net.Socket`.
+      const scheme = server.config.server.https ? 'https' : 'http'
+
       server.middlewares.use(AI_PROXY_PATH, (req, res) => {
         const chunks: Buffer[] = []
+        let received = 0
+        let answered = false
 
-        req.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
-        req.on('error', () => res.end())
+        /**
+         * Refuse on behalf of the core, once. `res.writeHead` twice is a fatal
+         * `ERR_HTTP_HEADERS_SENT` inside Node and the process dies with it, which is why every answer
+         * on this socket goes through a flag rather than straight to `res`.
+         */
+        const rejectEarly = (outcome: ProxyOutcome): void => {
+          if (answered) {
+            return
+          }
+          answered = true
+          res.writeHead(outcome.status, outcome.headers)
+          res.end(outcome.body)
+        }
+
+        req.on('data', (chunk) => {
+          chunks.push(Buffer.from(chunk))
+          received += chunk.length
+          if (received > DEV_POLICY.maxRequestBytes) {
+            // Stop reading rather than buffer to the end. The core caps the envelope at 64 KB, but it
+            // can only measure a body it has already fully read, and an unbounded accumulation here is
+            // a memory DoS on the developer's own machine. `jsonRejection` is exported from the core so
+            // this refusal is byte-identical to the one the edge would produce.
+            rejectEarly(jsonRejection(413, 'request-too-large', 'The request envelope is too large.'))
+            req.destroy()
+          }
+        })
+        req.on('error', () => {
+          // Abandoned upload: ours after the cap above, or the client's. When it is ours, the refusal
+          // is already on its way and touching `res` again would be the fatal double-write.
+          if (!answered) {
+            res.end()
+          }
+        })
         req.on('end', () => {
+          if (answered) {
+            return
+          }
           const raw = Buffer.concat(chunks).toString('utf8')
           const request: ProxyIncomingRequest = {
             method: req.method ?? 'POST',
+            url: `${scheme}://${req.headers.host ?? 'localhost'}${req.url ?? ''}`,
             headers: {
               get: (name) => {
                 const value = req.headers[name.toLowerCase()]

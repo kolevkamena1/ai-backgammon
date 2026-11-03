@@ -65,64 +65,15 @@ function toBrandedStream(stream: ProxyStream): ReadableStream<Uint8Array> {
  * `Access-Control-Allow-Origin` is emitted anywhere. A wildcard would hand every website the
  * visitor opens a relay for that visitor's own keys.
  *
- * Defense-in-depth: cross-origin browser requests (Sec-Fetch-Site: cross-site or mismatched Origin)
- * are rejected to prevent third-party sites from using this endpoint as an open proxy relay.
+ * The cross-origin guard that used to live in this file now lives in `shared/aiProxy.ts` behind
+ * `policy.rejectCrossOrigin`, so both mounts answer identically and a third-party page cannot use the
+ * dev middleware as the mount with no guard. All this one has to contribute is `request.url`, which
+ * is what the guard compares an `Origin` against — and the only field of the incoming request the
+ * core cannot reconstruct for itself.
  */
 export const onRequest = async ({ request, env }: PagesContext): Promise<Response> => {
-  const origin = request.headers.get('origin')
-  const secFetchSite = request.headers.get('sec-fetch-site')
-
-  if (secFetchSite === 'cross-site') {
-    return new Response(
-      JSON.stringify({ error: { code: 'target-not-allowed', message: 'Cross-origin requests are not permitted.' } }),
-      {
-        status: 403,
-        headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-ai-proxy-error': 'target-not-allowed' },
-      },
-    )
-  }
-
-  // A sandboxed or opaque-origin document sends the literal string "null" here, and the relay must
-  // not serve it: every legitimate caller is an ordinary same-origin fetch made by this site's own
-  // document, which always sends a concrete Origin. The telemetry sink has to accept "null" because
-  // a sendBeacon can arrive that way; the relay has no such excuse, and an opaque origin is exactly
-  // the shape a hostile embedder would use to drive this endpoint on someone else's behalf.
-  if (origin === 'null') {
-    return new Response(
-      JSON.stringify({ error: { code: 'target-not-allowed', message: 'An opaque origin is not permitted.' } }),
-      {
-        status: 403,
-        headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-ai-proxy-error': 'target-not-allowed' },
-      },
-    )
-  }
-
-  // `origin === 'null'` never reaches here: it is refused above, so this comparison only has to
-  // catch a concrete origin belonging to somebody else.
-  if (origin !== null && origin !== '') {
-    try {
-      if (new URL(origin).host !== new URL(request.url).host) {
-        return new Response(
-          JSON.stringify({ error: { code: 'target-not-allowed', message: 'Cross-origin requests are not permitted.' } }),
-          {
-            status: 403,
-            headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-ai-proxy-error': 'target-not-allowed' },
-          },
-        )
-      }
-    } catch {
-      return new Response(
-        JSON.stringify({ error: { code: 'bad-request', message: 'The Origin header is not a valid URL.' } }),
-        {
-          status: 400,
-          headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-ai-proxy-error': 'bad-request' },
-        },
-      )
-    }
-  }
-
   const outcome = await handleProxyRequest(
-    { method: request.method, headers: request.headers, text: () => request.text() },
+    { method: request.method, url: request.url, headers: request.headers, text: () => request.text() },
     policy(env),
   )
 

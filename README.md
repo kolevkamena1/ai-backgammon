@@ -296,12 +296,13 @@ aiClient.postJson   --POST /api/ai-proxy-->  handleProxyRequest  --fetch-->  api
 | `onRequest` | `functions/api/ai-proxy/[[path]].ts` | `npm run pages:local` (8788) and any deployed Pages site |
 
 `shared/aiProxy.ts` knows nothing about either runtime: no `node:*` import, no Workers types, no
-SDKs. A caller hands in a structural `{ method, headers.get(), text() }` and adapts the returned
+SDKs. A caller hands in a structural `{ method, url, headers.get(), text() }` and adapts the returned
 `ProxyOutcome` to its own response type. That single decision is what lets one file serve both
 places, what lets `tsconfig.node.json` typecheck `shared/` and `functions/` with no Workers-specific
 config (`@cloudflare/workers-types` is deliberately not a dependency), and what makes the core
 unit-testable without a network: `handleProxyRequest` takes `fetch` as its third argument, so
-`shared/__tests__/aiProxy.test.ts` covers the policy, the relay paths and the streaming paths in 35 tests.
+`shared/__tests__/aiProxy.test.ts` covers the policy, the cross-origin guard, the relay paths and the
+streaming paths in 48 tests.
 
 The envelope is `{ targetUrl, headers, body, stream? }` (`ProxyEnvelope`) — **the credential travels
 inside this object**. The relay never reads the incoming request's own `Authorization` header, so a key
@@ -328,12 +329,22 @@ reading real provider answers.
 | Plain `http` targets | allowed | refused, https only |
 | Loopback / private targets | allowed | refused |
 | Host allowlist | not enforced | enforced, exact match |
+| Cross-origin browser request | refused | refused |
 | Upstream timeout | 65 s buffered, 90 s streamed | 65 s buffered, 90 s streamed (both above the client's 60 s) |
 | Envelope / response cap | 64 KB / 1 MB, 4 MB streamed | 64 KB / 1 MB, 4 MB streamed |
 
 Dev is your own machine, already reachable from your own browser, so the host list is not a security
 boundary there, and the generous timeout stops a slow local model load from turning into a proxy
 failure stacked on top of a client failure. The Pages Function always uses `PRODUCTION_POLICY`.
+
+The **cross-origin row is identical on purpose, and it is the exception to the paragraph above.** It
+lives in the shared core behind `policy.rejectCrossOrigin` — set on in both policies — because the host
+list being deliberately open in dev is exactly what makes the origin guard matter there: any page the
+developer has open can address `localhost:5173`, so without the guard a hostile site could blind-POST
+through a relay that reaches private space. A guard copied into one mount and not the other is how the
+two mounts stopped answering identically in the first place. The dev middleware also refuses an
+oversized body *mid-upload* rather than after buffering it, since a cap the process can only measure
+once the whole body is in memory is not a memory limit at all.
 
 Two consequences worth knowing: `npm run preview` **serves no relay at all** — the middleware is
 `apply: 'serve'`, so a previewed `dist/` has no `/api/ai-proxy` and every AI seat fails with
@@ -362,6 +373,12 @@ The endpoint is public. Without the rules below it would be an open SSRF relay t
 drive through this project's Cloudflare account, so `classifyTarget()` and `handleProxyRequest()`
 refuse:
 
+* a browser request from anywhere but this site: `Sec-Fetch-Site: cross-site`, the opaque
+  `Origin: null` a sandboxed document produces, or an `Origin` whose host — **port included**, so a
+  preview build on `:4173` cannot pose as the dev server on `:5173`. This is checked first, before the
+  verb and before the target is classified, and it lives in the core so both mounts inherit it. A
+  non-browser client sends neither header and is let through to the allowlist, which is what actually
+  constrains where a request may go;
 * a `targetUrl` that is not an absolute URL, has no host, or carries `user:password@` credentials;
 * plain `http` at the edge;
 * IP literals (`127.0.0.1`, `[::1]`, anything containing `:`) and every range `isPrivateHost()`
@@ -620,6 +637,15 @@ never sent. Browser Do Not Track settings are honoured and `npm run dev` sends n
 5. **Pin the app to the policy** — Pages variables: `ACCESS_TEAM_DOMAIN` (`yourteam.cloudflareaccess.com`)
    and `ACCESS_AUD`. The API verifies the Access JWT itself (signature, issuer, audience, expiry), so
    if the Access policy is ever deleted or mistyped the API **fails closed** (403) rather than leaking.
+   The 403 body says only `insufficient_permissions`: the detailed reason (which unset variable, which
+   AUD prefix) is a configuration oracle for whoever the policy was meant to keep out, so it goes to
+   the edge log instead. The fetched key set is cached for an hour, and a token naming a `kid` the
+   cache does not have — Access rotating its signing keys — triggers one forced refetch before the
+   request is refused, so a rotation cannot lock the admin out for an hour while the reason string
+   blames their token. If the cert endpoint itself is unreachable that is our outage and not a
+   permission problem, so the API answers `503 { error: 'jwks_unavailable' }` rather than throwing (an
+   uncaught rejection at the edge would surface as an opaque Pages 1101) and the dashboard says to
+   retry shortly instead of telling you to go attach a D1 binding.
 6. **Protect the preview URL too** — the `*.pages.dev` hostname serves the same functions; add the same
    Access application for it (or disable preview deployments' public access).
 

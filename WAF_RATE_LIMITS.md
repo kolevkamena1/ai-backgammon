@@ -136,7 +136,8 @@ delete its clause from both rules rather than leaving a stale path.
 
 Rate limits make abuse expensive; they do not make it impossible. A distributed source can still use the
 relay within each IP's allowance, and a non-browser client sends no `Origin` or `Sec-Fetch-Site` at all —
-which is why the Function-layer guards are browser-shaped (they stop a hostile page from driving the
+which is why the relay's origin guards — enforced in `shared/aiProxy.ts`, so both the edge Function and
+the dev middleware inherit them — are browser-shaped (they stop a hostile page from driving the
 endpoint on a visitor's behalf) and these edge rules are the volume control. The relay is unauthenticated
 by design: it forwards the caller's *own* key, so no visitor's credential can be read or reused through
 it. Making it require a session would be a different product, not a flag in this one.
