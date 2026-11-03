@@ -1,0 +1,77 @@
+# The three gates this project already runs by hand, enforced on every change to `main`.
+#
+# Two decisions here are about what happens when the code under test is *not* trusted, which is the
+# normal case for a pull request:
+#
+#   - `pull_request`, never `pull_request_target`. The former runs the contributor's code with no
+#     repository write token and no secrets; the latter runs it in the base branch's context with
+#     access to both, which turns any CI step that reads the checkout into an exfiltration path.
+#   - `permissions: contents: read`, so even the default token cannot push, and no job needs a secret
+#     to run these steps. If a future job does need one (a Pages deploy, say), it belongs in its own
+#     job gated on the `main` branch so a fork's PR never reaches it.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Supersede rather than queue. Without this, a force-push or a burst of edits to one branch piles up
+# runners on commits nobody is going to read.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: typecheck, lint, test, audit
+    runs-on: ubuntu-latest
+    # A hung worker would otherwise occupy a runner until the platform's own 6-hour limit. The suite
+    # finishes in well under a minute locally, so 15 is generous headroom, not a budget.
+    timeout-minutes: 15
+
+    steps:
+      # Actions are pinned to full commit SHAs rather than to moving version tags: whoever controls the
+      # action's repository cannot retarget a label this file trusts. Both SHAs were resolved from the
+      # tag through the GitHub ref API on 2026-11-03 (`v7.0.1` and `v7.1.0` are lightweight tags whose
+      # object type is `commit`), and `.github/dependabot.yml` refreshes them with the version comment.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # Read from `.nvmrc` so CI and the local runtime cannot drift into two different versions by
+          # each file naming one. `.nvmrc` is `22`, which satisfies `engines.node >=22.12.0`.
+          node-version-file: .nvmrc
+          cache: npm
+
+      # `npm ci`, not `npm install`: it refuses to run against a missing or out-of-sync lockfile and
+      # never rewrites it, so what gets checked is exactly the tree that is committed here. An
+      # `npm install` in CI would quietly tolerate a stale lockfile and hide that drift.
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      # `tsc -b` builds both referenced projects, and `tsconfig.node.json` includes
+      # `shared/**/*.ts` and `functions/**/*.ts` — so the relay and the stats route are typechecked
+      # here as well, not only the browser bundle.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      # The `test` script is already `vitest run`; plain `vitest` would watch forever and eat the
+      # timeout above.
+      - name: Test
+        run: npm run test
+
+      # Only high and critical advisories fail the build. Making CI red for a low-severity issue in a
+      # dev-only dependency trains people to merge through red, which costs more than the advisory.
+      # Dependabot still opens the PR for it; this gate just does not hold the branch for it.
+      - name: Audit dependencies
+        run: npm audit --audit-level=high

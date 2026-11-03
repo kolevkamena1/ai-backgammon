@@ -35,7 +35,7 @@ npm install          # install dependencies
 npm run dev          # dev server on http://localhost:5173
 npm run typecheck    # tsc -b (no emit) — 0 errors required
 npm run lint         # eslint .
-npm run test         # vitest run (233 passed + 6 skipped: rules, seats, click-to-move, AI client,
+npm run test         # vitest run (334 passed + 6 skipped: rules, seats, click-to-move, AI client,
                      # AI turn driver, proxy core, SSE stream parsing — the 6 skipped are the opt-in
                      # relay e2e suite, which runs live when its origins are set)
 npm run test:watch   # vitest in watch mode
@@ -46,6 +46,43 @@ npm run mock:provider# stand-in OpenAI-compatible provider on 127.0.0.1:4111 for
 npm run pages:local  # build + serve through wrangler pages dev (Cloudflare-like, mounts functions/)
 npm run pages:deploy # build + publish to Cloudflare Pages (needs `npx wrangler login`)
 ```
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request into it:
+`npm ci` → `npm run typecheck` → `npm run lint` → `npm run test` →
+`npm audit --audit-level=high`. The Node version is read from `.nvmrc` rather than repeated in the
+workflow, so CI and a local checkout cannot drift into two different runtimes. `tsc -b` covers
+`functions/**` and `shared/**` as well as `src/` (see `tsconfig.node.json`), so the relay and the
+stats route are typechecked here too, not only the browser bundle.
+
+Three of those choices are about untrusted code rather than convenience:
+
+- **`pull_request`, never `pull_request_target`, plus `permissions: contents: read`.** The workflow
+  executes the contributor's checkout with no write token and no secrets, so a compromised step has
+  nothing to exfiltrate and cannot push anything back.
+- **Actions are pinned to commit SHAs**, and `.github/dependabot.yml` includes a `github-actions`
+  ecosystem so those pins still move — a pin nobody updates just becomes the reason it gets removed.
+- **`npm ci`, not `npm install`.** It refuses a tree that does not match the committed
+  `package-lock.json` and never rewrites it, so a dependency that appeared since the commit cannot
+  slip into a green run.
+
+`audit` gates on high and critical only: turning CI red over a low-severity advisory in a dev-only
+dependency trains people to merge through red, which costs more than the advisory does.
+
+Dependabot checks npm and GitHub Actions weekly (Sunday 04:00 UTC), collapsing every patch and minor
+bump into one grouped PR per ecosystem and capping open PRs (5 for npm, 3 for actions) so the queue
+stays readable instead of being switched off.
+
+Deploying stays manual (`npm run pages:deploy`): a green run means the code was verified, not that
+anything was published.
+
+**One flaky test was fixed here, and its shape is worth knowing.**
+`src/state/__tests__/gameStore.replay.test.ts` derived its move from whatever `roll()` returned, and
+`roll()` used `Math.random()` — a first die of 5 points at position 19, which holds five dark checkers
+at the opening, so `makeMove` refused and the rewind assertions failed roughly one run in six. The
+config now pins `dice: { mode: 'seeded', seed: 42 }`, which opens [4, 3] and is deterministic; measured
+before the change, 6 of 24 runs failed, after it, 0 of 24.
 
 ## Game modes
 

@@ -10,9 +10,20 @@ const PERSONAL_AI: AiEngineConfig = {
   model: 'qwen2.5:7b',
 }
 
+/**
+ * Seeded on purpose. These tests derive their move from whatever the dice show (`to = 24 - die`), so
+ * an unseeded `roll()` put the outcome at the mercy of `Math.random`: a first die of 5 aims at point 19,
+ * which holds five dark checkers at the opening, and `makeMove` refused it — failing the rewind
+ * assertions about one run in six while looking like a bug in `rewindMovesFrom`.
+ *
+ * Seed 42 opens with the pair [4, 3], so the move is 24 -> 20 (empty) and the roll is not doubles, which
+ * keeps `board.dice` at two entries. 30 of the first 200 seeds roll a 5 first, so if this seed is ever
+ * changed, re-run the file before concluding the rewind logic broke.
+ */
 const HUMAN_VS_AI_CONFIG: GameConfigSnapshot = {
   mode: 'humanVsAi',
   aiMatchType: 'mirror',
+  dice: { mode: 'seeded', seed: 42 },
   opponent: PERSONAL_AI,
 }
 
@@ -39,6 +50,9 @@ describe('gameStore rewind (keep dice vs. discard dice) and pause', () => {
     // Roll dice for turn 1
     const dice = useGameStore.getState().roll()
     expect(dice).not.toBeNull()
+    // The fixture's promise, restated where it is relied on: seed 42 opens [4, 3]. If this ever fails,
+    // the dice have gone nondeterministic again — not the rewind.
+    expect(dice).toEqual([4, 3])
     const originalRoll = useGameStore.getState().lastRoll
     expect(originalRoll).not.toBeNull()
 
@@ -78,7 +92,11 @@ describe('gameStore rewind (keep dice vs. discard dice) and pause', () => {
     // Move a checker
     const board = useGameStore.getState().board!
     const die = board.dice[0]
-    useGameStore.getState().makeMove({ from: 24, to: 24 - die, die })
+    const moved = useGameStore.getState().makeMove({ from: 24, to: 24 - die, die })
+    // Asserted, because everything below only means something if there was a move to remove. Without it
+    // this test passed silently while the unseeded die made `makeMove` refuse, which is how the flake
+    // hid in the sibling test's failure output instead of its own.
+    expect(moved).toBe(true)
 
     // Option b: rewind rolls for turn 1
     const res = useGameStore.getState().rewindRollsFrom(1)

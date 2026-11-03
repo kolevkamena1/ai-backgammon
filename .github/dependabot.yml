@@ -1,0 +1,60 @@
+# Update PRs, so that the `npm audit` gate in `.github/workflows/ci.yml` has something feeding it
+# instead of only ever reporting a build has broken.
+#
+# Both ecosystems run on the same schedule and both lean hard on `groups`: a weekly sweep of a React +
+# Vite + TypeScript tree would otherwise land as two dozen separate PRs, and the noise is what makes
+# people turn Dependabot off.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: '/'
+    schedule:
+      interval: weekly
+      # Sunday 04:00 UTC. A wall-clock time in a fixed zone keeps the runs predictable instead of
+      # "whenever the queue gets to us"; Sunday means the PRs are triaged on Monday, not left open
+      # over a weekend.
+      day: sunday
+      time: '04:00'
+      timezone: Etc/UTC
+
+    # The anti-spam cap. Note it counts every open Dependabot PR for this ecosystem at once, so
+    # Dependabot stops opening more until some are merged or closed — and unlike `open-pull-requests-limit: 0`,
+    # which switches the ecosystem off entirely, this one still runs.
+    open-pull-requests-limit: 5
+
+    groups:
+      # Every patch and minor bump in this manifest collapses into a single PR. They are semver-safe by
+      # definition, and `npm run test` in CI decides the argument for all of them at once.
+      patches-and-minors:
+        patterns:
+          - '*'
+        update-types:
+          - patch
+          - minor
+
+    commit-message:
+      prefix: chore(deps)
+    labels:
+      - dependencies
+
+  # The CI workflow itself is a dependency: `actions/checkout` runs with our token and checks out
+  # attacker-controlled code. Without this entry the commit SHAs pinned in `ci.yml` would never move,
+  # which is the failure mode of pinning. Dependabot rewrites a pinned SHA and keeps the trailing
+  # `# vN.N.N` comment in sync.
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: weekly
+      day: sunday
+      time: '04:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns:
+          - '*'
+    commit-message:
+      prefix: chore(ci)
+    labels:
+      - dependencies
