@@ -105,6 +105,18 @@ describe('GameControls', () => {
     expect(labelled('Roll dice')).toBeUndefined()
   })
 
+  it('transitions smoothly from no game to game started without hook errors', () => {
+    act(() => root.render(<GameControls />))
+    expect(text()).toContain('No game in progress')
+
+    act(() => {
+      useGameStore.getState().startNewGame(humanVsAi, personal)
+    })
+    act(() => root.render(<GameControls />))
+    expect(text()).not.toContain('No game in progress')
+    expect(text()).toContain('White to roll')
+  })
+
   it('lets the human seat roll and reports what it can do next', () => {
     act(() => {
       useGameStore.getState().startNewGame(humanVsAi, personal)

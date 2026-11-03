@@ -60,6 +60,9 @@ const GameControls = () => {
   const { board, currentSeat, lastRoll, history, selectedFrom, turnPassed, isAiThinking, lastAiError, aiThought } =
     game
 
+  const [manualD1, setManualD1] = useState<DieFace>(1)
+  const [manualD2, setManualD2] = useState<DieFace>(1)
+
   if (board === null || currentSeat === null) {
     return (
       <section aria-label="Game controls" className={PANEL}>
@@ -84,9 +87,6 @@ const GameControls = () => {
    */
   const devStepping = import.meta.env.DEV && game.isHumanTurn === false
   const rollLabel = devStepping ? `Roll for ${seatName}` : 'Roll dice'
-
-  const [manualD1, setManualD1] = useState<DieFace>(1)
-  const [manualD2, setManualD2] = useState<DieFace>(1)
 
   const sourceHint =
     selectedFrom === null

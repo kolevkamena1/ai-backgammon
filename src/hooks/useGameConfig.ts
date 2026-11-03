@@ -8,6 +8,9 @@ import { maskSecret } from '@/utils/formatSecret'
  */
 export function useGameConfig() {
   const mode = useGameConfigStore((state) => state.mode)
+  const humanColor = useGameConfigStore((state) => state.humanColor)
+  const dice = useGameConfigStore((state) => state.dice)
+  const match = useGameConfigStore((state) => state.match)
   const aiMatchType = useGameConfigStore((state) => state.aiMatchType)
   const opponent = useGameConfigStore((state) => state.opponent)
   const isSetupOpen = useGameConfigStore((state) => state.isSetupOpen)
@@ -19,7 +22,7 @@ export function useGameConfig() {
   const openSetup = useGameConfigStore((state) => state.openSetup)
   const closeSetup = useGameConfigStore((state) => state.closeSetup)
 
-  const config: GameConfigSnapshot = { mode, aiMatchType, opponent }
+  const config: GameConfigSnapshot = { mode, humanColor, dice, aiMatchType, opponent, match }
 
   return {
     config,
