@@ -5,6 +5,15 @@ import type { AiEngineConfig } from './settings'
 /** Who plays: the local human against one AI, or two AIs against each other. */
 export type GameMode = 'humanVsAi' | 'aiVsAi'
 
+/** How dice are generated for games in this set. */
+export type DiceMode = 'random' | 'seeded' | 'manual'
+
+export interface DiceConfig {
+  mode: DiceMode
+  /** Integer seed for reproducible pseudorandom dice series. */
+  seed?: number
+}
+
 /** Meaningful only when `GameMode` is `aiVsAi`. */
 export type AiMatchType =
   /** One engine plays both seats, reusing the personal BYOK; no second key is ever stored. */
@@ -15,6 +24,10 @@ export type AiMatchType =
 /** The persisted, serialisable subset of the setup — exactly what `planSeats` consumes. */
 export interface GameConfigSnapshot {
   mode: GameMode
+  /** Which color the human player controls in Human vs AI mode (default 'light'). */
+  humanColor?: PlayerColor
+  /** Dice generation settings (random, seeded with numeric seed, or manual input). */
+  dice?: DiceConfig
   aiMatchType: AiMatchType
   /** Used only when `mode === 'aiVsAi' && aiMatchType === 'custom'`. */
   opponent: AiEngineConfig

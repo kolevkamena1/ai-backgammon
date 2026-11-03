@@ -185,3 +185,64 @@ describe('AI doubling heuristics', () => {
   })
 })
 
+describe('Seeded and Manual Dice Rolls & Player Color Selection', () => {
+  beforeEach(() => {
+    useGameStore.getState().resetGame()
+  })
+
+  it('generates identical dice series for games started with the same seed', () => {
+    const seededConfig: GameConfigSnapshot = {
+      ...MATCH_CONFIG,
+      dice: { mode: 'seeded', seed: 4242 },
+    }
+
+    // Run game 1 with seed 4242
+    useGameStore.getState().startNewGame(seededConfig, PERSONAL_AI)
+    const game1Roll1 = useGameStore.getState().roll()
+    useGameStore.getState().passTurn()
+    const game1Roll2 = useGameStore.getState().roll()
+
+    expect(game1Roll1).not.toBeNull()
+    expect(game1Roll2).not.toBeNull()
+
+    // Start a fresh new game with the same seed 4242
+    useGameStore.getState().startNewGame(seededConfig, PERSONAL_AI)
+    const game2Roll1 = useGameStore.getState().roll()
+    useGameStore.getState().passTurn()
+    const game2Roll2 = useGameStore.getState().roll()
+
+    expect(game2Roll1).toEqual(game1Roll1)
+    expect(game2Roll2).toEqual(game1Roll2)
+  })
+
+  it('allows manual input of dice for a turn', () => {
+    const manualConfig: GameConfigSnapshot = {
+      ...MATCH_CONFIG,
+      dice: { mode: 'manual' },
+    }
+
+    useGameStore.getState().startNewGame(manualConfig, PERSONAL_AI)
+    const customRoll = useGameStore.getState().roll([6, 3])
+
+    expect(customRoll).toEqual([6, 3])
+    expect(useGameStore.getState().board?.dice).toEqual([6, 3])
+  })
+
+  it('supports human playing as Black (dark)', () => {
+    const blackHumanConfig: GameConfigSnapshot = {
+      ...MATCH_CONFIG,
+      humanColor: 'dark',
+    }
+
+    useGameStore.getState().startNewGame(blackHumanConfig, PERSONAL_AI)
+    const state = useGameStore.getState()
+
+    expect(state.seatPlan?.dark.kind).toBe('human')
+    expect(state.seatPlan?.dark.label).toBe('You')
+    expect(state.seatPlan?.light.kind).toBe('ai')
+    expect(state.seatPlan?.light.label).toBe('AI opponent')
+    // White always starts
+    expect(state.board?.turn).toBe('light')
+  })
+})
+

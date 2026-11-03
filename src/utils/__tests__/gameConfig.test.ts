@@ -131,7 +131,7 @@ describe('difficulty', () => {
 describe('planSeats', () => {
   const personal = engine()
 
-  it('puts the human in the light seat for human vs AI', () => {
+  it('puts the human in the light seat for human vs AI by default', () => {
     const plan = planSeats(personal, snapshot())
     expect(plan.light.kind).toBe('human')
     expect(plan.light.label).toBe('You')
@@ -139,6 +139,18 @@ describe('planSeats', () => {
     expect(plan.dark.kind).toBe('ai')
     if (plan.dark.kind === 'ai') {
       expect(plan.dark.engine).toBe(personal)
+    }
+    expect(plan.ready).toBe(true)
+  })
+
+  it('puts the human in the dark seat when humanColor is dark', () => {
+    const plan = planSeats(personal, snapshot({ humanColor: 'dark' }))
+    expect(plan.dark.kind).toBe('human')
+    expect(plan.dark.label).toBe('You')
+    expect(seatProblems(plan.dark)).toEqual([])
+    expect(plan.light.kind).toBe('ai')
+    if (plan.light.kind === 'ai') {
+      expect(plan.light.engine).toBe(personal)
     }
     expect(plan.ready).toBe(true)
   })

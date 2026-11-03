@@ -1,5 +1,5 @@
 import type { AiErrorCode } from '@/types/ai'
-import type { PlayerColor } from '@/types/game'
+import type { DieFace, PlayerColor } from '@/types/game'
 import type { SeatAssignment } from '@/types/gameConfig'
 import type { TurnPassReason } from '@/state/gameStore'
 import { BUTTON } from '@/components/ui/controls'
@@ -7,7 +7,8 @@ import { useGame } from '@/hooks/useGame'
 import { useSettings } from '@/hooks/useSettings'
 import { describeEngine, DIFFICULTY_LABELS, SEAT_LABELS } from '@/utils/gameConfig'
 import { cn } from '@/utils/cn'
-import { Dices, RefreshCw, RotateCcw, TriangleAlert, X } from 'lucide-react'
+import { Check, Dices, Keyboard, RefreshCw, RotateCcw, TriangleAlert, X } from 'lucide-react'
+import { useState } from 'react'
 import AiThoughtPanel from './AiThoughtPanel'
 import Checker from './Checker'
 import Die from './Die'
@@ -83,6 +84,9 @@ const GameControls = () => {
    */
   const devStepping = import.meta.env.DEV && game.isHumanTurn === false
   const rollLabel = devStepping ? `Roll for ${seatName}` : 'Roll dice'
+
+  const [manualD1, setManualD1] = useState<DieFace>(1)
+  const [manualD2, setManualD2] = useState<DieFace>(1)
 
   const sourceHint =
     selectedFrom === null
@@ -180,23 +184,98 @@ const GameControls = () => {
           </p>
         )}
 
-        {game.awaitingRoll && game.canInteract ? (
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={game.roll} className={PRIMARY}>
-              <Dices className="size-4" aria-hidden />
-              {rollLabel}
-            </button>
-            {game.canDouble && (
-              <button
-                type="button"
-                onClick={() => game.proposeDouble(board.turn)}
-                className={cn(SECONDARY, 'text-xs text-amber-300 border-amber-600/50 hover:bg-amber-500/10')}
-                title={`Offer to double stake to ${game.cube.value * 2}`}
-              >
-                Double to {game.cube.value * 2}
+        {game.canRoll ? (
+          game.isManualDice ? (
+            <div className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-900/80 p-2.5">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
+                <span className="flex items-center gap-1.5">
+                  <Keyboard className="size-3.5 text-emerald-400" aria-hidden />
+                  Input Dice · {SEAT_LABELS[board.turn]} ({currentSeat?.kind === 'ai' ? 'AI' : 'You'})
+                </span>
+                <span className="font-mono text-emerald-300 font-bold">
+                  {manualD1} · {manualD2}
+                </span>
+              </div>
+
+              {/* Die 1 selector */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-slate-400 w-9 shrink-0">Die 1:</span>
+                {([1, 2, 3, 4, 5, 6] as DieFace[]).map((val) => (
+                  <button
+                    key={`d1-${val}`}
+                    type="button"
+                    onClick={() => setManualD1(val)}
+                    className={cn(
+                      'size-7 rounded font-mono text-xs font-bold transition-all',
+                      manualD1 === val
+                        ? 'bg-amber-400 text-slate-950 shadow-md ring-2 ring-amber-300'
+                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700',
+                    )}
+                  >
+                    {val}
+                  </button>
+                ))}
+              </div>
+
+              {/* Die 2 selector */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-slate-400 w-9 shrink-0">Die 2:</span>
+                {([1, 2, 3, 4, 5, 6] as DieFace[]).map((val) => (
+                  <button
+                    key={`d2-${val}`}
+                    type="button"
+                    onClick={() => setManualD2(val)}
+                    className={cn(
+                      'size-7 rounded font-mono text-xs font-bold transition-all',
+                      manualD2 === val
+                        ? 'bg-amber-400 text-slate-950 shadow-md ring-2 ring-amber-300'
+                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700',
+                    )}
+                  >
+                    {val}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2 mt-1">
+                <button
+                  type="button"
+                  onClick={() => game.roll([manualD1, manualD2])}
+                  className={cn(PRIMARY, 'flex-1 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-500')}
+                >
+                  <Check className="size-3.5" aria-hidden />
+                  Play {manualD1} &amp; {manualD2}
+                </button>
+                {game.canDouble && (
+                  <button
+                    type="button"
+                    onClick={() => game.proposeDouble(board.turn)}
+                    className={cn(SECONDARY, 'text-xs text-amber-300 border-amber-600/50 hover:bg-amber-500/10 py-1.5')}
+                    title={`Offer to double stake to ${game.cube.value * 2}`}
+                  >
+                    Double to {game.cube.value * 2}
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => game.roll()} className={PRIMARY}>
+                <Dices className="size-4" aria-hidden />
+                {rollLabel}
               </button>
-            )}
-          </div>
+              {game.canDouble && (
+                <button
+                  type="button"
+                  onClick={() => game.proposeDouble(board.turn)}
+                  className={cn(SECONDARY, 'text-xs text-amber-300 border-amber-600/50 hover:bg-amber-500/10')}
+                  title={`Offer to double stake to ${game.cube.value * 2}`}
+                >
+                  Double to {game.cube.value * 2}
+                </button>
+              )}
+            </div>
+          )
         ) : null}
       </div>
 

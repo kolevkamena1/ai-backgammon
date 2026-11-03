@@ -6,6 +6,7 @@ import {
   applyMove,
   canPlay,
   checkerCountAt,
+  createSeededRng,
   destinationFor,
   endTurn,
   expandRoll,
@@ -515,5 +516,27 @@ describe('full-game simulation', () => {
       expect(board.off[board.winner]).toBe(15)
     }
     expect(plies).toBeGreaterThan(10)
+  })
+
+  describe('createSeededRng', () => {
+    it('produces an identical sequence of rolls given the same seed', () => {
+      const rng1 = createSeededRng(12345)
+      const rng2 = createSeededRng(12345)
+
+      const rolls1 = Array.from({ length: 10 }, () => rollPair(rng1))
+      const rolls2 = Array.from({ length: 10 }, () => rollPair(rng2))
+
+      expect(rolls1).toEqual(rolls2)
+    })
+
+    it('produces different sequences for different seeds', () => {
+      const rng1 = createSeededRng(12345)
+      const rng2 = createSeededRng(99999)
+
+      const rolls1 = Array.from({ length: 5 }, () => rollPair(rng1))
+      const rolls2 = Array.from({ length: 5 }, () => rollPair(rng2))
+
+      expect(rolls1).not.toEqual(rolls2)
+    })
   })
 })

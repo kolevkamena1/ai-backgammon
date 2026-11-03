@@ -166,10 +166,16 @@ function aiSeat(color: PlayerColor, label: string, engine: AiEngineConfig): Seat
  */
 export function planSeats(personal: AiEngineConfig, config: GameConfigSnapshot): SeatPlan {
   if (config.mode === 'humanVsAi') {
-    const light: SeatAssignment = { color: 'light', kind: 'human', label: 'You' }
-    const dark = aiSeat('dark', 'AI opponent', personal)
+    const humanColor = config.humanColor ?? 'light'
+    const aiColor: PlayerColor = humanColor === 'light' ? 'dark' : 'light'
 
-    return { light, dark, ready: seatProblems(dark).length === 0 }
+    const humanSeat: SeatAssignment = { color: humanColor, kind: 'human', label: 'You' }
+    const opponentSeat = aiSeat(aiColor, 'AI opponent', personal)
+
+    const light = humanColor === 'light' ? humanSeat : opponentSeat
+    const dark = humanColor === 'dark' ? humanSeat : opponentSeat
+
+    return { light, dark, ready: seatProblems(opponentSeat).length === 0 }
   }
 
   if (config.aiMatchType === 'mirror') {

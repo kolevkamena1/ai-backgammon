@@ -98,7 +98,10 @@ export function useGame() {
     [allLegalMoves],
   )
 
+  const isManualDice = config?.dice?.mode === 'manual'
+  const isSeededDice = config?.dice?.mode === 'seeded'
   const awaitingRoll = board !== null && board.dice.length === 0 && isFinished === false && cube.proposedBy === null
+  const canRoll = awaitingRoll && (isManualDice ? isAiThinking === false && isPaused === false : canInteract)
   const canDouble =
     board !== null &&
     !isFinished &&
@@ -232,6 +235,9 @@ export function useGame() {
     cube,
     match,
     canDouble,
+    canRoll,
+    isManualDice,
+    isSeededDice,
     isPendingDoubleOffer,
     isResponder,
     proposeDouble,

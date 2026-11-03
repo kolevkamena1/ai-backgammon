@@ -1,17 +1,19 @@
 import type { FC } from 'react'
 import type { MatchScoreState } from '@/types/gameMatch'
-import type { SeatPlan } from '@/types/gameConfig'
+import type { DiceConfig, SeatPlan } from '@/types/gameConfig'
 import { cn } from '@/utils/cn'
 
 interface MatchScoreboardProps {
   match: MatchScoreState
   seatPlan?: SeatPlan | null
+  diceConfig?: DiceConfig
   className?: string
 }
 
 export const MatchScoreboard: FC<MatchScoreboardProps> = ({
   match,
   seatPlan,
+  diceConfig,
   className,
 }) => {
   const whiteSeat = seatPlan?.light
@@ -54,11 +56,21 @@ export const MatchScoreboard: FC<MatchScoreboardProps> = ({
           </span>
         </div>
 
-        {/* Center: Game indicator */}
-        <div className="flex flex-col items-center">
+        {/* Center: Game indicator & Dice mode */}
+        <div className="flex flex-col items-center gap-1">
           <span className="rounded-full border border-slate-700 bg-slate-800/90 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-300">
             Game {match.gameIndex}
           </span>
+          {diceConfig?.mode === 'seeded' && diceConfig.seed !== undefined && (
+            <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-mono text-amber-300 border border-amber-500/30">
+              Seed #{diceConfig.seed}
+            </span>
+          )}
+          {diceConfig?.mode === 'manual' && (
+            <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-medium text-emerald-300 border border-emerald-500/30">
+              Manual Dice
+            </span>
+          )}
         </div>
 
         {/* Black side */}

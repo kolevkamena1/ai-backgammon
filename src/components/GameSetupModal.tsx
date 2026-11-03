@@ -4,7 +4,8 @@ import { useGame } from '@/hooks/useGame'
 import { useGameConfig } from '@/hooks/useGameConfig'
 import { useSettings } from '@/hooks/useSettings'
 import { logger } from '@/lib/logger'
-import type { AiMatchType, GameMode, SeatAssignment } from '@/types/gameConfig'
+import type { AiMatchType, DiceMode, GameConfigSnapshot, GameMode, SeatAssignment } from '@/types/gameConfig'
+import type { PlayerColor } from '@/types/game'
 import { cn } from '@/utils/cn'
 import {
   DIFFICULTY_LABELS,
@@ -13,7 +14,7 @@ import {
   planSeats,
   seatProblems,
 } from '@/utils/gameConfig'
-import { Bot, Check, KeyRound, Swords, User } from 'lucide-react'
+import { Bot, Check, Dices, Hash, KeyRound, Keyboard, Shuffle, Swords, User } from 'lucide-react'
 import { useState, type ComponentType, type FormEvent, type SVGProps } from 'react'
 
 interface GameSetupModalProps {
@@ -124,6 +125,11 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
   const game = useGame()
 
   const [mode, setLocalMode] = useState<GameMode>(initialMode ?? config.mode)
+  const [humanColor, setHumanColor] = useState<PlayerColor>(config.humanColor ?? 'light')
+  const [diceMode, setDiceMode] = useState<DiceMode>(config.dice?.mode ?? 'random')
+  const [seedInput, setSeedInput] = useState<string>(
+    config.dice?.seed !== undefined ? String(config.dice.seed) : '12345',
+  )
   const [aiMatchType, setLocalMatchType] = useState<AiMatchType>(config.aiMatchType)
   const [matchLength, setMatchLength] = useState<number>(config.match?.targetPoints ?? 7)
   const [customPointsInput, setCustomPointsInput] = useState<string>(
@@ -136,13 +142,27 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
 
   const isAiVsAi = mode === 'aiVsAi'
   const isCustomMatch = isAiVsAi && aiMatchType === 'custom'
-  const plan = planSeats(settings, { mode, aiMatchType, opponent: config.opponent })
+  const parsedSeed = Math.abs(parseInt(seedInput, 10)) || 1
+  const effectiveDiceConfig = {
+    mode: diceMode,
+    seed: diceMode === 'seeded' ? parsedSeed : undefined,
+  }
+
+  const plan = planSeats(settings, {
+    mode,
+    humanColor,
+    dice: effectiveDiceConfig,
+    aiMatchType,
+    opponent: config.opponent,
+  })
 
   const effectivePoints = matchLength === -1 ? Math.max(1, parseInt(customPointsInput, 10) || 5) : matchLength
 
   const handleOpenByokSettings = (): void => {
     saveSetup({
       mode,
+      humanColor,
+      dice: effectiveDiceConfig,
       aiMatchType,
       opponent: config.opponent,
       match: { targetPoints: effectivePoints, enableCrawford: isAiVsAi ? false : enableCrawford },
@@ -158,8 +178,10 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
       return
     }
 
-    const setup = {
+    const setup: GameConfigSnapshot = {
       mode,
+      humanColor,
+      dice: effectiveDiceConfig,
       aiMatchType,
       opponent: config.opponent,
       match: { targetPoints: effectivePoints, enableCrawford: isAiVsAi ? false : enableCrawford },
@@ -172,7 +194,14 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
         setError('Both seats need an API key before a game can start.')
         return
       }
-      logger.info('game started', { mode, aiMatchType, seatPlanReady: plan.ready, match: setup.match })
+      logger.info('game started', {
+        mode,
+        humanColor,
+        dice: setup.dice,
+        aiMatchType,
+        seatPlanReady: plan.ready,
+        match: setup.match,
+      })
 
       onClose()
     } catch (saveError) {
@@ -241,7 +270,151 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
               />
             </div>
           </fieldset>
-        ) : null}
+        ) : (
+          <fieldset className="space-y-2">
+            <legend className="mb-1.5 text-xs font-medium text-slate-300">Your Checkers</legend>
+            <div className="grid grid-cols-2 gap-2">
+              <label
+                className={cn(
+                  'flex items-center gap-3 rounded-xl border p-2.5 cursor-pointer transition-all',
+                  humanColor === 'light'
+                    ? 'border-amber-500/80 bg-amber-500/10 ring-1 ring-amber-500/40 text-white'
+                    : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700',
+                )}
+              >
+                <input
+                  type="radio"
+                  name="human-color"
+                  value="light"
+                  checked={humanColor === 'light'}
+                  onChange={() => setHumanColor('light')}
+                  className="sr-only"
+                />
+                <span
+                  aria-hidden
+                  className="size-5 rounded-full border-2 border-amber-300 bg-amber-100 shadow-sm shrink-0"
+                />
+                <div className="flex flex-col">
+                  <span className="text-xs font-bold text-amber-200">Play White</span>
+                  <span className="text-[10px] text-slate-400">Moves 1st · Bottom</span>
+                </div>
+              </label>
+
+              <label
+                className={cn(
+                  'flex items-center gap-3 rounded-xl border p-2.5 cursor-pointer transition-all',
+                  humanColor === 'dark'
+                    ? 'border-sky-500/80 bg-sky-500/10 ring-1 ring-sky-500/40 text-white'
+                    : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700',
+                )}
+              >
+                <input
+                  type="radio"
+                  name="human-color"
+                  value="dark"
+                  checked={humanColor === 'dark'}
+                  onChange={() => setHumanColor('dark')}
+                  className="sr-only"
+                />
+                <span
+                  aria-hidden
+                  className="size-5 rounded-full border-2 border-slate-600 bg-slate-950 shadow-sm shrink-0"
+                />
+                <div className="flex flex-col">
+                  <span className="text-xs font-bold text-sky-200">Play Black</span>
+                  <span className="text-[10px] text-slate-400">Moves 2nd · Top</span>
+                </div>
+              </label>
+            </div>
+          </fieldset>
+        )}
+
+        {/* Dice Rolling Options */}
+        <fieldset className="space-y-2">
+          <legend className="mb-1.5 text-xs font-medium text-slate-300">Dice Rolling</legend>
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => setDiceMode('random')}
+              className={cn(
+                'flex flex-col items-center justify-center rounded-lg border p-2 text-center transition-all',
+                diceMode === 'random'
+                  ? 'border-sky-500 bg-sky-500/15 text-white font-semibold ring-1 ring-sky-500/50'
+                  : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700',
+              )}
+            >
+              <Dices className="size-4 mb-1 text-sky-400" />
+              <span className="text-xs font-bold">Random</span>
+              <span className="text-[10px] text-slate-400">Standard RNG</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDiceMode('seeded')}
+              className={cn(
+                'flex flex-col items-center justify-center rounded-lg border p-2 text-center transition-all',
+                diceMode === 'seeded'
+                  ? 'border-sky-500 bg-sky-500/15 text-white font-semibold ring-1 ring-sky-500/50'
+                  : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700',
+              )}
+            >
+              <Hash className="size-4 mb-1 text-amber-400" />
+              <span className="text-xs font-bold">Seeded</span>
+              <span className="text-[10px] text-slate-400">Exact series</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDiceMode('manual')}
+              className={cn(
+                'flex flex-col items-center justify-center rounded-lg border p-2 text-center transition-all',
+                diceMode === 'manual'
+                  ? 'border-sky-500 bg-sky-500/15 text-white font-semibold ring-1 ring-sky-500/50'
+                  : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700',
+              )}
+            >
+              <Keyboard className="size-4 mb-1 text-emerald-400" />
+              <span className="text-xs font-bold">Manual</span>
+              <span className="text-[10px] text-slate-400">Enter dice</span>
+            </button>
+          </div>
+
+          {diceMode === 'seeded' && (
+            <div className="flex flex-col gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor="seed-input" className="text-xs font-medium text-amber-200">
+                  Seed Number (reproducible dice rolls):
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setSeedInput(String(Math.floor(Math.random() * 900000) + 100000))}
+                  className="text-[11px] text-sky-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <Shuffle className="size-3" /> Randomize
+                </button>
+              </div>
+              <input
+                id="seed-input"
+                type="number"
+                min="1"
+                max="2147483647"
+                value={seedInput}
+                onChange={(e) => setSeedInput(e.target.value)}
+                placeholder="e.g. 12345"
+                className="w-full rounded border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs font-mono text-white focus:border-amber-400 focus:outline-hidden"
+              />
+              <p className="text-[10px] text-slate-400 leading-tight">
+                Entering this same seed produces the exact same dice series. Ideal for replaying the game with the opposite checker color!
+              </p>
+            </div>
+          )}
+
+          {diceMode === 'manual' && (
+            <p className="text-[10px] text-slate-400 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2">
+              On each turn, you will manually pick the two dice faces (1–6) for both players before moves are played.
+            </p>
+          )}
+        </fieldset>
 
         {/* Match Set Length & Options */}
         <fieldset className="space-y-2">

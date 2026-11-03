@@ -16,6 +16,7 @@ import { planSeats } from '@/utils/gameConfig'
 import {
   applyMove,
   canPlay,
+  createSeededRng,
   endTurn,
   evaluateVictoryGrade,
   expandRoll,
@@ -24,6 +25,7 @@ import {
   getLegalMoves,
   isHitMove,
   rollPair,
+  type RandomSource,
 } from '@/utils/gameLogic'
 import { create } from 'zustand'
 
@@ -88,6 +90,8 @@ interface GameStoreState {
   cube: DoublingCubeState
   /** Overall match set score state across multiple games. */
   match: MatchScoreState | null
+  /** Pseudo-random generator for seeded dice, or null for manual dice input. */
+  rng: RandomSource | null
   startNewGame: (config: GameConfigSnapshot, personal: AiEngineConfig, resetMatch?: boolean) => boolean
   /** Starts the next game in an active match set, keeping accumulated set points. */
   startNextGameInSet: () => boolean
@@ -95,7 +99,7 @@ interface GameStoreState {
   proposeDouble: (proposer: PlayerColor) => boolean
   /** Responds to a pending double offer: accept (Take) or decline (Drop/Resign). */
   respondToDouble: (responder: PlayerColor, accept: boolean, reasoning?: string) => void
-  roll: () => DieFace[] | null
+  roll: (customPair?: DiceRoll) => DieFace[] | null
   makeMove: (move: Move) => boolean
   selectPoint: (from: MoveSource | null) => void
   passTurn: () => void
@@ -328,6 +332,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       proposedBy: null,
     },
     match: null,
+    rng: null,
 
     startNewGame: (config, personal, resetMatch = true) => {
       const seatPlan = planSeats(personal, config)
@@ -338,6 +343,14 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           aiMatchType: config.aiMatchType,
         })
         return false
+      }
+
+      let rng: RandomSource | null = Math.random
+      if (config.dice?.mode === 'seeded') {
+        const seed = config.dice.seed ?? 1
+        rng = createSeededRng(seed)
+      } else if (config.dice?.mode === 'manual') {
+        rng = null
       }
 
       cancelAi()
@@ -398,6 +411,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           proposedBy: null,
         },
         match: matchState,
+        rng,
       })
       logger.debug('game started', { mode: config.mode, aiMatchType: config.aiMatchType, matchState })
       return true
@@ -646,8 +660,8 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       }
     },
 
-    roll: () => {
-      const { board, turnNumber, recordedRolls, stepHistory, currentStepIndex } = get()
+    roll: (customPair) => {
+      const { board, turnNumber, recordedRolls, stepHistory, currentStepIndex, rng } = get()
 
       if (board === null || board.phase === 'finished') {
         return null
@@ -662,10 +676,14 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       let pair: DiceRoll
       let updatedRolls = recordedRolls
 
-      if (turnIdx >= 0 && turnIdx < recordedRolls.length) {
+      if (customPair) {
+        pair = customPair
+        updatedRolls = [...recordedRolls.slice(0, turnIdx), pair]
+      } else if (turnIdx >= 0 && turnIdx < recordedRolls.length) {
         pair = recordedRolls[turnIdx]
       } else {
-        pair = rollPair()
+        const activeRng = rng ?? Math.random
+        pair = rollPair(activeRng)
         updatedRolls = [...recordedRolls, pair]
       }
 
@@ -991,8 +1009,15 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           }
 
           // Nobody else can roll for an AI seat, and a turn cannot start without dice.
-          if (get().board?.dice.length === 0 && get().cube.proposedBy === null) {
-            get().roll()
+          // In manual mode, the human inputs the dice for AI turns as well!
+          if (get().config?.dice?.mode !== 'manual') {
+            if (get().board?.dice.length === 0 && get().cube.proposedBy === null) {
+              get().roll()
+            }
+          }
+
+          if (get().board?.dice.length === 0) {
+            return
           }
         }
 
@@ -1074,6 +1099,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           proposedBy: null,
         },
         match: null,
+        rng: null,
       })
     },
 

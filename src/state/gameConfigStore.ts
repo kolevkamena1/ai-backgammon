@@ -32,6 +32,8 @@ export const DEFAULT_OPPONENT_CONFIG: AiEngineConfig = {
  */
 export const DEFAULT_GAME_CONFIG: GameConfigSnapshot = {
   mode: 'humanVsAi',
+  humanColor: 'light',
+  dice: { mode: 'random' },
   aiMatchType: 'mirror',
   opponent: { ...DEFAULT_OPPONENT_CONFIG },
 }
@@ -43,7 +45,10 @@ export const DEFAULT_GAME_CONFIG: GameConfigSnapshot = {
  */
 export const GAME_CONFIG_STORAGE_KEY = 'ai-backgammon:game-config'
 
-type PersistedGameConfig = Pick<GameConfigState, 'mode' | 'aiMatchType' | 'opponent'>
+type PersistedGameConfig = Pick<
+  GameConfigState,
+  'mode' | 'humanColor' | 'dice' | 'aiMatchType' | 'opponent' | 'match'
+>
 
 export const useGameConfigStore = create<GameConfigState>()(
   persist(
@@ -54,8 +59,16 @@ export const useGameConfigStore = create<GameConfigState>()(
       setAiMatchType: (aiMatchType) => set({ aiMatchType }),
       setOpponent: (opponent) => set({ opponent }),
       clearOpponent: () => set({ opponent: { ...DEFAULT_OPPONENT_CONFIG } }),
-      saveSetup: ({ mode, aiMatchType, opponent }) =>
-        set({ mode, aiMatchType, opponent, isSetupOpen: false }),
+      saveSetup: (snapshot) =>
+        set({
+          mode: snapshot.mode,
+          humanColor: snapshot.humanColor ?? 'light',
+          dice: snapshot.dice ?? { mode: 'random' },
+          aiMatchType: snapshot.aiMatchType,
+          opponent: snapshot.opponent,
+          match: snapshot.match,
+          isSetupOpen: false,
+        }),
       openSetup: () => set({ isSetupOpen: true }),
       closeSetup: () => set({ isSetupOpen: false }),
     }),
@@ -65,8 +78,11 @@ export const useGameConfigStore = create<GameConfigState>()(
       storage: createSafeStorage<PersistedGameConfig>('game-config'),
       partialize: (state): PersistedGameConfig => ({
         mode: state.mode,
+        humanColor: state.humanColor,
+        dice: state.dice,
         aiMatchType: state.aiMatchType,
         opponent: state.opponent,
+        match: state.match,
       }),
       merge: (persisted, current): GameConfigState => {
         const record =
@@ -85,8 +101,17 @@ export const useGameConfigStore = create<GameConfigState>()(
         return {
           ...current,
           mode,
+          humanColor: record.humanColor === 'dark' ? 'dark' : 'light',
+          dice:
+            typeof record.dice === 'object' && record.dice !== null
+              ? (record.dice as GameConfigSnapshot['dice'])
+              : DEFAULT_GAME_CONFIG.dice,
           aiMatchType,
           opponent: sanitizeEngineConfig(record.opponent, DEFAULT_OPPONENT_CONFIG),
+          match:
+            typeof record.match === 'object' && record.match !== null
+              ? (record.match as GameConfigSnapshot['match'])
+              : undefined,
         }
       },
     },
