@@ -1,5 +1,16 @@
 import type { BoardState, DiceRoll, DieFace, MoveSource, MoveTarget, PlayerColor } from '@/types/game'
 import type { TurnPassReason } from '@/state/gameStore'
+import type { DoublingCubeState } from '@/types/gameMatch'
+
+export type CubeActionKind = 'propose' | 'accept' | 'decline'
+
+export interface CubeLogAction {
+  type: CubeActionKind
+  player: PlayerColor
+  value: number
+  reasoning?: string | null
+  at: number
+}
 
 export interface MoveRecord {
   from: MoveSource
@@ -18,6 +29,8 @@ export interface GameSnapshot {
   diceRemaining: DieFace[]
   selectedFrom: MoveSource | null
   turnPassed: TurnPassReason | null
+  cubeAction?: CubeLogAction | null
+  cube?: DoublingCubeState
   /**
    * The engine's explanation for THIS step's move only. Never inherited from an earlier step, so a
    * move the model said nothing about shows nothing instead of the previous move's reasoning.
@@ -44,6 +57,7 @@ export interface TurnLogEntry {
   /** Every move of the turn in order; a doubles roll can hold four, each with its own reasoning. */
   moves: LoggedMove[]
   passedReason: TurnPassReason | null
+  cubeActions?: CubeLogAction[]
   /** When the dice were rolled (epoch ms). */
   rolledAt: number
   /** Milliseconds between the game start and the roll; null when the start step is missing. */

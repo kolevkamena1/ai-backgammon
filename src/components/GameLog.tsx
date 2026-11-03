@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FC, type ReactNode } from 'react'
 import { useGame } from '@/hooks/useGame'
-import type { LoggedMove, PendingTurn, TurnLogEntry } from '@/types/gameLog'
+import type { CubeLogAction, LoggedMove, PendingTurn, TurnLogEntry } from '@/types/gameLog'
 import { cn } from '@/utils/cn'
 import { formatClock, formatElapsed } from '@/utils/gameLog'
 import { Clock, Pause, Play, Swords, Trash2, X } from 'lucide-react'
@@ -151,9 +151,44 @@ export const GameLog: FC = () => {
     )
   }
 
+  const renderCubeReasoning = (action: CubeLogAction, actionKey: string): ReactNode => {
+    const actorName = seatPlan ? seatPlan[action.player]?.label : action.player === 'light' ? 'White' : 'Black'
+    const isPropose = action.type === 'propose'
+    const isAccept = action.type === 'accept'
+    const isDecline = action.type === 'decline'
+    const open = expanded[actionKey] === true
+
+    return (
+      <div className="flex flex-col gap-0.5 text-xs text-slate-300">
+        <div className="flex items-center gap-1.5">
+          <SeatDot player={action.player} />
+          <span className="font-medium text-slate-200">
+            {isPropose && `${actorName} proposed double to ${action.value} pts`}
+            {isAccept && `${actorName} accepted double`}
+            {isDecline && `${actorName} declined (resigned)`}
+          </span>
+        </div>
+        {action.reasoning && (
+          <button
+            type="button"
+            onClick={() => toggleExpanded(actionKey)}
+            title={open ? 'Collapse' : 'Click to read reasoning'}
+            className={cn(
+              'text-left text-slate-400 italic text-[11px] hover:text-sky-300',
+              open ? 'whitespace-normal break-words' : 'truncate',
+            )}
+          >
+            {action.reasoning}
+          </button>
+        )}
+      </div>
+    )
+  }
+
   const renderTurn = (entry: TurnLogEntry): ReactNode => {
     const isLive = entry === lastEntry && showLive
-    const lines = entry.moves.length + (isLive ? 1 : 0)
+    const cubeActions = entry.cubeActions ?? []
+    const lines = cubeActions.length + entry.moves.length + (isLive ? 1 : 0)
     const span = Math.max(1, lines)
     const current = entry === lastEntry && !isAiThinking && board?.phase !== 'finished'
     const movesClickable = movesPickable(entry)
@@ -212,20 +247,71 @@ export const GameLog: FC = () => {
       ? 'Remove the moves from this turn onward, keep the dice sequence'
       : undefined
 
-    const rows: ReactNode[] = entry.moves.map((move, index) => (
-      <tr key={`m-${move.stepIndex}`} className={cn(current && 'bg-sky-500/5')}>
-        {index === 0 ? head : null}
-        <td onClick={() => choose(entry, 'moves')} title={movesTitle} className={movesCellClass}>
-          <span className={cn(move.isHit && 'text-rose-400')}>{move.formatted}</span>
-        </td>
-        <td className={reasonCellClass}>{renderReasoning(move, entry)}</td>
-      </tr>
-    ))
+    const rows: ReactNode[] = []
+    let headRendered = false
 
+    // 1. Render doubling cube actions (propose, accept, decline)
+    cubeActions.forEach((action, idx) => {
+      const isPropose = action.type === 'propose'
+      const isAccept = action.type === 'accept'
+      const isDecline = action.type === 'decline'
+      const actionKey = `cube-${entry.turnNumber}-${idx}`
+      const shouldAttachHead = !headRendered
+      if (shouldAttachHead) {
+        headRendered = true
+      }
+
+      rows.push(
+        <tr key={actionKey} className={cn(current && 'bg-sky-500/5')}>
+          {shouldAttachHead ? head : null}
+          <td className={cn(TD, 'whitespace-nowrap')}>
+            {isPropose && (
+              <span className="inline-flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] font-semibold text-amber-300 border border-amber-500/40">
+                <span>🎲</span> Double {action.value}x
+              </span>
+            )}
+            {isAccept && (
+              <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-300 border border-emerald-500/40">
+                <span>✓</span> Take ({action.value}x)
+              </span>
+            )}
+            {isDecline && (
+              <span className="inline-flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-[11px] font-semibold text-rose-300 border border-rose-500/40">
+                <span>✕</span> Drop (Resign)
+              </span>
+            )}
+          </td>
+          <td className={reasonCellClass}>{renderCubeReasoning(action, actionKey)}</td>
+        </tr>,
+      )
+    })
+
+    // 2. Render checker moves
+    entry.moves.forEach((move) => {
+      const shouldAttachHead = !headRendered
+      if (shouldAttachHead) {
+        headRendered = true
+      }
+      rows.push(
+        <tr key={`m-${move.stepIndex}`} className={cn(current && 'bg-sky-500/5')}>
+          {shouldAttachHead ? head : null}
+          <td onClick={() => choose(entry, 'moves')} title={movesTitle} className={movesCellClass}>
+            <span className={cn(move.isHit && 'text-rose-400')}>{move.formatted}</span>
+          </td>
+          <td className={reasonCellClass}>{renderReasoning(move, entry)}</td>
+        </tr>,
+      )
+    })
+
+    // 3. Render live streaming AI thought if active
     if (isLive) {
+      const shouldAttachHead = !headRendered
+      if (shouldAttachHead) {
+        headRendered = true
+      }
       rows.push(
         <tr key={`live-${entry.turnNumber}`}>
-          {rows.length === 0 ? head : null}
+          {shouldAttachHead ? head : null}
           <td className={cn(TD, 'font-mono text-slate-500')}>…</td>
           <td className={cn(TD, 'max-w-0')} aria-live="polite" aria-busy="true">
             <span className="block truncate text-sky-300">
@@ -237,6 +323,7 @@ export const GameLog: FC = () => {
       )
     }
 
+    // 4. Fallback when there are neither cube actions nor moves yet
     if (rows.length === 0) {
       const passed = entry.passedReason !== null
       rows.push(

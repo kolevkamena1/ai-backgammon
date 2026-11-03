@@ -33,6 +33,7 @@ export function deriveTurnEntries(
         roll: snap.lastRoll,
         moves: [],
         passedReason: snap.turnPassed,
+        cubeActions: [],
         rolledAt: snap.at,
         elapsedMs: startedAt === null ? null : Math.max(0, snap.at - startedAt),
         stepIndices: [],
@@ -42,6 +43,15 @@ export function deriveTurnEntries(
     }
 
     entry.stepIndices.push(snap.stepIndex)
+    if (snap.cubeAction) {
+      if (!entry.cubeActions) {
+        entry.cubeActions = []
+      }
+      entry.cubeActions.push({
+        ...snap.cubeAction,
+        reasoning: snap.cubeAction.reasoning ?? snap.aiThought,
+      })
+    }
     if (snap.lastRoll && !entry.roll) {
       entry.roll = snap.lastRoll
     }

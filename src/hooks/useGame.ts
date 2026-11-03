@@ -1,4 +1,4 @@
-import type { Move, MoveSource, MoveTarget } from '@/types/game'
+import type { Move, MoveSource, MoveTarget, PlayerColor } from '@/types/game'
 import type { SeatAssignment } from '@/types/gameConfig'
 import { logger } from '@/lib/logger'
 import { useGameStore } from '@/state/gameStore'
@@ -109,7 +109,12 @@ export function useGame() {
     canInteract &&
     !match?.isCrawfordGame
   const isPendingDoubleOffer = cube.proposedBy !== null
-  const isResponder = cube.proposedBy !== null && board !== null && cube.proposedBy !== board.turn
+  const responderColor: PlayerColor | null =
+    cube.proposedBy !== null ? (cube.proposedBy === 'light' ? 'dark' : 'light') : null
+  const isResponder =
+    cube.proposedBy !== null &&
+    responderColor !== null &&
+    (seatPlan === null || seatPlan[responderColor]?.kind === 'human')
   /** True when a chain is running for a seat the player may not act on: Roll should stay hidden. */
   const aiSeatThinking = isAiThinking && isHumanTurn === false
 

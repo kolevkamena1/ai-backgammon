@@ -94,7 +94,7 @@ interface GameStoreState {
   /** Proposes a doubling of the stake (value x2) to the opponent. */
   proposeDouble: (proposer: PlayerColor) => boolean
   /** Responds to a pending double offer: accept (Take) or decline (Drop/Resign). */
-  respondToDouble: (responder: PlayerColor, accept: boolean) => void
+  respondToDouble: (responder: PlayerColor, accept: boolean, reasoning?: string) => void
   roll: () => DieFace[] | null
   makeMove: (move: Move) => boolean
   selectPoint: (from: MoveSource | null) => void
@@ -287,6 +287,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
     set({
       board: last.board,
       lastRoll: last.lastRoll,
+      cube: last.cube ?? get().cube,
       history: kept.flatMap((snap) =>
         snap.lastMove ? [{ from: snap.lastMove.from, to: snap.lastMove.to, die: snap.lastMove.die }] : [],
       ),
@@ -350,6 +351,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         diceRemaining: [],
         selectedFrom: null,
         turnPassed: null,
+        cube: { value: 1, owner: 'centered', proposedBy: null },
         aiThought: null,
         description: 'Game started',
         at: Date.now(),
@@ -417,6 +419,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         diceRemaining: [],
         selectedFrom: null,
         turnPassed: null,
+        cube: { value: 1, owner: 'centered', proposedBy: null },
         aiThought: null,
         description: `Game ${match.gameIndex + 1} started`,
         at: Date.now(),
@@ -477,44 +480,99 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         return false
       }
 
-      set({
-        cube: {
-          ...cube,
-          proposedBy: proposer,
+      const nextCube: DoublingCubeState = {
+        ...cube,
+        proposedBy: proposer,
+      }
+      const currentHistory = get().stepHistory
+      const nextIndex = currentHistory.length
+      const targetValue = cube.value * 2
+
+      const proposeSnapshot: GameSnapshot = {
+        stepIndex: nextIndex,
+        turnNumber: get().turnNumber,
+        player: proposer,
+        board,
+        lastRoll: null,
+        diceRemaining: [],
+        selectedFrom: null,
+        turnPassed: null,
+        cubeAction: {
+          type: 'propose',
+          player: proposer,
+          value: targetValue,
+          at: Date.now(),
         },
+        cube: nextCube,
+        aiThought: null,
+        description: `${proposer === 'light' ? 'White' : 'Black'} proposed double to ${targetValue}`,
+        at: Date.now(),
+      }
+
+      set({
+        cube: nextCube,
+        stepHistory: [...currentHistory, proposeSnapshot],
+        currentStepIndex: nextIndex,
       })
-      logger.info('double proposed', { proposer, currentCube: cube.value })
+      logger.info('double proposed', { proposer, currentCube: cube.value, targetValue })
 
       // If the respondent is an AI seat, evaluate and respond immediately!
       const responder: PlayerColor = proposer === 'light' ? 'dark' : 'light'
       const respondentSeat = get().seatPlan?.[responder]
       if (respondentSeat && respondentSeat.kind === 'ai') {
         const acceptDecision = evaluateAiAcceptDouble(board, responder)
-        get().respondToDouble(responder, acceptDecision.accept)
+        get().respondToDouble(responder, acceptDecision.accept, acceptDecision.reason)
       }
 
       return true
     },
 
-    respondToDouble: (responder, accept) => {
+    respondToDouble: (responder, accept, reasoning) => {
       const { board, cube, match } = get()
       if (board === null || cube.proposedBy === null || cube.proposedBy === responder) {
         return
       }
 
       const proposer = cube.proposedBy
+      const currentHistory = get().stepHistory
+      const nextIndex = currentHistory.length
 
       if (accept) {
         // Player accepts (Take): cube value doubles, responder now owns the cube
         const nextValue = cube.value * 2
-        set({
-          cube: {
+        const nextCube: DoublingCubeState = {
+          value: nextValue,
+          owner: responder,
+          proposedBy: null,
+        }
+        const acceptSnapshot: GameSnapshot = {
+          stepIndex: nextIndex,
+          turnNumber: get().turnNumber,
+          player: responder,
+          board,
+          lastRoll: null,
+          diceRemaining: [],
+          selectedFrom: null,
+          turnPassed: null,
+          cubeAction: {
+            type: 'accept',
+            player: responder,
             value: nextValue,
-            owner: responder,
-            proposedBy: null,
+            reasoning,
+            at: Date.now(),
           },
+          cube: nextCube,
+          aiThought: reasoning ?? null,
+          description: `${responder === 'light' ? 'White' : 'Black'} accepted double (${nextValue}x)`,
+          at: Date.now(),
+        }
+
+        set({
+          cube: nextCube,
+          stepHistory: [...currentHistory, acceptSnapshot],
+          currentStepIndex: nextIndex,
         })
-        logger.info('double accepted', { responder, newValue: nextValue })
+        logger.info('double accepted', { responder, newValue: nextValue, reasoning })
       } else {
         // Player declines (Drop / Resign): proposer wins current cube points immediately
         const pointsWon = cube.value
@@ -549,16 +607,42 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           }
         }
 
+        const nextCube: DoublingCubeState = {
+          ...cube,
+          proposedBy: null,
+        }
+
+        const declineSnapshot: GameSnapshot = {
+          stepIndex: nextIndex,
+          turnNumber: get().turnNumber,
+          player: responder,
+          board: nextBoard,
+          lastRoll: null,
+          diceRemaining: [],
+          selectedFrom: null,
+          turnPassed: null,
+          cubeAction: {
+            type: 'decline',
+            player: responder,
+            value: cube.value,
+            reasoning,
+            at: Date.now(),
+          },
+          cube: nextCube,
+          aiThought: reasoning ?? null,
+          description: `${responder === 'light' ? 'White' : 'Black'} declined double`,
+          at: Date.now(),
+        }
+
         cancelAi()
         set({
           board: nextBoard,
-          cube: {
-            ...cube,
-            proposedBy: null,
-          },
+          cube: nextCube,
+          stepHistory: [...currentHistory, declineSnapshot],
+          currentStepIndex: nextIndex,
           match: updatedMatch,
         })
-        logger.info('double declined; game finished', { winner: proposer, pointsWon })
+        logger.info('double declined; game finished', { winner: proposer, pointsWon, reasoning })
       }
     },
 

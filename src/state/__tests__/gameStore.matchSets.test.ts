@@ -95,6 +95,11 @@ describe('Doubling Cube stake raising mechanism', () => {
     expect(afterAccept.cube.owner).toBe('dark') // Responder owns cube now
     expect(afterAccept.cube.proposedBy).toBeNull()
 
+    const cubeSteps = afterAccept.stepHistory.filter((s) => s.cubeAction)
+    expect(cubeSteps).toHaveLength(2)
+    expect(cubeSteps[0].cubeAction?.type).toBe('propose')
+    expect(cubeSteps[1].cubeAction?.type).toBe('accept')
+
     // Light cannot double now because dark owns the cube
     expect(useGameStore.getState().proposeDouble('light')).toBe(false)
   })

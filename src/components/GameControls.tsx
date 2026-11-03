@@ -148,18 +148,24 @@ const GameControls = () => {
             </div>
           </div>
           {/* If the current actor is the human responder */}
-          {game.canInteract && game.cube.proposedBy !== board.turn && (
+          {game.isResponder && (
             <div className="flex items-center gap-2 mt-1">
               <button
                 type="button"
-                onClick={() => game.respondToDouble(board.turn, true)}
+                onClick={() => {
+                  const responder = game.cube.proposedBy === 'light' ? 'dark' : 'light'
+                  game.respondToDouble(responder, true)
+                }}
                 className={cn(PRIMARY, 'px-3 py-1 text-xs bg-emerald-600 hover:bg-emerald-500')}
               >
                 Accept (Take Double)
               </button>
               <button
                 type="button"
-                onClick={() => game.respondToDouble(board.turn, false)}
+                onClick={() => {
+                  const responder = game.cube.proposedBy === 'light' ? 'dark' : 'light'
+                  game.respondToDouble(responder, false)
+                }}
                 className={cn(SECONDARY, 'px-3 py-1 text-xs text-rose-300 hover:bg-rose-950/40 hover:text-rose-200')}
               >
                 Decline (Resign Game for {game.cube.value} pt{game.cube.value > 1 ? 's' : ''})

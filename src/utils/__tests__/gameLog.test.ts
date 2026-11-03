@@ -160,6 +160,98 @@ describe('deriveTurnEntries', () => {
     expect(entries[0].moves[1].isHit).toBe(false)
     expect(entries[0].moves[1].reasoning).toBe('Safely moving blot')
   })
+
+  it('records doubling cube proposals and acceptances into turn entries', () => {
+    const initialBoard = getInitialBoardState()
+    const baseTime = 1700000000000
+    const snapshots: GameSnapshot[] = [
+      {
+        stepIndex: 0,
+        turnNumber: 1,
+        player: 'light',
+        board: initialBoard,
+        lastRoll: null,
+        diceRemaining: [],
+        selectedFrom: null,
+        turnPassed: null,
+        aiThought: null,
+        description: 'Game started',
+        at: baseTime,
+      },
+      {
+        stepIndex: 1,
+        turnNumber: 1,
+        player: 'light',
+        board: initialBoard,
+        lastRoll: null,
+        diceRemaining: [],
+        selectedFrom: null,
+        turnPassed: null,
+        cubeAction: {
+          type: 'propose',
+          player: 'light',
+          value: 2,
+          at: baseTime + 500,
+        },
+        aiThought: null,
+        description: 'White proposed double to 2',
+        at: baseTime + 500,
+      },
+      {
+        stepIndex: 2,
+        turnNumber: 1,
+        player: 'dark',
+        board: initialBoard,
+        lastRoll: null,
+        diceRemaining: [],
+        selectedFrom: null,
+        turnPassed: null,
+        cubeAction: {
+          type: 'accept',
+          player: 'dark',
+          value: 2,
+          reasoning: 'Good chances in bear-off',
+          at: baseTime + 600,
+        },
+        aiThought: 'Good chances in bear-off',
+        description: 'Black accepted double (2x)',
+        at: baseTime + 600,
+      },
+      {
+        stepIndex: 3,
+        turnNumber: 1,
+        player: 'light',
+        board: { ...initialBoard, dice: [4, 2] },
+        lastRoll: [4, 2],
+        diceRemaining: [4, 2],
+        selectedFrom: null,
+        turnPassed: null,
+        aiThought: null,
+        description: 'Rolled 4-2',
+        at: baseTime + 1000,
+      },
+    ]
+
+    const entries = deriveTurnEntries(snapshots, null)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].turnNumber).toBe(1)
+    expect(entries[0].cubeActions).toHaveLength(2)
+    expect(entries[0].cubeActions![0]).toEqual({
+      type: 'propose',
+      player: 'light',
+      value: 2,
+      reasoning: null,
+      at: baseTime + 500,
+    })
+    expect(entries[0].cubeActions![1]).toEqual({
+      type: 'accept',
+      player: 'dark',
+      value: 2,
+      reasoning: 'Good chances in bear-off',
+      at: baseTime + 600,
+    })
+    expect(entries[0].roll).toEqual([4, 2])
+  })
 })
 
 describe('derivePendingTurns and formatters', () => {
