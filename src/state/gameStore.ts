@@ -2,6 +2,7 @@ import type { AiDelta, AiErrorInfo, AiResult } from '@/types/ai'
 import type { BoardState, DieFace, DiceRoll, Move, MoveSource, PlayerColor } from '@/types/game'
 import type { GameConfigSnapshot, SeatAssignment, SeatPlan } from '@/types/gameConfig'
 import type { GameSnapshot, MoveRecord } from '@/types/gameLog'
+import type { DoublingCubeState, GameVictory, MatchScoreState } from '@/types/gameMatch'
 import type { AiEngineConfig } from '@/types/settings'
 import {
   AI_MOVE_DELAY_MS,
@@ -9,12 +10,14 @@ import {
   getAiMove,
   supportsStreaming,
 } from '@/utils/aiClient'
+import { evaluateAiAcceptDouble, evaluateAiShouldDouble } from '@/utils/doublingAi'
 import { logger } from '@/lib/logger'
 import { planSeats } from '@/utils/gameConfig'
 import {
   applyMove,
   canPlay,
   endTurn,
+  evaluateVictoryGrade,
   expandRoll,
   formatMove,
   getInitialBoardState,
@@ -81,7 +84,17 @@ interface GameStoreState {
   stepHistory: GameSnapshot[]
   /** Index of the latest snapshot in stepHistory (always the last one: rewinds truncate). */
   currentStepIndex: number
-  startNewGame: (config: GameConfigSnapshot, personal: AiEngineConfig) => boolean
+  /** Doubling cube state (value 1..64, owner, and active pending offer). */
+  cube: DoublingCubeState
+  /** Overall match set score state across multiple games. */
+  match: MatchScoreState | null
+  startNewGame: (config: GameConfigSnapshot, personal: AiEngineConfig, resetMatch?: boolean) => boolean
+  /** Starts the next game in an active match set, keeping accumulated set points. */
+  startNextGameInSet: () => boolean
+  /** Proposes a doubling of the stake (value x2) to the opponent. */
+  proposeDouble: (proposer: PlayerColor) => boolean
+  /** Responds to a pending double offer: accept (Take) or decline (Drop/Resign). */
+  respondToDouble: (responder: PlayerColor, accept: boolean) => void
   roll: () => DieFace[] | null
   makeMove: (move: Move) => boolean
   selectPoint: (from: MoveSource | null) => void
@@ -308,8 +321,14 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
     recordedRolls: [],
     stepHistory: [],
     currentStepIndex: 0,
+    cube: {
+      value: 1,
+      owner: 'centered',
+      proposedBy: null,
+    },
+    match: null,
 
-    startNewGame: (config, personal) => {
+    startNewGame: (config, personal, resetMatch = true) => {
       const seatPlan = planSeats(personal, config)
 
       if (seatPlan.ready === false) {
@@ -336,6 +355,24 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         at: Date.now(),
       }
 
+      const matchConfig = config.match ?? { targetPoints: 1, enableCrawford: false }
+      const isAiVsAi = config.mode === 'aiVsAi'
+      const enableCrawford = isAiVsAi ? false : matchConfig.enableCrawford
+
+      let matchState = get().match
+      if (resetMatch || matchState === null || matchState.targetPoints !== matchConfig.targetPoints) {
+        matchState = {
+          light: 0,
+          dark: 0,
+          targetPoints: matchConfig.targetPoints,
+          gameIndex: 1,
+          matchWinner: null,
+          enableCrawford,
+          isCrawfordGame: false,
+          lastVictory: null,
+        }
+      }
+
       set({
         board: initialBoard,
         seatPlan,
@@ -353,9 +390,167 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         recordedRolls: [],
         stepHistory: [initialSnapshot],
         currentStepIndex: 0,
+        cube: {
+          value: 1,
+          owner: 'centered',
+          proposedBy: null,
+        },
+        match: matchState,
       })
-      logger.debug('game started', { mode: config.mode, aiMatchType: config.aiMatchType })
+      logger.debug('game started', { mode: config.mode, aiMatchType: config.aiMatchType, matchState })
       return true
+    },
+
+    startNextGameInSet: () => {
+      const { config, match } = get()
+      if (config === null || match === null || match.matchWinner !== null) {
+        return false
+      }
+
+      const initialBoard = getInitialBoardState()
+      const initialSnapshot: GameSnapshot = {
+        stepIndex: 0,
+        turnNumber: 1,
+        player: 'light',
+        board: initialBoard,
+        lastRoll: null,
+        diceRemaining: [],
+        selectedFrom: null,
+        turnPassed: null,
+        aiThought: null,
+        description: `Game ${match.gameIndex + 1} started`,
+        at: Date.now(),
+      }
+
+      // Check if next game is Crawford game:
+      // When Crawford is enabled and either player is exactly 1 point away from match target
+      const lightNeed = match.targetPoints - match.light
+      const darkNeed = match.targetPoints - match.dark
+      const isCrawford = match.enableCrawford && !match.isCrawfordGame && (lightNeed === 1 || darkNeed === 1)
+
+      const updatedMatch: MatchScoreState = {
+        ...match,
+        gameIndex: match.gameIndex + 1,
+        isCrawfordGame: isCrawford,
+        lastVictory: null,
+      }
+
+      cancelAi()
+      set({
+        board: initialBoard,
+        lastRoll: null,
+        history: [],
+        selectedFrom: null,
+        turnPassed: null,
+        isAiThinking: false,
+        lastAiError: null,
+        aiThought: null,
+        isPaused: false,
+        gameId: crypto.randomUUID(),
+        turnNumber: 1,
+        recordedRolls: [],
+        stepHistory: [initialSnapshot],
+        currentStepIndex: 0,
+        cube: {
+          value: 1,
+          owner: 'centered',
+          proposedBy: null,
+        },
+        match: updatedMatch,
+      })
+      return true
+    },
+
+    proposeDouble: (proposer) => {
+      const { board, cube, isAiThinking, match } = get()
+      if (
+        board === null ||
+        board.phase === 'finished' ||
+        board.dice.length > 0 ||
+        board.turn !== proposer ||
+        isAiThinking ||
+        cube.value >= 64 ||
+        cube.proposedBy !== null ||
+        (cube.owner !== 'centered' && cube.owner !== proposer) ||
+        match?.isCrawfordGame
+      ) {
+        return false
+      }
+
+      set({
+        cube: {
+          ...cube,
+          proposedBy: proposer,
+        },
+      })
+      logger.info('double proposed', { proposer, currentCube: cube.value })
+      return true
+    },
+
+    respondToDouble: (responder, accept) => {
+      const { board, cube, match } = get()
+      if (board === null || cube.proposedBy === null || cube.proposedBy === responder) {
+        return
+      }
+
+      const proposer = cube.proposedBy
+
+      if (accept) {
+        // Player accepts (Take): cube value doubles, responder now owns the cube
+        const nextValue = cube.value * 2
+        set({
+          cube: {
+            value: nextValue,
+            owner: responder,
+            proposedBy: null,
+          },
+        })
+        logger.info('double accepted', { responder, newValue: nextValue })
+      } else {
+        // Player declines (Drop / Resign): proposer wins current cube points immediately
+        const pointsWon = cube.value
+        const victory: GameVictory = {
+          winner: proposer,
+          loser: responder,
+          grade: 'single',
+          basePoints: 1,
+          cubeMultiplier: cube.value,
+          totalPoints: pointsWon,
+          reason: 'resigned-double',
+        }
+
+        const nextBoard: BoardState = {
+          ...board,
+          phase: 'finished',
+          winner: proposer,
+          dice: [],
+        }
+
+        let updatedMatch = match
+        if (match) {
+          const newLight = match.light + (proposer === 'light' ? pointsWon : 0)
+          const newDark = match.dark + (proposer === 'dark' ? pointsWon : 0)
+          const matchWon = newLight >= match.targetPoints ? 'light' : newDark >= match.targetPoints ? 'dark' : null
+          updatedMatch = {
+            ...match,
+            light: newLight,
+            dark: newDark,
+            matchWinner: matchWon,
+            lastVictory: victory,
+          }
+        }
+
+        cancelAi()
+        set({
+          board: nextBoard,
+          cube: {
+            ...cube,
+            proposedBy: null,
+          },
+          match: updatedMatch,
+        })
+        logger.info('double declined; game finished', { winner: proposer, pointsWon })
+      }
     },
 
     roll: () => {
@@ -541,7 +736,40 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         })
 
         if (next.phase === 'finished' && next.winner !== null) {
-          logger.info('game finished', { winner: next.winner, moves: history.length + 1 })
+          const winner = next.winner
+          const loser: PlayerColor = winner === 'light' ? 'dark' : 'light'
+          const grade = evaluateVictoryGrade(next, winner)
+          const basePoints: 1 | 2 | 3 = grade === 'single' ? 1 : grade === 'gammon' ? 2 : 3
+          const cubeMult = get().cube.value
+          const totalPoints = basePoints * cubeMult
+
+          const victory: GameVictory = {
+            winner,
+            loser,
+            grade,
+            basePoints,
+            cubeMultiplier: cubeMult,
+            totalPoints,
+            reason: 'bear-off',
+          }
+
+          const currentMatch = get().match
+          let updatedMatch = currentMatch
+          if (currentMatch) {
+            const newLight = currentMatch.light + (winner === 'light' ? totalPoints : 0)
+            const newDark = currentMatch.dark + (winner === 'dark' ? totalPoints : 0)
+            const matchWon = newLight >= currentMatch.targetPoints ? 'light' : newDark >= currentMatch.targetPoints ? 'dark' : null
+            updatedMatch = {
+              ...currentMatch,
+              light: newLight,
+              dark: newDark,
+              matchWinner: matchWon,
+              lastVictory: victory,
+            }
+          }
+
+          set({ match: updatedMatch })
+          logger.info('game finished', { winner, grade, basePoints, cubeMult, totalPoints, match: updatedMatch })
         }
         return true
       } catch (error) {
@@ -627,6 +855,15 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       ) {
         return
       }
+
+      // If an opponent double is pending response, AI responder must decide before anything else
+      const pendingOffer = get().cube.proposedBy
+      if (pendingOffer !== null && pendingOffer !== seat.color) {
+        const acceptDecision = evaluateAiAcceptDouble(board, seat.color)
+        get().respondToDouble(seat.color, acceptDecision.accept)
+        return
+      }
+
       // Single flight: React may mount the trigger twice, and two components can observe the
       // same turn. Only one request chain may ever be in progress.
       if (get().isAiThinking) {
@@ -639,9 +876,31 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       set({ isAiThinking: true, lastAiError: null })
 
       try {
-        // Nobody else can roll for an AI seat, and a turn cannot start without dice.
+        // AI double evaluation before rolling
         if (get().board?.dice.length === 0) {
-          get().roll()
+          const currentCube = get().cube
+          const currentMatch = get().match
+          const doubleDecision = evaluateAiShouldDouble(board, seat.color, currentCube, currentMatch)
+
+          if (doubleDecision.shouldDouble) {
+            get().proposeDouble(seat.color)
+            const opponentColor: PlayerColor = seat.color === 'light' ? 'dark' : 'light'
+            const opponentSeat = get().seatPlan?.[opponentColor]
+            // If opponent is also AI, resolve immediately
+            if (opponentSeat && opponentSeat.kind === 'ai') {
+              const oppAccept = evaluateAiAcceptDouble(board, opponentColor)
+              get().respondToDouble(opponentColor, oppAccept.accept)
+            }
+            // If double was declined, game finished; stop here
+            if (get().board?.phase === 'finished') {
+              return
+            }
+          }
+
+          // Nobody else can roll for an AI seat, and a turn cannot start without dice.
+          if (get().board?.dice.length === 0 && get().cube.proposedBy === null) {
+            get().roll()
+          }
         }
 
         for (let step = 0; step < MAX_AI_MOVES_PER_TURN; step += 1) {
@@ -716,6 +975,12 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         recordedRolls: [],
         stepHistory: [],
         currentStepIndex: 0,
+        cube: {
+          value: 1,
+          owner: 'centered',
+          proposedBy: null,
+        },
+        match: null,
       })
     },
 

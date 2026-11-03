@@ -43,6 +43,11 @@ export function useGame() {
   const rewindMovesFrom = useGameStore((state) => state.rewindMovesFrom)
   const rewindRollsFrom = useGameStore((state) => state.rewindRollsFrom)
   const recordedRolls = useGameStore((state) => state.recordedRolls)
+  const cube = useGameStore((state) => state.cube)
+  const match = useGameStore((state) => state.match)
+  const proposeDouble = useGameStore((state) => state.proposeDouble)
+  const respondToDouble = useGameStore((state) => state.respondToDouble)
+  const startNextGameInSet = useGameStore((state) => state.startNextGameInSet)
 
   const currentSeat: SeatAssignment | null =
     board !== null && seatPlan !== null ? seatPlan[board.turn] : null
@@ -93,7 +98,18 @@ export function useGame() {
     [allLegalMoves],
   )
 
-  const awaitingRoll = board !== null && board.dice.length === 0 && isFinished === false
+  const awaitingRoll = board !== null && board.dice.length === 0 && isFinished === false && cube.proposedBy === null
+  const canDouble =
+    board !== null &&
+    !isFinished &&
+    board.dice.length === 0 &&
+    cube.proposedBy === null &&
+    cube.value < 64 &&
+    (cube.owner === 'centered' || cube.owner === board.turn) &&
+    canInteract &&
+    !match?.isCrawfordGame
+  const isPendingDoubleOffer = cube.proposedBy !== null
+  const isResponder = cube.proposedBy !== null && board !== null && cube.proposedBy !== board.turn
   /** True when a chain is running for a seat the player may not act on: Roll should stay hidden. */
   const aiSeatThinking = isAiThinking && isHumanTurn === false
 
@@ -208,6 +224,14 @@ export function useGame() {
     setPaused,
     rewindMovesFrom,
     rewindRollsFrom,
+    cube,
+    match,
+    canDouble,
+    isPendingDoubleOffer,
+    isResponder,
+    proposeDouble,
+    respondToDouble,
+    startNextGameInSet,
   }
 }
 

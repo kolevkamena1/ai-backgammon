@@ -6,6 +6,7 @@ import type {
   Point as PointModel,
   PointIndex,
 } from '@/types/game'
+import type { DoublingCubeState } from '@/types/gameMatch'
 import { DEFAULT_BOARD_DESIGN, type BoardDesignId } from '@/utils/boardDesigns'
 import {
   computeBoardMetrics,
@@ -31,6 +32,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react'
 import Checker from './Checker'
+import DoublingCube from './DoublingCube'
 import Point, { type PointState } from './Point'
 
 interface BoardProps {
@@ -50,6 +52,10 @@ interface BoardProps {
   onDropTarget?: (target: MoveSource | MoveTarget, draggedSource?: MoveSource | null) => void
   /** Visual material preset for the board, triangles, and checkers. */
   design?: BoardDesignId
+  /** Current doubling cube state to render in the center bar */
+  cube?: DoublingCubeState
+  canDouble?: boolean
+  onDouble?: () => void
   className?: string
 }
 
@@ -299,6 +305,9 @@ const Board = ({
   onDragStartSource,
   onDropTarget,
   design = DEFAULT_BOARD_DESIGN,
+  cube,
+  canDouble = false,
+  onDouble,
   className,
 }: BoardProps) => {
   const sectionRef = useRef<HTMLElement | null>(null)
@@ -606,9 +615,25 @@ const Board = ({
               onSelect={barLive('dark') && onSelectPoint ? () => onSelectPoint('bar') : undefined}
             />
 
-            <span className="text-[10px] uppercase tracking-[0.3em] text-point-light/40 [writing-mode:vertical-rl]">
-              Bar
-            </span>
+            {cube ? (
+              <div className="my-auto flex flex-col items-center gap-1 z-10">
+                <DoublingCube
+                  cube={cube}
+                  size="sm"
+                  interactive={canDouble}
+                  onClick={canDouble ? onDouble : undefined}
+                  title={
+                    canDouble
+                      ? `Click to Double Stake to ${cube.value * 2}`
+                      : `Doubling Cube (${cube.value}x)`
+                  }
+                />
+              </div>
+            ) : (
+              <span className="text-[10px] uppercase tracking-[0.3em] text-point-light/40 [writing-mode:vertical-rl]">
+                Bar
+              </span>
+            )}
 
             <BarCell
               seat="light"

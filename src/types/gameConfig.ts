@@ -1,4 +1,5 @@
 import type { PlayerColor } from './game'
+import type { MatchConfig } from './gameMatch'
 import type { AiEngineConfig } from './settings'
 
 /** Who plays: the local human against one AI, or two AIs against each other. */
@@ -17,6 +18,8 @@ export interface GameConfigSnapshot {
   aiMatchType: AiMatchType
   /** Used only when `mode === 'aiVsAi' && aiMatchType === 'custom'`. */
   opponent: AiEngineConfig
+  /** Configuration for match play / game sets (target points & Crawford rule) */
+  match?: MatchConfig
 }
 
 /**

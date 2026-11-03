@@ -493,3 +493,65 @@ export function getInitialBoardState(): BoardState {
     winner: null,
   }
 }
+
+/**
+ * Calculates the total pip count for a player (distance left to bear off all checkers).
+ * Light moves from 24 down to 1 and off (pip count for point i is i).
+ * Dark moves from 1 up to 24 and off (pip count for point i is 25 - i).
+ * Checkers on the bar count as 25 pips each.
+ */
+export function calculatePipCount(board: BoardState, player: PlayerColor): number {
+  let count = board.bar[player] * 25
+  for (let i = 0; i < POINT_COUNT; i += 1) {
+    const val = board.points[i]
+    if (player === 'light' && val > 0) {
+      count += val * (i + 1)
+    } else if (player === 'dark' && val < 0) {
+      count += Math.abs(val) * (24 - i)
+    }
+  }
+  return count
+}
+
+/**
+ * Grades the victory when a player bears off all 15 checkers:
+ * - Single (1 point): Loser has borne off at least 1 checker.
+ * - Gammon (2 points): Loser has borne off 0 checkers.
+ * - Backgammon (3 points): Loser has borne off 0 checkers AND has at least 1 checker in
+ *   the winner's home board (points 1-6 for light, 19-24 for dark) or on the bar.
+ */
+export function evaluateVictoryGrade(board: BoardState, winner: PlayerColor): 'single' | 'gammon' | 'backgammon' {
+  const loser: PlayerColor = winner === 'light' ? 'dark' : 'light'
+
+  if (board.off[loser] > 0) {
+    return 'single'
+  }
+
+  // Check if loser has checkers in winner's home board or bar
+  const hasOnBar = board.bar[loser] > 0
+  let hasInWinnerHome = false
+
+  if (winner === 'light') {
+    // Light's home board is 1..6 (indices 0..5), where dark checkers are negative
+    for (let i = 0; i < 6; i += 1) {
+      if (board.points[i] < 0) {
+        hasInWinnerHome = true
+        break
+      }
+    }
+  } else {
+    // Dark's home board is 19..24 (indices 18..23), where light checkers are positive
+    for (let i = 18; i < 24; i += 1) {
+      if (board.points[i] > 0) {
+        hasInWinnerHome = true
+        break
+      }
+    }
+  }
+
+  if (hasOnBar || hasInWinnerHome) {
+    return 'backgammon'
+  }
+
+  return 'gammon'
+}

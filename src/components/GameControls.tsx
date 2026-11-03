@@ -11,6 +11,7 @@ import { Dices, RefreshCw, RotateCcw, TriangleAlert, X } from 'lucide-react'
 import AiThoughtPanel from './AiThoughtPanel'
 import Checker from './Checker'
 import Die from './Die'
+import DoublingCube from './DoublingCube'
 
 const PANEL = 'flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-4'
 const HEADING = 'text-sm font-semibold text-slate-100'
@@ -109,7 +110,79 @@ const GameControls = () => {
         <span className={SUBTLE}>· {seatSummary(currentSeat)}</span>
       </div>
 
+      {/* Match Set Scoreboard */}
+      {game.match && game.match.targetPoints > 1 && (
+        <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-xs">
+          <div className="flex items-center gap-3">
+            <span className="font-semibold text-slate-300">
+              Match Set (Race to {game.match.targetPoints} pts)
+            </span>
+            {game.match.isCrawfordGame && (
+              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300 border border-amber-500/30">
+                Crawford Game
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3 font-mono font-bold">
+            <span className="text-amber-100">White: {game.match.light}</span>
+            <span className="text-slate-500">·</span>
+            <span className="text-sky-300">Black: {game.match.dark}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Pending Double Offer Banner */}
+      {game.isPendingDoubleOffer && (
+        <div
+          role="alertdialog"
+          aria-label="Doubling stake proposal"
+          className="flex flex-col gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-xs text-amber-100"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <DoublingCube cube={game.cube} size="sm" />
+              <span>
+                <strong>{SEAT_LABELS[game.cube.proposedBy!]}</strong> proposes to double the stake to{' '}
+                <strong>{game.cube.value * 2} points</strong>!
+              </span>
+            </div>
+          </div>
+          {/* If the current actor is the human responder */}
+          {game.canInteract && game.cube.proposedBy !== board.turn && (
+            <div className="flex items-center gap-2 mt-1">
+              <button
+                type="button"
+                onClick={() => game.respondToDouble(board.turn, true)}
+                className={cn(PRIMARY, 'px-3 py-1 text-xs bg-emerald-600 hover:bg-emerald-500')}
+              >
+                Accept (Take Double)
+              </button>
+              <button
+                type="button"
+                onClick={() => game.respondToDouble(board.turn, false)}
+                className={cn(SECONDARY, 'px-3 py-1 text-xs text-rose-300 hover:bg-rose-950/40 hover:text-rose-200')}
+              >
+                Decline (Resign Game for {game.cube.value} pt{game.cube.value > 1 ? 's' : ''})
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-3">
+        {/* Doubling Cube in Controls */}
+        <DoublingCube
+          cube={game.cube}
+          size="md"
+          interactive={game.canDouble}
+          onClick={game.canDouble ? () => game.proposeDouble(board.turn) : undefined}
+          title={
+            game.canDouble
+              ? `Click to Double Stake to ${game.cube.value * 2} points`
+              : `Current Stake: ${game.cube.value}x`
+          }
+        />
+
         {board.dice.length > 0 ? (
           <div className="flex items-center gap-2" aria-label="Dice still to play">
             {board.dice.map((value, position) => (
@@ -123,10 +196,22 @@ const GameControls = () => {
         )}
 
         {game.awaitingRoll && game.canInteract ? (
-          <button type="button" onClick={game.roll} className={PRIMARY}>
-            <Dices className="size-4" aria-hidden />
-            {rollLabel}
-          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={game.roll} className={PRIMARY}>
+              <Dices className="size-4" aria-hidden />
+              {rollLabel}
+            </button>
+            {game.canDouble && (
+              <button
+                type="button"
+                onClick={() => game.proposeDouble(board.turn)}
+                className={cn(SECONDARY, 'text-xs text-amber-300 border-amber-600/50 hover:bg-amber-500/10')}
+                title={`Offer to double stake to ${game.cube.value * 2}`}
+              >
+                Double to {game.cube.value * 2}
+              </button>
+            )}
+          </div>
         ) : null}
       </div>
 
@@ -148,9 +233,44 @@ const GameControls = () => {
       {aiThought !== null ? <AiThoughtPanel thought={aiThought} onDismiss={game.clearAiThought} /> : null}
 
       {game.isFinished && board.winner !== null ? (
-        <p className="text-sm font-semibold text-emerald-300">
-          {SEAT_LABELS[board.winner]} bore off all 15 checkers and wins.
-        </p>
+        <div className="space-y-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs">
+          <p className="text-sm font-semibold text-emerald-300">
+            {SEAT_LABELS[board.winner]} bore off all 15 checkers and wins.
+          </p>
+          {game.match?.lastVictory && (
+            <p className="text-slate-300">
+              Victory: <strong className="capitalize text-emerald-200">{game.match.lastVictory.grade}</strong> (
+              {game.match.lastVictory.basePoints} pt{game.match.lastVictory.basePoints > 1 ? 's' : ''} × cube{' '}
+              {game.match.lastVictory.cubeMultiplier} = <strong className="text-white">{game.match.lastVictory.totalPoints} pts</strong>)
+            </p>
+          )}
+          {game.match && game.match.targetPoints > 1 && (
+            <div className="pt-1">
+              {game.match.matchWinner !== null ? (
+                <div className="space-y-1">
+                  <p className="text-sm font-bold text-amber-300">
+                    🏆 {SEAT_LABELS[game.match.matchWinner]} won the Match Set ({game.match.targetPoints} points reached)!
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => game.startNewGame(game.config!, {} as never, true)}
+                    className={cn(PRIMARY, 'mt-1 text-xs py-1.5')}
+                  >
+                    Start New Match Set
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={game.startNextGameInSet}
+                  className={cn(PRIMARY, 'text-xs py-1.5')}
+                >
+                  Play Game {game.match.gameIndex + 1} in Set →
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       ) : null}
 
       {turnPassed !== null ? (

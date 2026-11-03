@@ -125,14 +125,28 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
 
   const [mode, setLocalMode] = useState<GameMode>(initialMode ?? config.mode)
   const [aiMatchType, setLocalMatchType] = useState<AiMatchType>(config.aiMatchType)
+  const [matchLength, setMatchLength] = useState<number>(config.match?.targetPoints ?? 7)
+  const [customPointsInput, setCustomPointsInput] = useState<string>(
+    config.match && ![1, 7, 11].includes(config.match.targetPoints)
+      ? String(config.match.targetPoints)
+      : '5',
+  )
+  const [enableCrawford, setEnableCrawford] = useState<boolean>(config.match?.enableCrawford ?? true)
   const [error, setError] = useState('')
 
   const isAiVsAi = mode === 'aiVsAi'
   const isCustomMatch = isAiVsAi && aiMatchType === 'custom'
   const plan = planSeats(settings, { mode, aiMatchType, opponent: config.opponent })
 
+  const effectivePoints = matchLength === -1 ? Math.max(1, parseInt(customPointsInput, 10) || 5) : matchLength
+
   const handleOpenByokSettings = (): void => {
-    saveSetup({ mode, aiMatchType, opponent: config.opponent })
+    saveSetup({
+      mode,
+      aiMatchType,
+      opponent: config.opponent,
+      match: { targetPoints: effectivePoints, enableCrawford: isAiVsAi ? false : enableCrawford },
+    })
     onClose()
     openSettings()
   }
@@ -144,16 +158,21 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
       return
     }
 
-    const setup = { mode, aiMatchType, opponent: config.opponent }
+    const setup = {
+      mode,
+      aiMatchType,
+      opponent: config.opponent,
+      match: { targetPoints: effectivePoints, enableCrawford: isAiVsAi ? false : enableCrawford },
+    }
 
     try {
       saveSetup(setup)
 
-      if (!game.startNewGame(setup, settings)) {
+      if (!game.startNewGame(setup, settings, true)) {
         setError('Both seats need an API key before a game can start.')
         return
       }
-      logger.info('game started', { mode, aiMatchType, seatPlanReady: plan.ready })
+      logger.info('game started', { mode, aiMatchType, seatPlanReady: plan.ready, match: setup.match })
 
       onClose()
     } catch (saveError) {
@@ -223,6 +242,97 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
             </div>
           </fieldset>
         ) : null}
+
+        {/* Match Set Length & Options */}
+        <fieldset className="space-y-2">
+          <legend className="mb-1.5 text-xs font-medium text-slate-300">Game Set &amp; Match Length</legend>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <button
+              type="button"
+              onClick={() => setMatchLength(1)}
+              className={cn(
+                'flex flex-col items-center justify-center rounded-lg border p-2.5 text-center transition-all',
+                matchLength === 1
+                  ? 'border-sky-500 bg-sky-500/15 text-white font-semibold ring-1 ring-sky-500/50'
+                  : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700 hover:bg-slate-800',
+              )}
+            >
+              <span className="text-xs font-bold">1 Point</span>
+              <span className="text-[10px] text-slate-400">Single game</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMatchLength(7)}
+              className={cn(
+                'flex flex-col items-center justify-center rounded-lg border p-2.5 text-center transition-all',
+                matchLength === 7
+                  ? 'border-sky-500 bg-sky-500/15 text-white font-semibold ring-1 ring-sky-500/50'
+                  : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700 hover:bg-slate-800',
+              )}
+            >
+              <span className="text-xs font-bold">7 Points</span>
+              <span className="text-[10px] text-slate-400">First to 7</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMatchLength(11)}
+              className={cn(
+                'flex flex-col items-center justify-center rounded-lg border p-2.5 text-center transition-all',
+                matchLength === 11
+                  ? 'border-sky-500 bg-sky-500/15 text-white font-semibold ring-1 ring-sky-500/50'
+                  : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700 hover:bg-slate-800',
+              )}
+            >
+              <span className="text-xs font-bold">11 Points</span>
+              <span className="text-[10px] text-slate-400">First to 11</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMatchLength(-1)}
+              className={cn(
+                'flex flex-col items-center justify-center rounded-lg border p-2.5 text-center transition-all',
+                matchLength === -1
+                  ? 'border-sky-500 bg-sky-500/15 text-white font-semibold ring-1 ring-sky-500/50'
+                  : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700 hover:bg-slate-800',
+              )}
+            >
+              <span className="text-xs font-bold">Custom</span>
+              <span className="text-[10px] text-slate-400">User defined</span>
+            </button>
+          </div>
+
+          {matchLength === -1 && (
+            <div className="flex items-center gap-2 pt-1">
+              <label htmlFor="custom-points-input" className="text-xs text-slate-400">
+                Points required to win the set:
+              </label>
+              <input
+                id="custom-points-input"
+                type="number"
+                min="1"
+                max="99"
+                value={customPointsInput}
+                onChange={(e) => setCustomPointsInput(e.target.value)}
+                className="w-20 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-mono text-white focus:border-sky-500 focus:outline-hidden"
+              />
+            </div>
+          )}
+
+          {!isAiVsAi && effectivePoints > 1 && (
+            <label className="flex items-center gap-2 pt-1 text-xs text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enableCrawford}
+                onChange={(e) => setEnableCrawford(e.target.checked)}
+                className="rounded border-slate-700 bg-slate-900 text-sky-500 focus:ring-0"
+              />
+              <span>Enable Crawford rule (prohibit doubling when 1 point away from winning)</span>
+            </label>
+          )}
+        </fieldset>
 
         <div>
           <div className="mb-1.5 flex items-center justify-between gap-2">

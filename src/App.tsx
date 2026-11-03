@@ -114,6 +114,9 @@ const App = () => {
                 onDragStartSource={game.handlePointDragStart}
                 onDropTarget={game.handlePointDrop}
                 design={boardDesign}
+                cube={game.cube}
+                canDouble={game.canDouble}
+                onDouble={() => game.proposeDouble(game.board!.turn)}
               />
             </div>
           }
