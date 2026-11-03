@@ -5,7 +5,6 @@ import { cn } from '@/utils/cn'
 import {
   Bot,
   Check,
-  ChevronRight,
   Dices,
   ExternalLink,
   HelpCircle,
@@ -38,69 +37,101 @@ interface MenuBarProps {
 
 type MenuKey = 'game' | 'view' | 'options' | 'help'
 
-interface MenuItemProps {
-  label: string
-  icon?: ReactNode
-  shortcut?: string
-  checked?: boolean
-  active?: boolean
-  disabled?: boolean
-  hasSubmenu?: boolean
+interface MegaItemProps {
+  title: string
+  subtitle: string
+  icon: ReactNode
   onClick?: () => void
-  onMouseEnter?: () => void
+  disabled?: boolean
+  checked?: boolean
+  swatches?: readonly string[]
+  external?: boolean
+  href?: string
 }
 
-const MenuItem = ({
-  label,
+const MegaItem = ({
+  title,
+  subtitle,
   icon,
-  shortcut,
-  checked,
-  active,
-  disabled = false,
-  hasSubmenu = false,
   onClick,
-  onMouseEnter,
-}: MenuItemProps) => {
+  disabled = false,
+  checked,
+  swatches,
+  external = false,
+  href,
+}: MegaItemProps) => {
+  const content = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex size-10 items-center justify-center rounded-lg border border-slate-700/60 bg-slate-800/80 text-sky-400 group-hover:border-sky-500/50 group-hover:bg-sky-500/10 group-hover:text-sky-300 transition-colors">
+          {icon}
+        </div>
+        {checked !== undefined && checked && (
+          <span className="flex items-center gap-1 rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-sky-400 border border-sky-500/30">
+            <Check className="size-3 stroke-[2.5]" /> Active
+          </span>
+        )}
+        {swatches && (
+          <div className="flex items-center -space-x-1" aria-hidden>
+            {swatches.map((hex, idx) => (
+              <span
+                key={idx}
+                style={{ backgroundColor: hex }}
+                className="size-3.5 rounded-full border border-black/50 shadow-xs"
+              />
+            ))}
+          </div>
+        )}
+        {external && (
+          <ExternalLink className="size-4 text-slate-400 group-hover:text-sky-400 transition-colors" />
+        )}
+      </div>
+
+      <div className="mt-2.5 space-y-0.5">
+        <div className="flex items-center gap-1 text-xs font-bold text-slate-100 group-hover:text-sky-300 transition-colors">
+          <span>{title}</span>
+        </div>
+        <p className="text-[11px] leading-relaxed text-slate-400 group-hover:text-slate-300">
+          {subtitle}
+        </p>
+      </div>
+    </>
+  )
+
+  const commonClass = cn(
+    'group flex flex-col justify-start rounded-xl p-3 text-left transition-all',
+    disabled
+      ? 'opacity-40 cursor-not-allowed bg-transparent'
+      : 'cursor-pointer hover:bg-slate-800/90 active:scale-[0.98]',
+    checked && 'ring-1 ring-sky-500/50 bg-sky-500/5',
+  )
+
+  if (href) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={onClick}
+        className={commonClass}
+      >
+        {content}
+      </a>
+    )
+  }
+
   return (
     <button
       type="button"
       role="menuitem"
       disabled={disabled}
       onClick={disabled ? undefined : onClick}
-      onMouseEnter={onMouseEnter}
-      className={cn(
-        'group flex w-full items-center justify-between gap-4 rounded-lg px-3 py-2 text-left text-sm transition-colors',
-        disabled
-          ? 'cursor-not-allowed text-slate-500 opacity-50'
-          : checked
-            ? 'bg-sky-500/15 font-semibold text-sky-700 dark:text-sky-300 hover:bg-sky-600 hover:text-white'
-            : active
-              ? 'bg-slate-800/80 font-medium text-slate-100 hover:bg-sky-600 hover:text-white'
-              : 'cursor-pointer text-slate-200 hover:bg-sky-600 hover:text-white',
-      )}
+      className={commonClass}
     >
-      <span className="flex items-center gap-2.5">
-        <span className="size-4 flex items-center justify-center shrink-0">
-          {checked ? (
-            <Check className="size-4 stroke-[2.5] text-sky-600 dark:text-sky-400 group-hover:text-white" aria-hidden />
-          ) : (
-            icon
-          )}
-        </span>
-        <span className="font-medium">{label}</span>
-      </span>
-
-      <span className="flex items-center gap-1.5 text-xs text-slate-400 group-hover:text-white/90">
-        {shortcut ? <span>{shortcut}</span> : null}
-        {hasSubmenu ? <ChevronRight className="size-4 shrink-0" aria-hidden /> : null}
-      </span>
+      {content}
     </button>
   )
 }
-
-const MenuSeparator = () => (
-  <div className="my-1.5 border-t border-slate-700/70" role="separator" />
-)
 
 export default function MenuBar({
   isGameActive,
@@ -116,12 +147,10 @@ export default function MenuBar({
   className,
 }: MenuBarProps) {
   const [openMenu, setOpenMenu] = useState<MenuKey | null>(null)
-  const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null)
   const menuBarRef = useRef<HTMLDivElement | null>(null)
 
   const closeAll = (): void => {
     setOpenMenu(null)
-    setActiveSubmenu(null)
   }
 
   // Handle clicking outside to close open menus
@@ -150,18 +179,12 @@ export default function MenuBar({
   }, [openMenu])
 
   const handleMenuHeaderClick = (menu: MenuKey): void => {
-    if (openMenu === menu) {
-      closeAll()
-    } else {
-      setOpenMenu(menu)
-      setActiveSubmenu(null)
-    }
+    setOpenMenu((curr) => (curr === menu ? null : menu))
   }
 
   const handleMenuHeaderHover = (menu: MenuKey): void => {
     if (openMenu !== null && openMenu !== menu) {
       setOpenMenu(menu)
-      setActiveSubmenu(null)
     }
   }
 
@@ -170,18 +193,23 @@ export default function MenuBar({
     closeAll()
   }
 
+  const navButtonClass = (menu: MenuKey) =>
+    cn(
+      'relative z-30 px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors rounded-t-lg select-none',
+      openMenu === menu
+        ? 'bg-slate-900 text-sky-400 border-t border-x border-slate-700/80 shadow-md'
+        : 'text-slate-300 hover:text-white hover:bg-slate-800/60',
+    )
+
   return (
     <div
       ref={menuBarRef}
       role="menubar"
       aria-label="Application menu"
-      className={cn(
-        'relative flex items-center gap-1 text-sm select-none',
-        className,
-      )}
+      className={cn('relative flex items-center gap-1.5', className)}
     >
-      {/* 1. GAME MENU */}
-      <div className="relative">
+      {/* 1. GAME TAB */}
+      <div>
         <button
           type="button"
           role="menuitem"
@@ -189,96 +217,14 @@ export default function MenuBar({
           aria-expanded={openMenu === 'game'}
           onClick={() => handleMenuHeaderClick('game')}
           onMouseEnter={() => handleMenuHeaderHover('game')}
-          className={cn(
-            'rounded-md px-3.5 py-1.5 text-sm font-semibold transition',
-            openMenu === 'game'
-              ? 'bg-sky-600 text-white shadow-sm ring-1 ring-sky-400/50'
-              : 'text-slate-200 hover:bg-slate-800/80 hover:text-slate-50',
-          )}
+          className={navButtonClass('game')}
         >
           Game
         </button>
-
-        {openMenu === 'game' && (
-          <div
-            role="menu"
-            className="absolute left-0 top-full z-50 mt-1 min-w-[230px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl"
-          >
-            {/* New Game with Submenu */}
-            <div
-              className="relative"
-              onMouseEnter={() => setActiveSubmenu('new-game')}
-              onMouseLeave={() => setActiveSubmenu((curr) => (curr === 'new-game' ? null : curr))}
-            >
-              <MenuItem
-                label="New Game"
-                icon={<Swords className="size-4 text-sky-400" aria-hidden />}
-                hasSubmenu
-                active={activeSubmenu === 'new-game'}
-                onClick={() => setActiveSubmenu((curr) => (curr === 'new-game' ? null : 'new-game'))}
-              />
-
-              {activeSubmenu === 'new-game' && (
-                <div
-                  role="menu"
-                  className="absolute left-full top-0 -ml-1 min-w-[210px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl z-[60]"
-                >
-                  <MenuItem
-                    label="Human vs AI"
-                    icon={<User className="size-4 text-sky-400" aria-hidden />}
-                    onClick={() => {
-                      onOpenNewGame('humanVsAi')
-                      closeAll()
-                    }}
-                  />
-                  <MenuItem
-                    label="AI vs AI"
-                    icon={<Bot className="size-4 text-emerald-400" aria-hidden />}
-                    onClick={() => {
-                      onOpenNewGame('aiVsAi')
-                      closeAll()
-                    }}
-                  />
-                  <MenuSeparator />
-                  <MenuItem
-                    label="Custom Match..."
-                    icon={<Dices className="size-4 text-amber-400" aria-hidden />}
-                    onClick={() => {
-                      onOpenNewGame()
-                      closeAll()
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-
-            <MenuSeparator />
-
-            <MenuItem
-              label="Restart Match"
-              icon={<RotateCcw className="size-4 text-slate-300" aria-hidden />}
-              disabled={!isGameActive}
-              onClick={() => {
-                onRestartGame()
-                closeAll()
-              }}
-            />
-
-            <MenuItem
-              label="Reset to Opening Board"
-              icon={<Dices className="size-4 text-slate-300" aria-hidden />}
-              disabled={!isGameActive}
-              onClick={() => {
-                onResetToOpening()
-                closeAll()
-              }}
-            />
-          </div>
-        )}
       </div>
 
-      {/* 2. VIEW MENU */}
-      <div className="relative">
+      {/* 2. VIEW TAB */}
+      <div>
         <button
           type="button"
           role="menuitem"
@@ -286,140 +232,14 @@ export default function MenuBar({
           aria-expanded={openMenu === 'view'}
           onClick={() => handleMenuHeaderClick('view')}
           onMouseEnter={() => handleMenuHeaderHover('view')}
-          className={cn(
-            'rounded-md px-3.5 py-1.5 text-sm font-semibold transition',
-            openMenu === 'view'
-              ? 'bg-sky-600 text-white shadow-sm ring-1 ring-sky-400/50'
-              : 'text-slate-200 hover:bg-slate-800/80 hover:text-slate-50',
-          )}
+          className={navButtonClass('view')}
         >
           View
         </button>
-
-        {openMenu === 'view' && (
-          <div
-            role="menu"
-            className="absolute left-0 top-full z-50 mt-1 min-w-[230px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl"
-          >
-            {/* Board Style Submenu */}
-            <div
-              className="relative"
-              onMouseEnter={() => setActiveSubmenu('board-style')}
-              onMouseLeave={() => setActiveSubmenu((curr) => (curr === 'board-style' ? null : curr))}
-            >
-              <MenuItem
-                label="Board Style"
-                icon={<Palette className="size-4 text-sky-400" aria-hidden />}
-                hasSubmenu
-                active={activeSubmenu === 'board-style'}
-                onClick={() => setActiveSubmenu((curr) => (curr === 'board-style' ? null : 'board-style'))}
-              />
-
-              {activeSubmenu === 'board-style' && (
-                <div
-                  role="menu"
-                  className="absolute left-full top-0 -ml-1 min-w-[310px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl z-[60]"
-                >
-                  {BOARD_DESIGNS.map((design) => {
-                    const isChecked = boardDesign === design.id
-                    return (
-                      <button
-                        key={design.id}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={isChecked}
-                        onClick={() => {
-                          onSelectBoardDesign(design.id)
-                          closeAll()
-                        }}
-                        className={cn(
-                          'group flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-sky-600 hover:text-white cursor-pointer',
-                          isChecked
-                            ? 'bg-sky-500/15 font-semibold text-sky-700 dark:text-sky-300'
-                            : 'text-slate-200',
-                        )}
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <span className="size-4 flex items-center justify-center shrink-0">
-                            {isChecked ? (
-                              <Check className="size-4 stroke-[2.5] text-sky-600 dark:text-sky-400 group-hover:text-white" aria-hidden />
-                            ) : null}
-                          </span>
-                          <span>{design.name}</span>
-                        </span>
-
-                        <span className="flex items-center -space-x-1 shrink-0" aria-hidden>
-                          {design.swatches.map((hex, idx) => (
-                            <span
-                              key={idx}
-                              style={{ backgroundColor: hex }}
-                              className="size-3.5 rounded-full border border-black/40 shadow-xs"
-                            />
-                          ))}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-
-            <MenuSeparator />
-
-            {/* Color Theme Submenu */}
-            <div
-              className="relative"
-              onMouseEnter={() => setActiveSubmenu('theme')}
-              onMouseLeave={() => setActiveSubmenu((curr) => (curr === 'theme' ? null : curr))}
-            >
-              <MenuItem
-                label="Color Theme"
-                icon={theme === 'light' ? <Sun className="size-4 text-amber-400" /> : <Moon className="size-4 text-sky-400" />}
-                hasSubmenu
-                active={activeSubmenu === 'theme'}
-                onClick={() => setActiveSubmenu((curr) => (curr === 'theme' ? null : 'theme'))}
-              />
-
-              {activeSubmenu === 'theme' && (
-                <div
-                  role="menu"
-                  className="absolute left-full top-0 -ml-1 min-w-[200px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl z-[60]"
-                >
-                  <MenuItem
-                    label="Warm Soft Light"
-                    icon={<Sun className="size-4 text-amber-400" aria-hidden />}
-                    checked={theme === 'light'}
-                    onClick={() => {
-                      onSetTheme('light')
-                      closeAll()
-                    }}
-                  />
-                  <MenuItem
-                    label="Midnight Dark"
-                    icon={<Moon className="size-4 text-sky-400" aria-hidden />}
-                    checked={theme === 'dark'}
-                    onClick={() => {
-                      onSetTheme('dark')
-                      closeAll()
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-
-            <MenuSeparator />
-
-            <MenuItem
-              label="Reset Board Size"
-              icon={<Maximize2 className="size-4 text-slate-300" aria-hidden />}
-              onClick={triggerResetBoardSize}
-            />
-          </div>
-        )}
       </div>
 
-      {/* 3. OPTIONS MENU */}
-      <div className="relative">
+      {/* 3. OPTIONS TAB */}
+      <div>
         <button
           type="button"
           role="menuitem"
@@ -427,35 +247,14 @@ export default function MenuBar({
           aria-expanded={openMenu === 'options'}
           onClick={() => handleMenuHeaderClick('options')}
           onMouseEnter={() => handleMenuHeaderHover('options')}
-          className={cn(
-            'rounded-md px-3.5 py-1.5 text-sm font-semibold transition',
-            openMenu === 'options'
-              ? 'bg-sky-600 text-white shadow-sm ring-1 ring-sky-400/50'
-              : 'text-slate-200 hover:bg-slate-800/80 hover:text-slate-50',
-          )}
+          className={navButtonClass('options')}
         >
           Options
         </button>
-
-        {openMenu === 'options' && (
-          <div
-            role="menu"
-            className="absolute left-0 top-full z-50 mt-1 min-w-[230px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl"
-          >
-            <MenuItem
-              label="BYOK Settings..."
-              icon={<Settings className="size-4 text-sky-400" aria-hidden />}
-              onClick={() => {
-                onOpenSettings()
-                closeAll()
-              }}
-            />
-          </div>
-        )}
       </div>
 
-      {/* 4. HELP MENU */}
-      <div className="relative">
+      {/* 4. HELP TAB */}
+      <div>
         <button
           type="button"
           role="menuitem"
@@ -463,50 +262,200 @@ export default function MenuBar({
           aria-expanded={openMenu === 'help'}
           onClick={() => handleMenuHeaderClick('help')}
           onMouseEnter={() => handleMenuHeaderHover('help')}
-          className={cn(
-            'rounded-md px-3.5 py-1.5 text-sm font-semibold transition',
-            openMenu === 'help'
-              ? 'bg-sky-600 text-white shadow-sm ring-1 ring-sky-400/50'
-              : 'text-slate-200 hover:bg-slate-800/80 hover:text-slate-50',
-          )}
+          className={navButtonClass('help')}
         >
           Help
         </button>
-
-        {openMenu === 'help' && (
-          <div
-            role="menu"
-            className="absolute left-0 top-full z-50 mt-1 min-w-[240px] rounded-xl border border-slate-700/80 bg-slate-900/98 p-1.5 shadow-2xl ring-1 ring-black/20 backdrop-blur-xl"
-          >
-            <a
-              href={GITHUB_README_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={closeAll}
-              className="group flex w-full items-center justify-between gap-4 rounded-lg px-3 py-2 text-left text-sm text-slate-200 hover:bg-sky-600 hover:text-white transition-colors"
-            >
-              <span className="flex items-center gap-2.5">
-                <span className="size-4 flex items-center justify-center shrink-0">
-                  <HelpCircle className="size-4 text-sky-400 group-hover:text-white" aria-hidden />
-                </span>
-                <span className="font-medium">README on GitHub</span>
-              </span>
-              <ExternalLink className="size-4 text-slate-400 group-hover:text-white/90 shrink-0" aria-hidden />
-            </a>
-
-            <MenuSeparator />
-
-            <MenuItem
-              label="About AI Backgammon..."
-              icon={<Info className="size-4 text-amber-400" aria-hidden />}
-              onClick={() => {
-                onOpenAbout()
-                closeAll()
-              }}
-            />
-          </div>
-        )}
       </div>
+
+      {/* ============================================================== */}
+      {/* MEGA-DROPDOWN PANEL CONTAINER                                   */}
+      {/* ============================================================== */}
+      {openMenu !== null && (
+        <div
+          role="menu"
+          className="absolute left-0 top-[calc(100%+2px)] z-50 w-[min(92vw,860px)] rounded-b-2xl rounded-tr-2xl border border-slate-700/80 bg-slate-900/98 p-4 shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-top-1 duration-150"
+        >
+          {/* GAME MEGA MENU */}
+          {openMenu === 'game' && (
+            <div className="space-y-3">
+              <div className="border-b border-slate-800 pb-2">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  Start New Match
+                </span>
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <MegaItem
+                    title="Human vs AI"
+                    subtitle="Play against your configured AI engine"
+                    icon={<User className="size-5 text-sky-400" />}
+                    onClick={() => {
+                      onOpenNewGame('humanVsAi')
+                      closeAll()
+                    }}
+                  />
+                  <MegaItem
+                    title="AI vs AI"
+                    subtitle="Simulate and watch two AI models play"
+                    icon={<Bot className="size-5 text-emerald-400" />}
+                    onClick={() => {
+                      onOpenNewGame('aiVsAi')
+                      closeAll()
+                    }}
+                  />
+                  <MegaItem
+                    title="Custom Match..."
+                    subtitle="Configure custom seats, engines, & rules"
+                    icon={<Swords className="size-5 text-amber-400" />}
+                    onClick={() => {
+                      onOpenNewGame()
+                      closeAll()
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  Match Actions
+                </span>
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <MegaItem
+                    title="Restart Match"
+                    subtitle="Restart the current game with the same opponents"
+                    icon={<RotateCcw className="size-5 text-slate-300" />}
+                    disabled={!isGameActive}
+                    onClick={() => {
+                      onRestartGame()
+                      closeAll()
+                    }}
+                  />
+                  <MegaItem
+                    title="Reset to Opening Board"
+                    subtitle="Abandon game and reset checkers to initial setup"
+                    icon={<Dices className="size-5 text-slate-300" />}
+                    disabled={!isGameActive}
+                    onClick={() => {
+                      onResetToOpening()
+                      closeAll()
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* VIEW MEGA MENU */}
+          {openMenu === 'view' && (
+            <div className="space-y-4">
+              {/* Board Style Selection */}
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  Board Style & Material
+                </span>
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                  {BOARD_DESIGNS.map((design) => (
+                    <MegaItem
+                      key={design.id}
+                      title={design.name}
+                      subtitle={design.subtitle}
+                      icon={<Palette className="size-5 text-sky-400" />}
+                      checked={boardDesign === design.id}
+                      swatches={design.swatches}
+                      onClick={() => {
+                        onSelectBoardDesign(design.id)
+                        closeAll()
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Theme & Display Options */}
+              <div className="border-t border-slate-800 pt-3">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  Display & Theme
+                </span>
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <MegaItem
+                    title="Warm Soft Light"
+                    subtitle="Linen & cream palette with rich contrast"
+                    icon={<Sun className="size-5 text-amber-400" />}
+                    checked={theme === 'light'}
+                    onClick={() => {
+                      onSetTheme('light')
+                      closeAll()
+                    }}
+                  />
+                  <MegaItem
+                    title="Midnight Dark"
+                    subtitle="Deep slate tones for dark-mode gaming"
+                    icon={<Moon className="size-5 text-sky-400" />}
+                    checked={theme === 'dark'}
+                    onClick={() => {
+                      onSetTheme('dark')
+                      closeAll()
+                    }}
+                  />
+                  <MegaItem
+                    title="Reset Board Size"
+                    subtitle="Restore default dimensions for the board pane"
+                    icon={<Maximize2 className="size-5 text-slate-300" />}
+                    onClick={triggerResetBoardSize}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* OPTIONS MEGA MENU */}
+          {openMenu === 'options' && (
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                Preferences & AI Configuration
+              </span>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <MegaItem
+                  title="BYOK Settings..."
+                  subtitle="Configure your OpenAI, Anthropic, Gemini, or custom AI keys & models"
+                  icon={<Settings className="size-5 text-sky-400" />}
+                  onClick={() => {
+                    onOpenSettings()
+                    closeAll()
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* HELP MEGA MENU */}
+          {openMenu === 'help' && (
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                Support & Documentation
+              </span>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <MegaItem
+                  title="README on GitHub"
+                  subtitle="Browse game rules, architecture, API proxy, and setup instructions"
+                  icon={<HelpCircle className="size-5 text-sky-400" />}
+                  external
+                  href={GITHUB_README_URL}
+                  onClick={closeAll}
+                />
+                <MegaItem
+                  title="About AI Backgammon..."
+                  subtitle="View version details, license, and author attribution"
+                  icon={<Info className="size-5 text-amber-400" />}
+                  onClick={() => {
+                    onOpenAbout()
+                    closeAll()
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

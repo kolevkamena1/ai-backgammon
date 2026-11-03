@@ -74,16 +74,10 @@ describe('MenuBar', () => {
     act(() => {
       findButton('Game')?.click()
     })
-    expect(text()).toContain('New Game')
-    expect(text()).toContain('Restart Match')
-
-    // Click/hover New Game to open submenu
-    act(() => {
-      findButton('New Game')?.click()
-    })
     expect(text()).toContain('Human vs AI')
     expect(text()).toContain('AI vs AI')
     expect(text()).toContain('Custom Match...')
+    expect(text()).toContain('Restart Match')
 
     // Click Human vs AI
     act(() => {
