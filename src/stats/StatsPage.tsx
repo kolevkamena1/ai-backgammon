@@ -47,9 +47,21 @@ async function fetchJson<T>(path: string): Promise<T> {
   }
 
   // Cloudflare Access login redirect returned as an opaque or HTML page
-  if (response.redirected && response.url.includes('cloudflareaccess.com')) {
-    window.location.href = response.url
-    throw new Error('Redirecting to Cloudflare Access authentication...')
+  if (response.redirected) {
+    try {
+      const parsedUrl = new URL(response.url)
+      if (
+        parsedUrl.protocol === 'https:' &&
+        (parsedUrl.hostname === 'cloudflareaccess.com' || parsedUrl.hostname.endsWith('.cloudflareaccess.com'))
+      ) {
+        window.location.href = response.url
+        throw new Error('Redirecting to Cloudflare Access authentication...')
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('Redirecting to')) {
+        throw err
+      }
+    }
   }
 
   if (response.status === 403 || response.status === 401) {

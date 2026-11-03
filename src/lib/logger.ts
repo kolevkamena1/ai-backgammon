@@ -8,16 +8,28 @@ const SECRET_KEY_PATTERN = /(api[-_]?key|authorization|token|secret|password)/i
 
 const isDev = import.meta.env.DEV
 
-function redactValue(key: string, value: unknown): unknown {
-  if (!SECRET_KEY_PATTERN.test(key)) {
-    return value
+function redactValue(key: string, value: unknown, seen = new WeakSet<object>()): unknown {
+  if (SECRET_KEY_PATTERN.test(key)) {
+    return typeof value === 'string' ? maskSecret(value) : '[redacted]'
   }
-  return typeof value === 'string' ? maskSecret(value) : '[redacted]'
+  if (typeof value === 'object' && value !== null) {
+    if (seen.has(value)) {
+      return '[circular]'
+    }
+    seen.add(value)
+    if (Array.isArray(value)) {
+      return value.map((item, index) => redactValue(String(index), item, seen))
+    }
+    return redact(value as Context, seen)
+  }
+  return value
 }
 
-function redact(context: Context): Context {
+/** Recursively redacts credentials and masks secret values in context objects. */
+export function redact(context: Context, seen = new WeakSet<object>()): Context {
+  seen.add(context)
   return Object.fromEntries(
-    Object.entries(context).map(([key, value]) => [key, redactValue(key, value)]),
+    Object.entries(context).map(([key, value]) => [key, redactValue(key, value, seen)]),
   )
 }
 

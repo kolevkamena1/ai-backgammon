@@ -64,8 +64,46 @@ function toBrandedStream(stream: ProxyStream): ReadableStream<Uint8Array> {
  * Same-origin by construction: Pages serves the app and this route from one host, so no
  * `Access-Control-Allow-Origin` is emitted anywhere. A wildcard would hand every website the
  * visitor opens a relay for that visitor's own keys.
+ *
+ * Defense-in-depth: cross-origin browser requests (Sec-Fetch-Site: cross-site or mismatched Origin)
+ * are rejected to prevent third-party sites from using this endpoint as an open proxy relay.
  */
 export const onRequest = async ({ request, env }: PagesContext): Promise<Response> => {
+  const origin = request.headers.get('origin')
+  const secFetchSite = request.headers.get('sec-fetch-site')
+
+  if (secFetchSite === 'cross-site') {
+    return new Response(
+      JSON.stringify({ error: { code: 'target-not-allowed', message: 'Cross-origin requests are not permitted.' } }),
+      {
+        status: 403,
+        headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-ai-proxy-error': 'target-not-allowed' },
+      },
+    )
+  }
+
+  if (origin !== null && origin !== '' && origin !== 'null') {
+    try {
+      if (new URL(origin).host !== new URL(request.url).host) {
+        return new Response(
+          JSON.stringify({ error: { code: 'target-not-allowed', message: 'Cross-origin requests are not permitted.' } }),
+          {
+            status: 403,
+            headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-ai-proxy-error': 'target-not-allowed' },
+          },
+        )
+      }
+    } catch {
+      return new Response(
+        JSON.stringify({ error: { code: 'bad-request', message: 'The Origin header is not a valid URL.' } }),
+        {
+          status: 400,
+          headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-ai-proxy-error': 'bad-request' },
+        },
+      )
+    }
+  }
+
   const outcome = await handleProxyRequest(
     { method: request.method, headers: request.headers, text: () => request.text() },
     policy(env),
