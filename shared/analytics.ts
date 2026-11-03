@@ -189,6 +189,23 @@ export function parseUserAgent(ua: string | null): UserAgentInfo {
   return { browser, os, deviceType, isBot: false }
 }
 
+/**
+ * Strip control characters and bound the length before a value reaches an edge log. `str()` does this
+ * for fields that get *stored*; this does it for request metadata (`Origin`, a full URL, a JWT `kid`)
+ * that is only ever logged, where an embedded CR or LF would forge extra lines in the log stream.
+ * Written as a code-point filter rather than a regex because ESLint's `no-control-regex` is on, and
+ * the filter is the form this module already uses.
+ */
+export function sanitizeLog(value: string, max = 100): string {
+  return Array.from(value)
+    .filter((char) => {
+      const code = char.charCodeAt(0)
+      return code > 31 && code !== 127
+    })
+    .join('')
+    .slice(0, max)
+}
+
 /** Own-origin check for a beacon: browsers always send Origin on cross-site POSTs. */
 export function isSameOrigin(origin: string | null, requestUrl: string): boolean {
   if (origin === null || origin === '' || origin === 'null') return true // same-origin sendBeacon/fetch may omit it or send literal "null"

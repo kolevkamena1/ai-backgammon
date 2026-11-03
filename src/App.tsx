@@ -168,7 +168,7 @@ const App = () => {
             <span>·</span>
             <span>Vite + React + Tailwind CSS</span>
             <span>·</span>
-            <span title="Anonymous, cookieless: country, network, device type, game mode and outcome. Never your API keys or the IP address itself. Honours Do Not Track.">
+            <span title="Anonymous, cookieless: country, network, device type, game mode and outcome. Never your API keys or the IP address itself. Honours browser Do Not Track settings.">
               Anonymous usage stats
             </span>
           </div>

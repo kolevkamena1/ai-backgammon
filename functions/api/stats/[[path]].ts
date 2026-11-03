@@ -1,4 +1,4 @@
-import { parseFilters, toCsv } from '../../../shared/analytics.ts'
+import { parseFilters, sanitizeLog, toCsv } from '../../../shared/analytics.ts'
 import { cleanTeamDomain, verifyAccessJwtDetail, type AccessIdentity, type Jwk } from '../../../shared/analyticsAuth.ts'
 import { getSummary, listGames, listSessions, type D1Db } from '../../../shared/analyticsDb.ts'
 
@@ -69,7 +69,15 @@ const clamp = (value: string | null, fallback: number, max: number): number =>
 /** `GET /api/stats/{summary|sessions|games|export}` - admin only. */
 export const onRequestGet = async ({ request, env }: PagesContext): Promise<Response> => {
   const auth = await checkAuth(request, env)
-  if (!auth.ok) return json({ error: 'forbidden', reason: auth.reason }, auth.status)
+  if (!auth.ok) {
+    // The detailed reason goes to the edge log, never to the client. This body is readable by exactly
+    // the people the Access policy was meant to keep out, and the reasons name unset environment
+    // variables, AUD prefixes and the team domain — a configuration oracle for anyone probing us.
+    // `auth.reason` also interpolates attacker-controlled JWT fields (`kid`, `iss`), so it passes
+    // through `sanitizeLog` before reaching the log.
+    console.error('[stats] access denied:', { reason: sanitizeLog(auth.reason, 200) })
+    return json({ error: 'forbidden', reason: 'insufficient_permissions' }, auth.status)
+  }
   if (env.DB === undefined) return json({ error: 'database not configured' }, 503)
 
   const url = new URL(request.url)
@@ -95,6 +103,7 @@ export const onRequestGet = async ({ request, env }: PagesContext): Promise<Resp
         headers: {
           'content-type': 'text/csv; charset=utf-8',
           'content-disposition': `attachment; filename="backgammon-${kind}.csv"`,
+          'x-content-type-options': 'nosniff',
           'cache-control': 'no-store',
         },
       })

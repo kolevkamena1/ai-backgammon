@@ -101,7 +101,8 @@ export default function AboutModal({ onClose }: AboutModalProps) {
             <span className="font-medium text-slate-300">Anonymous usage stats:</span> the site owner sees
             aggregate, cookieless statistics — country, network, device type, game mode, and whether games are
             finished. Your IP address is only stored as a daily-rotating salted hash, and your API keys, prompts
-            and moves are never sent. Browsers with Do Not Track enabled are not counted.
+            and moves are never sent. Browser Do Not Track settings are honoured: visitors who ask not
+            to be tracked are not counted at all.
           </p>
         </div>
 

@@ -199,6 +199,16 @@ const RELAY_RESPONSE_HEADERS: readonly string[] = ['content-type', 'retry-after'
 const NO_STORE = 'no-store'
 
 /**
+ * Same reasoning as `NO_STORE`, one header over: everything this relay serves is JSON of its own
+ * making, the provider's bytes, or an error — and all of it arrives from *this* origin, which
+ * `public/_headers` cannot cover because Pages does not apply that file to Function responses. Without
+ * it, an allowlisted host that ever answered `text/html` would be free to render as this site, and
+ * this site keeps API keys in `localStorage`. The relay's own allowlist never carries an upstream
+ * `x-content-type-options`, so setting it here cannot be overridden by a provider.
+ */
+const NO_SNIFF = 'nosniff'
+
+/**
  * Headers a caller may ask to be forwarded to the provider. Everything else is dropped.
  * The entries double as the canonical output spelling, so they are kept lower-case: an incoming
  * name is matched after `toLowerCase()`, which is how RFC 9110 says header fields match.
@@ -228,16 +238,21 @@ function utf8Bytes(text: string): number {
 function jsonRejection(status: number, code: ProxyRejectCode, message: string): ProxyOutcome {
   return {
     status,
-    headers: { 'content-type': 'application/json', 'cache-control': NO_STORE, 'x-ai-proxy-error': code },
+    headers: {
+      'content-type': 'application/json',
+      'cache-control': NO_STORE,
+      'x-content-type-options': NO_SNIFF,
+      'x-ai-proxy-error': code,
+    },
     body: JSON.stringify({ error: { code, message } }),
   }
 }
 
 /**
- * Which response headers survive the relay, plus the two the relay always sets. Split out because a
+ * Which response headers survive the relay, plus the three the relay always sets. Split out because a
  * streamed outcome needs exactly the same rules as a buffered one, and a divergence between them
  * would mean a streaming provider response could escape the `no-store` that keeps a keyed answer out
- * of a shared cache.
+ * of a shared cache, or the `nosniff` that stops its bytes being read as markup.
  */
 function relayHeaders(headers: ProxyUpstreamResponse['headers']): Record<string, string> {
   const out: Record<string, string> = {}
@@ -250,8 +265,9 @@ function relayHeaders(headers: ProxyUpstreamResponse['headers']): Record<string,
   if (out['content-type'] === undefined) {
     out['content-type'] = 'application/json'
   }
-  // Set last so a provider's own `cache-control` (not in the relay allowlist) can never survive.
+  // Set after the allowlist loop, so nothing upstream can shadow either of these two.
   out['cache-control'] = NO_STORE
+  out['x-content-type-options'] = NO_SNIFF
 
   return out
 }

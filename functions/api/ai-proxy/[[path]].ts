@@ -77,19 +77,36 @@ export const onRequest = async ({ request, env }: PagesContext): Promise<Respons
       JSON.stringify({ error: { code: 'target-not-allowed', message: 'Cross-origin requests are not permitted.' } }),
       {
         status: 403,
-        headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-ai-proxy-error': 'target-not-allowed' },
+        headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-ai-proxy-error': 'target-not-allowed' },
       },
     )
   }
 
-  if (origin !== null && origin !== '' && origin !== 'null') {
+  // A sandboxed or opaque-origin document sends the literal string "null" here, and the relay must
+  // not serve it: every legitimate caller is an ordinary same-origin fetch made by this site's own
+  // document, which always sends a concrete Origin. The telemetry sink has to accept "null" because
+  // a sendBeacon can arrive that way; the relay has no such excuse, and an opaque origin is exactly
+  // the shape a hostile embedder would use to drive this endpoint on someone else's behalf.
+  if (origin === 'null') {
+    return new Response(
+      JSON.stringify({ error: { code: 'target-not-allowed', message: 'An opaque origin is not permitted.' } }),
+      {
+        status: 403,
+        headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-ai-proxy-error': 'target-not-allowed' },
+      },
+    )
+  }
+
+  // `origin === 'null'` never reaches here: it is refused above, so this comparison only has to
+  // catch a concrete origin belonging to somebody else.
+  if (origin !== null && origin !== '') {
     try {
       if (new URL(origin).host !== new URL(request.url).host) {
         return new Response(
           JSON.stringify({ error: { code: 'target-not-allowed', message: 'Cross-origin requests are not permitted.' } }),
           {
             status: 403,
-            headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-ai-proxy-error': 'target-not-allowed' },
+            headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-ai-proxy-error': 'target-not-allowed' },
           },
         )
       }
@@ -98,7 +115,7 @@ export const onRequest = async ({ request, env }: PagesContext): Promise<Respons
         JSON.stringify({ error: { code: 'bad-request', message: 'The Origin header is not a valid URL.' } }),
         {
           status: 400,
-          headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-ai-proxy-error': 'bad-request' },
+          headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-ai-proxy-error': 'bad-request' },
         },
       )
     }
