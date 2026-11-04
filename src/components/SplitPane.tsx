@@ -119,7 +119,7 @@ export const SplitPane: FC<SplitPaneProps> = ({
   const boardPane = (
     <div
       style={{ flexBasis: `${splitPercent}%` }}
-      className="relative flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center overflow-auto p-2 sm:p-3"
+      className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-2 sm:p-3"
     >
       {boardNode}
     </div>

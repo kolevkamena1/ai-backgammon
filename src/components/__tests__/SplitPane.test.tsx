@@ -171,4 +171,21 @@ describe('SplitPane', () => {
     // Dropping board on top docks log panel on bottom
     expect(onDropPanel).toHaveBeenCalledWith('bottom')
   })
+
+  it('does not apply justify-center to boardPane to prevent clipping tall content', () => {
+    act(() => {
+      root.render(
+        <SplitPane
+          board={<div data-testid="board-child">Board</div>}
+          panel={<div>Panel</div>}
+          panelPosition="bottom"
+        />,
+      )
+    })
+
+    const boardChild = host.querySelector('[data-testid="board-child"]')
+    const boardContainer = boardChild?.parentElement
+    expect(boardContainer?.className).not.toContain('justify-center')
+    expect(boardContainer?.className).toContain('overflow-hidden')
+  })
 })

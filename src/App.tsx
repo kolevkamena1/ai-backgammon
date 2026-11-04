@@ -114,7 +114,7 @@ const App = () => {
           setDraggingSource={setDraggingSource}
           className="h-full w-full"
           board={
-            <div className="flex h-full w-full flex-col items-center justify-center p-2 sm:p-3 overflow-hidden gap-2">
+            <div className="flex h-full w-full min-h-0 min-w-0 flex-col items-center justify-start overflow-hidden gap-2">
               {/* Draggable Board Header */}
               <div
                 draggable
@@ -233,21 +233,23 @@ const App = () => {
                   />
                 </div>
               )}
-              <div className="flex flex-1 min-h-0 w-full items-center justify-center">
-                <Board
-                  board={game.board ?? undefined}
-                  turn={game.board?.turn ?? null}
-                  legalTargets={game.legalTargets}
-                  selectableSources={game.selectableSources}
-                  selectedFrom={game.selectedFrom}
-                  onSelectPoint={game.handlePointClick}
-                  onDragStartSource={game.handlePointDragStart}
-                  onDropTarget={game.handlePointDrop}
-                  design={boardDesign}
-                  cube={game.cube}
-                  canDouble={game.canDouble}
-                  onDouble={() => game.proposeDouble(game.board!.turn)}
-                />
+              <div className="flex flex-1 min-h-0 min-w-0 w-full overflow-auto">
+                <div className="m-auto flex items-center justify-center p-1">
+                  <Board
+                    board={game.board ?? undefined}
+                    turn={game.board?.turn ?? null}
+                    legalTargets={game.legalTargets}
+                    selectableSources={game.selectableSources}
+                    selectedFrom={game.selectedFrom}
+                    onSelectPoint={game.handlePointClick}
+                    onDragStartSource={game.handlePointDragStart}
+                    onDropTarget={game.handlePointDrop}
+                    design={boardDesign}
+                    cube={game.cube}
+                    canDouble={game.canDouble}
+                    onDouble={() => game.proposeDouble(game.board!.turn)}
+                  />
+                </div>
               </div>
             </div>
           }
