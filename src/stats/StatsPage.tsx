@@ -124,26 +124,212 @@ const BarList = ({ title, rows }: { title: string; rows: CountRow[] }) => {
   )
 }
 
+function formatDay(dayStr: string): { label: string; weekday: string; full: string; short: string } {
+  const parts = dayStr.split('-')
+  if (parts.length === 3) {
+    const year = Number(parts[0])
+    const month = Number(parts[1]) - 1
+    const day = Number(parts[2])
+    const d = new Date(year, month, day)
+    if (!isNaN(d.getTime())) {
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+      const monthName = monthNames[month] ?? ''
+      const weekday = dayNames[d.getDay()] ?? ''
+      return {
+        label: `${monthName} ${day}`,
+        weekday,
+        full: `${weekday}, ${monthName} ${day}`,
+        short: `${month + 1}/${day}`,
+      }
+    }
+  }
+  return { label: dayStr, weekday: '', full: dayStr, short: dayStr }
+}
+
 const DayChart = ({ rows }: { rows: StatsSummary['byDay'] }) => {
   const max = Math.max(1, ...rows.map((r) => Math.max(r.sessions, r.games)))
+  const totalSessions = rows.reduce((acc, r) => acc + r.sessions, 0)
+  const totalGames = rows.reduce((acc, r) => acc + r.games, 0)
+  const overallRatio = totalSessions > 0 ? (totalGames / totalSessions).toFixed(1) : '0.0'
+  const showDenseLabels = rows.length <= 14
+
   return (
-    <div className={cn(CARD, 'lg:col-span-2')}>
-      <h3 className="mb-2 flex items-center gap-3 text-sm font-semibold text-slate-100">
-        By day
-        <span className="flex items-center gap-1 text-[11px] font-normal text-slate-400">
-          <i className="inline-block size-2 rounded-sm bg-sky-500" /> sessions
-          <i className="ml-2 inline-block size-2 rounded-sm bg-amber-400" /> games
-        </span>
-      </h3>
-      {rows.length === 0 ? <p className="text-xs text-slate-500">No data yet.</p> : null}
-      <div className="flex h-32 items-end gap-1">
-        {rows.map((row) => (
-          <div key={row.day} className="flex h-full min-w-0 flex-1 items-end gap-px" title={`${row.day}: ${row.sessions} sessions, ${row.games} games`}>
-            <div className="w-1/2 rounded-t bg-sky-500" style={{ height: `${(row.sessions / max) * 100}%` }} />
-            <div className="w-1/2 rounded-t bg-amber-400" style={{ height: `${(row.games / max) * 100}%` }} />
+    <div className={cn(CARD, 'lg:col-span-2 flex flex-col')}>
+      {/* Header */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            By day
+            <span className="text-xs font-normal text-slate-400">
+              ({rows.length} {rows.length === 1 ? 'day' : 'days'})
+            </span>
+          </h3>
+          <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+            <span className="flex items-center gap-1.5">
+              <i className="inline-block size-2.5 rounded-xs bg-sky-500" />
+              <span>Sessions:</span>
+              <strong className="font-semibold text-slate-200">{totalSessions}</strong>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <i className="inline-block size-2.5 rounded-xs bg-amber-400" />
+              <span>Games:</span>
+              <strong className="font-semibold text-slate-200">{totalGames}</strong>
+            </span>
           </div>
-        ))}
+        </div>
+
+        {totalSessions > 0 && (
+          <div className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-200">
+            <span className="text-amber-300/80">Avg. Games / Session:</span>
+            <strong className="font-mono text-sm font-bold text-amber-300">{overallRatio}</strong>
+          </div>
+        )}
       </div>
+
+      {rows.length === 0 ? (
+        <p className="py-8 text-center text-xs text-slate-500">No data yet.</p>
+      ) : (
+        <>
+          {/* Main Visual Chart */}
+          <div className="mt-1 flex h-40 items-end gap-1.5 sm:gap-2 pb-1">
+            {rows.map((row) => {
+              const { label, weekday, short, full } = formatDay(row.day)
+              const ratioNum = row.sessions > 0 ? row.games / row.sessions : 0
+              const ratioFormatted = ratioNum.toFixed(1)
+              const sessionHeight = (row.sessions / max) * 100
+              const gameHeight = (row.games / max) * 100
+
+              return (
+                <div
+                  key={row.day}
+                  className="group relative flex h-full min-w-0 flex-1 flex-col justify-end items-center rounded-lg p-1 transition-colors hover:bg-slate-800/40"
+                  title={`${full}: ${row.sessions} sessions, ${row.games} games (${ratioFormatted} games/session)`}
+                >
+                  {/* Floating count values directly above bars */}
+                  {showDenseLabels && (
+                    <div className="mb-1 flex w-full justify-center gap-1 text-[10px] font-mono leading-none">
+                      <span
+                        className="text-sky-400 font-medium"
+                        title={`${row.sessions} sessions`}
+                      >
+                        {row.sessions}
+                      </span>
+                      <span className="text-slate-600">/</span>
+                      <span
+                        className="text-amber-400 font-bold"
+                        title={`${row.games} games`}
+                      >
+                        {row.games}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Dual Bar (Sessions & Games) */}
+                  <div className="flex w-full flex-1 items-end justify-center gap-0.5 sm:gap-1 max-h-[88px]">
+                    <div
+                      className="w-1/2 max-w-[22px] rounded-t bg-sky-500 transition-all group-hover:brightness-110"
+                      style={{
+                        height: `${Math.max(row.sessions > 0 ? 8 : 0, sessionHeight)}%`,
+                      }}
+                    />
+                    <div
+                      className="w-1/2 max-w-[22px] rounded-t bg-amber-400 transition-all group-hover:brightness-110"
+                      style={{
+                        height: `${Math.max(row.games > 0 ? 8 : 0, gameHeight)}%`,
+                      }}
+                    />
+                  </div>
+
+                  {/* Bottom Day & Games/Session indicator */}
+                  <div className="mt-1.5 flex w-full flex-col items-center border-t border-slate-800/80 pt-1 text-center">
+                    <span className="truncate text-[10px] font-medium text-slate-300">
+                      {showDenseLabels ? label : short}
+                    </span>
+                    {showDenseLabels && (
+                      <span className="text-[9px] text-slate-500">{weekday}</span>
+                    )}
+                    <span
+                      className={cn(
+                        'mt-0.5 rounded px-1 text-[9px] font-mono font-semibold',
+                        ratioNum >= 2
+                          ? 'bg-amber-400/20 text-amber-300 border border-amber-400/30'
+                          : ratioNum > 0
+                            ? 'bg-slate-800 text-slate-300'
+                            : 'text-slate-500',
+                      )}
+                      title={`${ratioFormatted} games/session`}
+                    >
+                      {ratioFormatted}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Last Days Breakdown Table */}
+          <div className="mt-4 border-t border-slate-800/80 pt-3">
+            <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              <span>Last Days Breakdown</span>
+              <span className="font-normal lowercase text-slate-500">
+                latest {Math.min(7, rows.length)} of {rows.length} {rows.length === 1 ? 'day' : 'days'}
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800 text-[11px] font-semibold text-slate-400">
+                    <th className="py-1 px-2">Date</th>
+                    <th className="py-1 px-2 text-right">Sessions</th>
+                    <th className="py-1 px-2 text-right">Games</th>
+                    <th className="py-1 px-2 text-right">Games / Session</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {[...rows]
+                    .reverse()
+                    .slice(0, 7)
+                    .map((row) => {
+                      const { full } = formatDay(row.day)
+                      const ratioNum = row.sessions > 0 ? row.games / row.sessions : 0
+                      const ratioFormatted = ratioNum.toFixed(1)
+
+                      return (
+                        <tr key={row.day} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="py-1.5 px-2 text-slate-200 font-medium">
+                            {full}
+                          </td>
+                          <td className="py-1.5 px-2 text-right font-mono text-sky-400">
+                            {row.sessions}
+                          </td>
+                          <td className="py-1.5 px-2 text-right font-mono font-bold text-amber-400">
+                            {row.games}
+                          </td>
+                          <td className="py-1.5 px-2 text-right font-mono">
+                            <span
+                              className={cn(
+                                'inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold',
+                                ratioNum >= 2
+                                  ? 'bg-amber-400/20 text-amber-300 border border-amber-400/30'
+                                  : ratioNum > 0
+                                    ? 'bg-slate-800 text-slate-200'
+                                    : 'text-slate-500',
+                              )}
+                            >
+                              {ratioFormatted} / sess
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -263,11 +449,20 @@ export default function StatsPage() {
 
         {t !== undefined ? (
           <>
-            <section className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6" aria-label="Summary">
+            <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7" aria-label="Summary">
               <Stat label="Sessions" value={t.sessions} hint="one per browser tab" />
               <Stat label="Unique visitors" value={t.uniqueVisitors} hint="distinct per day, by IP hash" />
               <Stat label="Played a game" value={`${t.sessionsWithGame}`} hint={t.sessions > 0 ? `${percent(t.sessionsWithGame / t.sessions)} of sessions` : undefined} />
               <Stat label="Games" value={t.games} hint={`${t.finished} finished · ${t.abandoned} abandoned · ${t.inProgress} no signal`} />
+              <Stat
+                label="Games / session"
+                value={t.sessions > 0 ? (t.games / t.sessions).toFixed(2) : '—'}
+                hint={
+                  t.sessionsWithGame > 0
+                    ? `${(t.games / t.sessionsWithGame).toFixed(2)} per active session`
+                    : 'games ÷ sessions'
+                }
+              />
               <Stat label="Completion rate" value={percent(t.completionRate)} hint="finished ÷ (finished + abandoned)" />
               <Stat label="Avg. duration" value={duration(t.avgFinishedSeconds)} hint={`finished · abandoned ${duration(t.avgAbandonedSeconds)}`} />
             </section>
