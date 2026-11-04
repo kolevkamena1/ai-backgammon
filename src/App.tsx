@@ -13,7 +13,8 @@ import { useGameConfig } from '@/hooks/useGameConfig'
 import { useSettings } from '@/hooks/useSettings'
 import { startTelemetry } from '@/utils/telemetry'
 import type { GameMode } from '@/types/gameConfig'
-import { Dices, GripVertical, PanelLeft, PanelRight } from 'lucide-react'
+import { cn } from '@/utils/cn'
+import { Dices, GripVertical, PanelBottom, PanelLeft, PanelRight, PanelTop } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 const App = () => {
@@ -34,7 +35,7 @@ const App = () => {
 
   const [isAboutOpen, setIsAboutOpen] = useState(false)
   const [setupInitialMode, setSetupInitialMode] = useState<GameMode | undefined>(undefined)
-  const [isDraggingPanel, setIsDraggingPanel] = useState(false)
+  const [draggingSource, setDraggingSource] = useState<'panel' | 'board' | null>(null)
 
   const handleOpenNewGame = (preferredMode?: GameMode): void => {
     setSetupInitialMode(preferredMode)
@@ -109,11 +110,120 @@ const App = () => {
           maxSplitPercent={85}
           panelPosition={panelPosition}
           onDropPanel={setPanelPosition}
-          isDraggingPanel={isDraggingPanel}
-          setIsDraggingPanel={setIsDraggingPanel}
+          draggingSource={draggingSource}
+          setDraggingSource={setDraggingSource}
           className="h-full w-full"
           board={
             <div className="flex h-full w-full flex-col items-center justify-center p-2 sm:p-3 overflow-hidden gap-2">
+              {/* Draggable Board Header */}
+              <div
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('text/plain', 'board-panel')
+                  e.dataTransfer.effectAllowed = 'move'
+                  setDraggingSource('board')
+                }}
+                onDragEnd={() => setDraggingSource(null)}
+                onPointerDown={(e) => {
+                  if ((e.target as HTMLElement).closest('button')) return
+                  const startX = e.clientX
+                  const startY = e.clientY
+                  let hasStarted = false
+
+                  const handlePointerMove = (moveEvent: PointerEvent) => {
+                    const deltaX = Math.abs(moveEvent.clientX - startX)
+                    const deltaY = Math.abs(moveEvent.clientY - startY)
+                    if ((deltaX > 20 || deltaY > 20) && !hasStarted) {
+                      hasStarted = true
+                      setDraggingSource('board')
+                    }
+                  }
+
+                  const handlePointerUp = (upEvent: PointerEvent) => {
+                    window.removeEventListener('pointermove', handlePointerMove)
+                    window.removeEventListener('pointerup', handlePointerUp)
+                    if (hasStarted) {
+                      setDraggingSource(null)
+                      const w = window.innerWidth
+                      const h = window.innerHeight
+                      const x = upEvent.clientX
+                      const y = upEvent.clientY
+                      const distLeft = x
+                      const distRight = w - x
+                      const distTop = y
+                      const distBottom = h - y
+                      const minDist = Math.min(distLeft, distRight, distTop, distBottom)
+
+                      // Moving board to an edge docks board there (so log panel goes to opposite)
+                      if (minDist === distLeft) setPanelPosition('right')
+                      else if (minDist === distRight) setPanelPosition('left')
+                      else if (minDist === distTop) setPanelPosition('bottom')
+                      else if (minDist === distBottom) setPanelPosition('top')
+                    }
+                  }
+
+                  window.addEventListener('pointermove', handlePointerMove)
+                  window.addEventListener('pointerup', handlePointerUp)
+                }}
+                className="flex w-full items-center justify-between px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/80 shadow-xs cursor-grab active:cursor-grabbing select-none hover:border-slate-700 transition-colors shrink-0 max-w-5xl"
+                title="Drag and drop board to reposition layout, or choose a dock option"
+              >
+                <div className="flex items-center gap-1.5">
+                  <GripVertical className="size-4 text-slate-400 group-hover:text-amber-400" />
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+                    Backgammon Board
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                  <span className="hidden sm:inline mr-1 text-[10px] text-slate-500">Board Dock:</span>
+                  <button
+                    type="button"
+                    onClick={() => setPanelPosition('right')}
+                    className={cn(
+                      'rounded p-1 transition-colors hover:text-sky-300 hover:bg-slate-800 cursor-pointer',
+                      panelPosition === 'right' ? 'text-amber-400 bg-amber-400/10' : 'text-slate-400',
+                    )}
+                    title="Dock Board on Left (Log on Right)"
+                  >
+                    <PanelLeft className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPanelPosition('left')}
+                    className={cn(
+                      'rounded p-1 transition-colors hover:text-sky-300 hover:bg-slate-800 cursor-pointer',
+                      panelPosition === 'left' ? 'text-amber-400 bg-amber-400/10' : 'text-slate-400',
+                    )}
+                    title="Dock Board on Right (Log on Left)"
+                  >
+                    <PanelRight className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPanelPosition('bottom')}
+                    className={cn(
+                      'rounded p-1 transition-colors hover:text-sky-300 hover:bg-slate-800 cursor-pointer',
+                      panelPosition === 'bottom' ? 'text-amber-400 bg-amber-400/10' : 'text-slate-400',
+                    )}
+                    title="Dock Board on Top (Log on Bottom)"
+                  >
+                    <PanelTop className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPanelPosition('top')}
+                    className={cn(
+                      'rounded p-1 transition-colors hover:text-sky-300 hover:bg-slate-800 cursor-pointer',
+                      panelPosition === 'top' ? 'text-amber-400 bg-amber-400/10' : 'text-slate-400',
+                    )}
+                    title="Dock Board on Bottom (Log on Top)"
+                  >
+                    <PanelBottom className="size-3.5" />
+                  </button>
+                </div>
+              </div>
+
               {game.match && game.match.targetPoints > 1 && (
                 <div className="shrink-0 w-full flex justify-center">
                   <MatchScoreboard
@@ -149,19 +259,21 @@ const App = () => {
                 onDragStart={(e) => {
                   e.dataTransfer.setData('text/plain', 'log-panel')
                   e.dataTransfer.effectAllowed = 'move'
-                  setIsDraggingPanel(true)
+                  setDraggingSource('panel')
                 }}
-                onDragEnd={() => setIsDraggingPanel(false)}
+                onDragEnd={() => setDraggingSource(null)}
                 onPointerDown={(e) => {
                   if ((e.target as HTMLElement).closest('button')) return
                   const startX = e.clientX
+                  const startY = e.clientY
                   let hasStarted = false
 
                   const handlePointerMove = (moveEvent: PointerEvent) => {
                     const deltaX = Math.abs(moveEvent.clientX - startX)
-                    if (deltaX > 20 && !hasStarted) {
+                    const deltaY = Math.abs(moveEvent.clientY - startY)
+                    if ((deltaX > 20 || deltaY > 20) && !hasStarted) {
                       hasStarted = true
-                      setIsDraggingPanel(true)
+                      setDraggingSource('panel')
                     }
                   }
 
@@ -169,13 +281,21 @@ const App = () => {
                     window.removeEventListener('pointermove', handlePointerMove)
                     window.removeEventListener('pointerup', handlePointerUp)
                     if (hasStarted) {
-                      setIsDraggingPanel(false)
-                      const screenMiddle = window.innerWidth / 2
-                      if (panelPosition === 'right' && upEvent.clientX < screenMiddle) {
-                        setPanelPosition('left')
-                      } else if (panelPosition === 'left' && upEvent.clientX > screenMiddle) {
-                        setPanelPosition('right')
-                      }
+                      setDraggingSource(null)
+                      const w = window.innerWidth
+                      const h = window.innerHeight
+                      const x = upEvent.clientX
+                      const y = upEvent.clientY
+                      const distLeft = x
+                      const distRight = w - x
+                      const distTop = y
+                      const distBottom = h - y
+                      const minDist = Math.min(distLeft, distRight, distTop, distBottom)
+
+                      if (minDist === distLeft) setPanelPosition('left')
+                      else if (minDist === distRight) setPanelPosition('right')
+                      else if (minDist === distTop) setPanelPosition('top')
+                      else if (minDist === distBottom) setPanelPosition('bottom')
                     }
                   }
 
@@ -183,7 +303,7 @@ const App = () => {
                   window.addEventListener('pointerup', handlePointerUp)
                 }}
                 className="flex items-center justify-between px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/80 shadow-xs cursor-grab active:cursor-grabbing select-none hover:border-slate-700 transition-colors shrink-0"
-                title="Drag and drop to dock on the other side of the window"
+                title="Drag and drop to dock on Left, Right, Top, or Bottom"
               >
                 <div className="flex items-center gap-1.5">
                   <GripVertical className="size-4 text-slate-400 group-hover:text-sky-400" />
@@ -191,30 +311,73 @@ const App = () => {
                     Game Log &amp; Controls
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setPanelPosition(panelPosition === 'right' ? 'left' : 'right')}
-                  className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium text-slate-400 hover:text-sky-300 hover:bg-slate-800 transition-colors cursor-pointer"
-                  title={panelPosition === 'right' ? 'Move log panel to Left side' : 'Move log panel to Right side'}
-                >
-                  {panelPosition === 'right' ? (
-                    <>
-                      <PanelLeft className="size-3.5" />
-                      <span>Dock Left</span>
-                    </>
-                  ) : (
-                    <>
-                      <PanelRight className="size-3.5" />
-                      <span>Dock Right</span>
-                    </>
-                  )}
-                </button>
+                <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                  <span className="hidden sm:inline mr-1 text-[10px] text-slate-500">Log Dock:</span>
+                  <button
+                    type="button"
+                    onClick={() => setPanelPosition('left')}
+                    className={cn(
+                      'rounded p-1 transition-colors hover:text-sky-300 hover:bg-slate-800 cursor-pointer',
+                      panelPosition === 'left' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-400',
+                    )}
+                    title="Dock Log on Left"
+                  >
+                    <PanelLeft className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPanelPosition('right')}
+                    className={cn(
+                      'rounded p-1 transition-colors hover:text-sky-300 hover:bg-slate-800 cursor-pointer',
+                      panelPosition === 'right' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-400',
+                    )}
+                    title="Dock Log on Right"
+                  >
+                    <PanelRight className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPanelPosition('top')}
+                    className={cn(
+                      'rounded p-1 transition-colors hover:text-sky-300 hover:bg-slate-800 cursor-pointer',
+                      panelPosition === 'top' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-400',
+                    )}
+                    title="Dock Log on Top"
+                  >
+                    <PanelTop className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPanelPosition('bottom')}
+                    className={cn(
+                      'rounded p-1 transition-colors hover:text-sky-300 hover:bg-slate-800 cursor-pointer',
+                      panelPosition === 'bottom' ? 'text-sky-400 bg-sky-500/10' : 'text-slate-400',
+                    )}
+                    title="Dock Log on Bottom"
+                  >
+                    <PanelBottom className="size-3.5" />
+                  </button>
+                </div>
               </div>
 
-              <div className="shrink-0">
-                <GameControls />
-              </div>
-              <GameLog />
+              {/* Panel content: side-by-side on wide/stacked layouts, stacked on narrow column layouts */}
+              {panelPosition === 'top' || panelPosition === 'bottom' ? (
+                <div className="flex flex-col sm:flex-row gap-3 min-h-0 flex-1 overflow-hidden">
+                  <div className="shrink-0 w-full sm:w-80 md:w-96 overflow-y-auto">
+                    <GameControls />
+                  </div>
+                  <div className="flex-1 min-h-0 min-w-0">
+                    <GameLog />
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="shrink-0">
+                    <GameControls />
+                  </div>
+                  <GameLog />
+                </>
+              )}
             </div>
           }
         />

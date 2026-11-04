@@ -12,8 +12,10 @@ import {
   Maximize2,
   Moon,
   Palette,
+  PanelBottom,
   PanelLeft,
   PanelRight,
+  PanelTop,
   RotateCcw,
   Settings,
   Sun,
@@ -416,10 +418,10 @@ export default function MenuBar({
                 <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
                   Log Panel Placement
                 </span>
-                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                   <MegaItem
                     title="Dock on Left"
-                    subtitle="Move game controls & turn log to the left side"
+                    subtitle="Move log & controls to the left side"
                     icon={<PanelLeft className="size-5 text-sky-400" />}
                     checked={panelPosition === 'left'}
                     onClick={() => {
@@ -429,11 +431,31 @@ export default function MenuBar({
                   />
                   <MegaItem
                     title="Dock on Right"
-                    subtitle="Move game controls & turn log to the right side"
+                    subtitle="Move log & controls to the right side"
                     icon={<PanelRight className="size-5 text-sky-400" />}
                     checked={panelPosition === 'right'}
                     onClick={() => {
                       onSetPanelPosition('right')
+                      closeAll()
+                    }}
+                  />
+                  <MegaItem
+                    title="Dock on Top"
+                    subtitle="Move log & controls above the board"
+                    icon={<PanelTop className="size-5 text-sky-400" />}
+                    checked={panelPosition === 'top'}
+                    onClick={() => {
+                      onSetPanelPosition('top')
+                      closeAll()
+                    }}
+                  />
+                  <MegaItem
+                    title="Dock on Bottom"
+                    subtitle="Move log & controls below the board"
+                    icon={<PanelBottom className="size-5 text-sky-400" />}
+                    checked={panelPosition === 'bottom'}
+                    onClick={() => {
+                      onSetPanelPosition('bottom')
                       closeAll()
                     }}
                   />

@@ -251,10 +251,28 @@ describe('MenuBar', () => {
     expect(text()).toContain('Log Panel Placement')
     expect(text()).toContain('Dock on Left')
     expect(text()).toContain('Dock on Right')
+    expect(text()).toContain('Dock on Top')
+    expect(text()).toContain('Dock on Bottom')
 
     act(() => {
       findButton('Dock on Left')?.click()
     })
     expect(onSetPanelPosition).toHaveBeenCalledWith('left')
+
+    act(() => {
+      findButton('View')?.click()
+    })
+    act(() => {
+      findButton('Dock on Top')?.click()
+    })
+    expect(onSetPanelPosition).toHaveBeenCalledWith('top')
+
+    act(() => {
+      findButton('View')?.click()
+    })
+    act(() => {
+      findButton('Dock on Bottom')?.click()
+    })
+    expect(onSetPanelPosition).toHaveBeenCalledWith('bottom')
   })
 })

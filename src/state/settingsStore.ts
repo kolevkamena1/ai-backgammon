@@ -105,7 +105,10 @@ export const useSettingsStore = create<SettingsState>()(
           ? record.boardDesign
           : DEFAULT_BOARD_DESIGN
         const panelPosition: PanelPosition =
-          record.panelPosition === 'left' || record.panelPosition === 'right'
+          record.panelPosition === 'left' ||
+          record.panelPosition === 'right' ||
+          record.panelPosition === 'top' ||
+          record.panelPosition === 'bottom'
             ? record.panelPosition
             : DEFAULT_PANEL_POSITION
 

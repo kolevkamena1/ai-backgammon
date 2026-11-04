@@ -63,7 +63,51 @@ describe('SplitPane', () => {
     expect(children[2].contains(boardEl)).toBe(true)
   })
 
-  it('shows drop zone when dragging and triggers onDropPanel', () => {
+  it('renders panel on top and board on bottom when panelPosition is top', () => {
+    act(() => {
+      root.render(
+        <SplitPane
+          board={<div data-testid="board-content">Board Content</div>}
+          panel={<div data-testid="panel-content">Panel Content</div>}
+          panelPosition="top"
+        />,
+      )
+    })
+
+    const container = host.firstElementChild
+    expect(container?.className).toContain('flex-col')
+    const children = Array.from(container?.children ?? [])
+    const boardEl = host.querySelector('[data-testid="board-content"]')
+    const panelEl = host.querySelector('[data-testid="panel-content"]')
+
+    // Panel container should come first (top), board container after (bottom)
+    expect(children[0].contains(panelEl)).toBe(true)
+    expect(children[2].contains(boardEl)).toBe(true)
+  })
+
+  it('renders board on top and panel on bottom when panelPosition is bottom', () => {
+    act(() => {
+      root.render(
+        <SplitPane
+          board={<div data-testid="board-content">Board Content</div>}
+          panel={<div data-testid="panel-content">Panel Content</div>}
+          panelPosition="bottom"
+        />,
+      )
+    })
+
+    const container = host.firstElementChild
+    expect(container?.className).toContain('flex-col')
+    const children = Array.from(container?.children ?? [])
+    const boardEl = host.querySelector('[data-testid="board-content"]')
+    const panelEl = host.querySelector('[data-testid="panel-content"]')
+
+    // Board container should come first (top), panel container after (bottom)
+    expect(children[0].contains(boardEl)).toBe(true)
+    expect(children[2].contains(panelEl)).toBe(true)
+  })
+
+  it('shows drop zones when dragging log panel and triggers onDropPanel', () => {
     const onDropPanel = vi.fn()
 
     act(() => {
@@ -78,16 +122,53 @@ describe('SplitPane', () => {
       )
     })
 
-    expect(host.textContent).toContain('Drop here to dock Log Panel on Left')
+    expect(host.textContent).toContain('Dock Log on Left')
+    expect(host.textContent).toContain('Dock Log on Top')
+    expect(host.textContent).toContain('Dock Log on Bottom')
 
-    // Find the drop zone
-    const dropZone = host.querySelector('div[class*="border-dashed"]')
-    expect(dropZone).toBeTruthy()
+    // Find the left drop zone
+    const leftDropZone = Array.from(host.querySelectorAll('div[class*="border-dashed"]')).find((el) =>
+      el.textContent?.includes('Dock Log on Left'),
+    )
+    expect(leftDropZone).toBeTruthy()
 
     const dropEvent = new Event('drop', { bubbles: true, cancelable: true })
-    dropZone?.dispatchEvent(dropEvent)
+    leftDropZone?.dispatchEvent(dropEvent)
 
     expect(onDropPanel).toHaveBeenCalledWith('left')
   })
-})
 
+  it('shows drop zones when dragging board panel and triggers onDropPanel for opposite edge', () => {
+    const onDropPanel = vi.fn()
+
+    act(() => {
+      root.render(
+        <SplitPane
+          board={<div>Board</div>}
+          panel={<div>Panel</div>}
+          panelPosition="right"
+          draggingSource="board"
+          onDropPanel={onDropPanel}
+        />,
+      )
+    })
+
+    // When panelPosition is 'right', board is already on the left.
+    // So the available dock targets for the board are Right, Top, and Bottom.
+    expect(host.textContent).toContain('Dock Board on Right')
+    expect(host.textContent).toContain('Dock Board on Top')
+    expect(host.textContent).toContain('Dock Board on Bottom')
+
+    // Find the top drop zone
+    const topDropZone = Array.from(host.querySelectorAll('div[class*="border-dashed"]')).find((el) =>
+      el.textContent?.includes('Dock Board on Top'),
+    )
+    expect(topDropZone).toBeTruthy()
+
+    const dropEvent = new Event('drop', { bubbles: true, cancelable: true })
+    topDropZone?.dispatchEvent(dropEvent)
+
+    // Dropping board on top docks log panel on bottom
+    expect(onDropPanel).toHaveBeenCalledWith('bottom')
+  })
+})

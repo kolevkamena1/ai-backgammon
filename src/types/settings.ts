@@ -4,8 +4,8 @@ export type AiProvider = 'openai' | 'anthropic' | 'google' | 'custom'
 /** UI color theme: `'light'` (warm soft light default) or `'dark'`. */
 export type ThemeMode = 'light' | 'dark'
 
-/** Dock position for the game controls & turn log panel: `'left'` or `'right'` (default). */
-export type PanelPosition = 'left' | 'right'
+/** Dock position for the game controls & turn log panel: `'left'`, `'right'`, `'top'`, or `'bottom'`. */
+export type PanelPosition = 'left' | 'right' | 'top' | 'bottom'
 
 /**
  * Playing strength. A string union rather than an enum: `erasableSyntaxOnly` is on in both
