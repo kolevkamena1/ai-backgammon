@@ -38,6 +38,8 @@ describe('MenuBar', () => {
           onSelectBoardDesign={vi.fn()}
           theme="dark"
           onSetTheme={vi.fn()}
+          panelPosition="right"
+          onSetPanelPosition={vi.fn()}
           onOpenSettings={vi.fn()}
           onOpenAbout={vi.fn()}
         />,
@@ -62,6 +64,8 @@ describe('MenuBar', () => {
           onSelectBoardDesign={vi.fn()}
           theme="light"
           onSetTheme={vi.fn()}
+          panelPosition="right"
+          onSetPanelPosition={vi.fn()}
           onOpenSettings={vi.fn()}
           onOpenAbout={vi.fn()}
         />,
@@ -88,6 +92,8 @@ describe('MenuBar', () => {
           onSelectBoardDesign={vi.fn()}
           theme="dark"
           onSetTheme={vi.fn()}
+          panelPosition="right"
+          onSetPanelPosition={vi.fn()}
           onOpenSettings={vi.fn()}
           onOpenAbout={vi.fn()}
         />,
@@ -124,6 +130,8 @@ describe('MenuBar', () => {
           onSelectBoardDesign={onSelectBoardDesign}
           theme="dark"
           onSetTheme={vi.fn()}
+          panelPosition="right"
+          onSetPanelPosition={vi.fn()}
           onOpenSettings={vi.fn()}
           onOpenAbout={vi.fn()}
         />,
@@ -160,6 +168,8 @@ describe('MenuBar', () => {
           onSelectBoardDesign={vi.fn()}
           theme="dark"
           onSetTheme={vi.fn()}
+          panelPosition="right"
+          onSetPanelPosition={vi.fn()}
           onOpenSettings={onOpenSettings}
           onOpenAbout={vi.fn()}
         />,
@@ -191,6 +201,8 @@ describe('MenuBar', () => {
           onSelectBoardDesign={vi.fn()}
           theme="dark"
           onSetTheme={vi.fn()}
+          panelPosition="right"
+          onSetPanelPosition={vi.fn()}
           onOpenSettings={vi.fn()}
           onOpenAbout={onOpenAbout}
         />,
@@ -209,5 +221,40 @@ describe('MenuBar', () => {
       findButton('About AI Backgammon...')?.click()
     })
     expect(onOpenAbout).toHaveBeenCalled()
+  })
+
+  it('opens View menu and changes Log Panel placement', () => {
+    const onSetPanelPosition = vi.fn()
+
+    act(() => {
+      root.render(
+        <MenuBar
+          isGameActive={false}
+          onOpenNewGame={vi.fn()}
+          onRestartGame={vi.fn()}
+          onResetToOpening={vi.fn()}
+          boardDesign="levantine"
+          onSelectBoardDesign={vi.fn()}
+          theme="dark"
+          onSetTheme={vi.fn()}
+          panelPosition="right"
+          onSetPanelPosition={onSetPanelPosition}
+          onOpenSettings={vi.fn()}
+          onOpenAbout={vi.fn()}
+        />,
+      )
+    })
+
+    act(() => {
+      findButton('View')?.click()
+    })
+    expect(text()).toContain('Log Panel Placement')
+    expect(text()).toContain('Dock on Left')
+    expect(text()).toContain('Dock on Right')
+
+    act(() => {
+      findButton('Dock on Left')?.click()
+    })
+    expect(onSetPanelPosition).toHaveBeenCalledWith('left')
   })
 })

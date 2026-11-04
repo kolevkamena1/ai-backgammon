@@ -4,6 +4,9 @@ export type AiProvider = 'openai' | 'anthropic' | 'google' | 'custom'
 /** UI color theme: `'light'` (warm soft light default) or `'dark'`. */
 export type ThemeMode = 'light' | 'dark'
 
+/** Dock position for the game controls & turn log panel: `'left'` or `'right'` (default). */
+export type PanelPosition = 'left' | 'right'
+
 /**
  * Playing strength. A string union rather than an enum: `erasableSyntaxOnly` is on in both
  * tsconfigs, so an enum would have to compile to a runtime object the type system cannot erase.

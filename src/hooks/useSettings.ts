@@ -15,10 +15,12 @@ export function useSettings() {
   const params = useSettingsStore((state) => state.params)
   const theme = useSettingsStore((state) => state.theme)
   const boardDesign = useSettingsStore((state) => state.boardDesign)
+  const panelPosition = useSettingsStore((state) => state.panelPosition)
   const isSettingsOpen = useSettingsStore((state) => state.isSettingsOpen)
   const setTheme = useSettingsStore((state) => state.setTheme)
   const toggleTheme = useSettingsStore((state) => state.toggleTheme)
   const setBoardDesign = useSettingsStore((state) => state.setBoardDesign)
+  const setPanelPosition = useSettingsStore((state) => state.setPanelPosition)
   const saveSettings = useSettingsStore((state) => state.saveSettings)
   const clearSettings = useSettingsStore((state) => state.clearSettings)
   const openSettings = useSettingsStore((state) => state.openSettings)
@@ -38,6 +40,7 @@ export function useSettings() {
     params,
     theme,
     boardDesign,
+    panelPosition,
     isSettingsOpen,
     /** Gates AI affordances until a key exists. */
     isConfigured: apiKey.trim().length > 0,
@@ -47,6 +50,7 @@ export function useSettings() {
     setTheme,
     toggleTheme,
     setBoardDesign,
+    setPanelPosition,
     saveSettings,
     clearSettings,
     openSettings,

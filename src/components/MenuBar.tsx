@@ -1,5 +1,5 @@
 import type { GameMode } from '@/types/gameConfig'
-import type { ThemeMode } from '@/types/settings'
+import type { PanelPosition, ThemeMode } from '@/types/settings'
 import { BOARD_DESIGNS, type BoardDesignId } from '@/utils/boardDesigns'
 import { cn } from '@/utils/cn'
 import {
@@ -12,6 +12,8 @@ import {
   Maximize2,
   Moon,
   Palette,
+  PanelLeft,
+  PanelRight,
   RotateCcw,
   Settings,
   Sun,
@@ -30,6 +32,8 @@ interface MenuBarProps {
   onSelectBoardDesign: (id: BoardDesignId) => void
   theme: ThemeMode
   onSetTheme: (theme: ThemeMode) => void
+  panelPosition: PanelPosition
+  onSetPanelPosition: (pos: PanelPosition) => void
   onOpenSettings: () => void
   onOpenAbout: () => void
   className?: string
@@ -142,6 +146,8 @@ export default function MenuBar({
   onSelectBoardDesign,
   theme,
   onSetTheme,
+  panelPosition,
+  onSetPanelPosition,
   onOpenSettings,
   onOpenAbout,
   className,
@@ -401,6 +407,35 @@ export default function MenuBar({
                     subtitle="Restore default dimensions for the board pane"
                     icon={<Maximize2 className="size-5 text-slate-300" />}
                     onClick={triggerResetBoardSize}
+                  />
+                </div>
+              </div>
+
+              {/* Log Panel Placement */}
+              <div className="border-t border-slate-800 pt-3">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  Log Panel Placement
+                </span>
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <MegaItem
+                    title="Dock on Left"
+                    subtitle="Move game controls & turn log to the left side"
+                    icon={<PanelLeft className="size-5 text-sky-400" />}
+                    checked={panelPosition === 'left'}
+                    onClick={() => {
+                      onSetPanelPosition('left')
+                      closeAll()
+                    }}
+                  />
+                  <MegaItem
+                    title="Dock on Right"
+                    subtitle="Move game controls & turn log to the right side"
+                    icon={<PanelRight className="size-5 text-sky-400" />}
+                    checked={panelPosition === 'right'}
+                    onClick={() => {
+                      onSetPanelPosition('right')
+                      closeAll()
+                    }}
                   />
                 </div>
               </div>

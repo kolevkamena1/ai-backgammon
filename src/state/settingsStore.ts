@@ -1,5 +1,5 @@
 import { createSafeStorage } from '@/state/createSafeStorage'
-import type { AiDifficulty, AiProvider, AppSettings, ThemeMode } from '@/types/settings'
+import type { AiDifficulty, AiProvider, AppSettings, PanelPosition, ThemeMode } from '@/types/settings'
 import {
   DEFAULT_BOARD_DESIGN,
   isBoardDesignId,
@@ -10,12 +10,15 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 export const DEFAULT_THEME: ThemeMode = 'light'
+export const DEFAULT_PANEL_POSITION: PanelPosition = 'right'
 
 interface SettingsState extends AppSettings {
   /** UI color theme: defaults to the warm soft `'light'` theme. */
   theme: ThemeMode
   /** Selected visual design for the board and checkers. */
   boardDesign: BoardDesignId
+  /** Dock position for the game controls & turn log panel. */
+  panelPosition: PanelPosition
   /** Modal visibility lives here so any component can open it, but it is never persisted. */
   isSettingsOpen: boolean
   setProvider: (provider: AiProvider) => void
@@ -24,6 +27,7 @@ interface SettingsState extends AppSettings {
   setTheme: (theme: ThemeMode) => void
   toggleTheme: () => void
   setBoardDesign: (boardDesign: BoardDesignId) => void
+  setPanelPosition: (panelPosition: PanelPosition) => void
   saveSettings: (settings: AppSettings) => void
   clearSettings: () => void
   openSettings: () => void
@@ -33,7 +37,7 @@ interface SettingsState extends AppSettings {
 /** The exact subset mirrored to disk — actions and modal state never reach storage. */
 type PersistedSettings = Pick<
   SettingsState,
-  'provider' | 'apiKey' | 'model' | 'baseUrl' | 'difficulty' | 'params' | 'theme' | 'boardDesign'
+  'provider' | 'apiKey' | 'model' | 'baseUrl' | 'difficulty' | 'params' | 'theme' | 'boardDesign' | 'panelPosition'
 >
 
 /** Shown when nothing has been saved yet — the AI engine stays disabled with an empty key. */
@@ -59,6 +63,7 @@ export const useSettingsStore = create<SettingsState>()(
       ...DEFAULT_SETTINGS,
       theme: DEFAULT_THEME,
       boardDesign: DEFAULT_BOARD_DESIGN,
+      panelPosition: DEFAULT_PANEL_POSITION,
       isSettingsOpen: false,
       setProvider: (provider) => set({ provider }),
       setApiKey: (apiKey) => set({ apiKey }),
@@ -67,6 +72,7 @@ export const useSettingsStore = create<SettingsState>()(
       toggleTheme: () =>
         set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
       setBoardDesign: (boardDesign) => set({ boardDesign }),
+      setPanelPosition: (panelPosition) => set({ panelPosition }),
       saveSettings: ({ provider, apiKey, model, baseUrl, difficulty, params }) =>
         set({ provider, apiKey, model, baseUrl, difficulty, params, isSettingsOpen: false }),
       clearSettings: () => set({ ...DEFAULT_SETTINGS, params: undefined, isSettingsOpen: false }),
@@ -86,6 +92,7 @@ export const useSettingsStore = create<SettingsState>()(
         params: state.params,
         theme: state.theme,
         boardDesign: state.boardDesign,
+        panelPosition: state.panelPosition,
       }),
       merge: (persisted, current): SettingsState => {
         const record =
@@ -97,12 +104,17 @@ export const useSettingsStore = create<SettingsState>()(
         const boardDesign: BoardDesignId = isBoardDesignId(record.boardDesign)
           ? record.boardDesign
           : DEFAULT_BOARD_DESIGN
+        const panelPosition: PanelPosition =
+          record.panelPosition === 'left' || record.panelPosition === 'right'
+            ? record.panelPosition
+            : DEFAULT_PANEL_POSITION
 
         return {
           ...current,
           ...sanitizeEngineConfig(persisted, DEFAULT_SETTINGS),
           theme,
           boardDesign,
+          panelPosition,
         }
       },
     },

@@ -13,7 +13,7 @@ import { useGameConfig } from '@/hooks/useGameConfig'
 import { useSettings } from '@/hooks/useSettings'
 import { startTelemetry } from '@/utils/telemetry'
 import type { GameMode } from '@/types/gameConfig'
-import { Dices } from 'lucide-react'
+import { Dices, GripVertical, PanelLeft, PanelRight } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 const App = () => {
@@ -21,9 +21,11 @@ const App = () => {
     settings,
     theme,
     boardDesign,
+    panelPosition,
     isSettingsOpen,
     setTheme,
     setBoardDesign,
+    setPanelPosition,
     openSettings,
     closeSettings,
   } = useSettings()
@@ -32,6 +34,7 @@ const App = () => {
 
   const [isAboutOpen, setIsAboutOpen] = useState(false)
   const [setupInitialMode, setSetupInitialMode] = useState<GameMode | undefined>(undefined)
+  const [isDraggingPanel, setIsDraggingPanel] = useState(false)
 
   const handleOpenNewGame = (preferredMode?: GameMode): void => {
     setSetupInitialMode(preferredMode)
@@ -87,6 +90,8 @@ const App = () => {
               onSelectBoardDesign={setBoardDesign}
               theme={theme}
               onSetTheme={setTheme}
+              panelPosition={panelPosition}
+              onSetPanelPosition={setPanelPosition}
               onOpenSettings={openSettings}
               onOpenAbout={() => setIsAboutOpen(true)}
             />
@@ -102,8 +107,12 @@ const App = () => {
           defaultSplitPercent={74}
           minSplitPercent={55}
           maxSplitPercent={85}
+          panelPosition={panelPosition}
+          onDropPanel={setPanelPosition}
+          isDraggingPanel={isDraggingPanel}
+          setIsDraggingPanel={setIsDraggingPanel}
           className="h-full w-full"
-          left={
+          board={
             <div className="flex h-full w-full flex-col items-center justify-center p-2 sm:p-3 overflow-hidden gap-2">
               {game.match && game.match.targetPoints > 1 && (
                 <div className="shrink-0 w-full flex justify-center">
@@ -132,8 +141,76 @@ const App = () => {
               </div>
             </div>
           }
-          right={
-            <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+          panel={
+            <div className="flex h-full min-h-0 flex-col gap-2.5 overflow-hidden">
+              {/* Draggable panel dock bar */}
+              <div
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('text/plain', 'log-panel')
+                  e.dataTransfer.effectAllowed = 'move'
+                  setIsDraggingPanel(true)
+                }}
+                onDragEnd={() => setIsDraggingPanel(false)}
+                onPointerDown={(e) => {
+                  if ((e.target as HTMLElement).closest('button')) return
+                  const startX = e.clientX
+                  let hasStarted = false
+
+                  const handlePointerMove = (moveEvent: PointerEvent) => {
+                    const deltaX = Math.abs(moveEvent.clientX - startX)
+                    if (deltaX > 20 && !hasStarted) {
+                      hasStarted = true
+                      setIsDraggingPanel(true)
+                    }
+                  }
+
+                  const handlePointerUp = (upEvent: PointerEvent) => {
+                    window.removeEventListener('pointermove', handlePointerMove)
+                    window.removeEventListener('pointerup', handlePointerUp)
+                    if (hasStarted) {
+                      setIsDraggingPanel(false)
+                      const screenMiddle = window.innerWidth / 2
+                      if (panelPosition === 'right' && upEvent.clientX < screenMiddle) {
+                        setPanelPosition('left')
+                      } else if (panelPosition === 'left' && upEvent.clientX > screenMiddle) {
+                        setPanelPosition('right')
+                      }
+                    }
+                  }
+
+                  window.addEventListener('pointermove', handlePointerMove)
+                  window.addEventListener('pointerup', handlePointerUp)
+                }}
+                className="flex items-center justify-between px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/80 shadow-xs cursor-grab active:cursor-grabbing select-none hover:border-slate-700 transition-colors shrink-0"
+                title="Drag and drop to dock on the other side of the window"
+              >
+                <div className="flex items-center gap-1.5">
+                  <GripVertical className="size-4 text-slate-400 group-hover:text-sky-400" />
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+                    Game Log &amp; Controls
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPanelPosition(panelPosition === 'right' ? 'left' : 'right')}
+                  className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium text-slate-400 hover:text-sky-300 hover:bg-slate-800 transition-colors cursor-pointer"
+                  title={panelPosition === 'right' ? 'Move log panel to Left side' : 'Move log panel to Right side'}
+                >
+                  {panelPosition === 'right' ? (
+                    <>
+                      <PanelLeft className="size-3.5" />
+                      <span>Dock Left</span>
+                    </>
+                  ) : (
+                    <>
+                      <PanelRight className="size-3.5" />
+                      <span>Dock Right</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
               <div className="shrink-0">
                 <GameControls />
               </div>
