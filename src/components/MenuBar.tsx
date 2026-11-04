@@ -195,10 +195,10 @@ export default function MenuBar({
 
   const navButtonClass = (menu: MenuKey) =>
     cn(
-      'relative z-30 px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors rounded-t-lg select-none',
+      'relative z-30 px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors select-none cursor-pointer',
       openMenu === menu
-        ? 'bg-slate-900 text-sky-400 border-t border-x border-slate-700/80 shadow-md'
-        : 'text-slate-300 hover:text-white hover:bg-slate-800/60',
+        ? 'bg-slate-900 text-sky-400 border-t border-x border-slate-700/80 shadow-md rounded-t-lg'
+        : 'rounded-lg text-slate-300 hover:text-slate-50 hover:bg-slate-800/80',
     )
 
   return (

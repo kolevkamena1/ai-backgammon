@@ -50,6 +50,30 @@ describe('MenuBar', () => {
     expect(findButton('Help')).toBeTruthy()
   })
 
+  it('applies theme-aware high-contrast hover styling without hardcoded text-white', () => {
+    act(() => {
+      root.render(
+        <MenuBar
+          isGameActive={false}
+          onOpenNewGame={vi.fn()}
+          onRestartGame={vi.fn()}
+          onResetToOpening={vi.fn()}
+          boardDesign="levantine"
+          onSelectBoardDesign={vi.fn()}
+          theme="light"
+          onSetTheme={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onOpenAbout={vi.fn()}
+        />,
+      )
+    })
+
+    const viewButton = findButton('View')
+    expect(viewButton).toBeTruthy()
+    expect(viewButton?.className).toContain('hover:text-slate-50')
+    expect(viewButton?.className).not.toContain('hover:text-white')
+  })
+
   it('opens Game menu and launches Human vs AI from submenu', () => {
     const onOpenNewGame = vi.fn()
 
