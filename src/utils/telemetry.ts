@@ -20,6 +20,7 @@ const SESSION_KEY = 'ai-backgammon:session'
 
 interface GameTracker {
   gameId: string
+  sessionId: string
   undoCount: number
   pauseCount: number
   aiErrors: Record<string, number>
@@ -48,12 +49,19 @@ function enabled(): boolean {
   return !import.meta.env.DEV && !isDoNotTrackEnabled()
 }
 
+function utcDay(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
 function sessionId(): string {
+  const prefix = `${utcDay()}:`
   try {
     const existing = sessionStorage.getItem(SESSION_KEY)
-    if (existing !== null) return existing
+    if (existing !== null && existing.startsWith(prefix)) {
+      return existing.slice(prefix.length)
+    }
     const created = crypto.randomUUID()
-    sessionStorage.setItem(SESSION_KEY, created)
+    sessionStorage.setItem(SESSION_KEY, `${prefix}${created}`)
     return created
   } catch {
     // Storage blocked: an ephemeral id still groups this page load's events.
@@ -148,7 +156,7 @@ export function startTelemetry(): () => void {
     send(
       {
         type: 'game_end',
-        sessionId: sid,
+        sessionId: tracker.sessionId,
         gameId: tracker.gameId,
         outcome,
         winner: tracker.last.winner,
@@ -169,9 +177,11 @@ export function startTelemetry(): () => void {
       tracker = null
 
       if (state.gameId !== null && state.config !== null) {
+        const activeSessionId = sessionId()
         const engines = describeEngines()
         tracker = {
           gameId: state.gameId,
+          sessionId: activeSessionId,
           undoCount: 0,
           pauseCount: 0,
           aiErrors: {},
@@ -180,7 +190,7 @@ export function startTelemetry(): () => void {
         }
         send({
           type: 'game_start',
-          sessionId: sid,
+          sessionId: activeSessionId,
           gameId: state.gameId,
           mode: state.config.mode as StatsGameMode,
           matchType: state.config.mode === 'aiVsAi' ? state.config.aiMatchType : null,

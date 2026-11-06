@@ -167,6 +167,14 @@ function sessionFilters(filters: StatsFilters): Where {
 function sessionWhere(filters: StatsFilters): Where {
   const extra = sessionFilters(filters)
   return {
+    sql: ['s.last_seen >= ?', extra.sql].filter((p) => p !== '').join(' AND '),
+    params: [sinceIso(filters.days), ...extra.params],
+  }
+}
+
+function sessionFirstSeenWhere(filters: StatsFilters): Where {
+  const extra = sessionFilters(filters)
+  return {
     sql: ['s.first_seen >= ?', extra.sql].filter((p) => p !== '').join(' AND '),
     params: [sinceIso(filters.days), ...extra.params],
   }
@@ -233,23 +241,32 @@ export async function getSummary(db: D1Db, filters: StatsFilters): Promise<Stats
       sessions_with_game: number
     }>()
 
+  const fsw = sessionFirstSeenWhere(filters)
   const dayRows = await db
-    .prepare(`SELECT s.day AS day, COUNT(*) AS sessions ${fromSessions} WHERE ${sw.sql} GROUP BY s.day ORDER BY s.day`)
-    .bind(...sw.params)
+    .prepare(
+      `SELECT active_day AS day, COUNT(DISTINCT session_id) AS sessions FROM (
+         SELECT s.day AS active_day, s.session_id ${fromSessions} WHERE ${fsw.sql}
+         UNION ALL
+         SELECT substr(s.last_seen, 1, 10) AS active_day, s.session_id ${fromSessions} WHERE ${sw.sql}
+         UNION ALL
+         SELECT substr(g.started_at, 1, 10) AS active_day, g.session_id AS session_id ${fromGames} WHERE ${gw.sql}
+       ) GROUP BY active_day ORDER BY active_day`,
+    )
+    .bind(...fsw.params, ...sw.params, ...gw.params)
     .all<{ day: string; sessions: number }>()
   const gameDayRows = await db
     .prepare(
-      `SELECT substr(g.started_at, 1, 10) AS day, COUNT(*) AS games ${fromGames} WHERE ${gw.sql} GROUP BY day ORDER BY day`,
+      `SELECT substr(g.started_at, 1, 10) AS game_day, COUNT(*) AS games ${fromGames} WHERE ${gw.sql} GROUP BY substr(g.started_at, 1, 10) ORDER BY game_day`,
     )
     .bind(...gw.params)
-    .all<{ day: string; games: number }>()
+    .all<{ game_day: string; games: number }>()
 
   const days = new Map<string, { day: string; sessions: number; games: number }>()
   for (const row of dayRows.results) days.set(row.day, { day: row.day, sessions: row.sessions, games: 0 })
   for (const row of gameDayRows.results) {
-    const entry = days.get(row.day) ?? { day: row.day, sessions: 0, games: 0 }
+    const entry = days.get(row.game_day) ?? { day: row.game_day, sessions: 0, games: 0 }
     entry.games = row.games
-    days.set(row.day, entry)
+    days.set(row.game_day, entry)
   }
 
   const finished = gameTotals?.finished ?? 0

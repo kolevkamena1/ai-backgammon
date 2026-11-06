@@ -144,5 +144,26 @@ describe.skipIf(sqlite === null)('analytics D1 layer (real SQL on SQLite)', () =
       expect.objectContaining({ day: '2000-01-01', country: 'BG', sessions: 1, games: 1, finished: 1, abandoned: 0 }),
     ])
   })
+
+  it('groups byDay games by game started_at day rather than shadowing with sessions.day across multi-day tabs', async () => {
+    const { db, raw } = createDb()
+    await recordEvent(db, visit, facts)
+    await recordEvent(db, start('game-day1-0001'), facts)
+    await recordEvent(db, end('game-day1-0001', 'finished'), facts)
+
+    const day1 = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10)
+    const day2 = new Date().toISOString().slice(0, 10)
+    raw.exec(`UPDATE sessions SET day = '${day1}', first_seen = '${day1}T16:28:00.000Z', last_seen = '${day2}T10:45:00.000Z'`)
+    raw.exec(`UPDATE games SET started_at = '${day1}T16:28:00.000Z' WHERE game_id = 'game-day1-0001'`)
+
+    await recordEvent(db, start('game-day2-0002'), facts)
+    await recordEvent(db, end('game-day2-0002', 'finished'), facts)
+
+    const summary = await getSummary(db, filters)
+    expect(summary.byDay).toEqual([
+      { day: day1, sessions: 1, games: 1 },
+      { day: day2, sessions: 1, games: 1 },
+    ])
+  })
 })
 
