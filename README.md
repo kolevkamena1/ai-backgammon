@@ -1,11 +1,16 @@
 # ai-backgammon
 
-AI-powered (BYOK) Backgammon.
+[![Play Live](https://img.shields.io/badge/Play_Live-backgammon.kamenonline.com-0284c7?style=flat&logo=cloudflare&logoColor=white)](https://backgammon.kamenonline.com/)
+[![CI](https://github.com/kolevkamena1/ai-backgammon/actions/workflows/ci.yml/badge.svg)](https://github.com/kolevkamena1/ai-backgammon/actions/workflows/ci.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./LICENSE)
 
-**Current status: Phase 4 — rules, turn flow, BYOK inference, the CORS relay, configurable strength,
-move explanations and streamed reasoning.**
+AI-powered (BYOK) Backgammon — **[Play live at backgammon.kamenonline.com](https://backgammon.kamenonline.com/)**
+[![AI Backgammon gameplay](./public/og-preview.png)](https://backgammon.kamenonline.com/)
+**Current status: Phase 4 & core Phase 5 shipped — rules, turn flow, BYOK inference, the CORS relay,
+configurable strength, move explanations, streamed reasoning, spectator controls, drag-and-drop,
+checker animations, and a 4-way dockable workspace.**
 Rolling, legal moves, hitting, bar re-entry and bearing off are real and covered by tests, and a
-human can play a full game by clicking a checker then a highlighted triangle. AI seats play
+human can play a full game by clicking or dragging checkers across the board. AI seats play
 themselves: every move is requested with your own key, relayed through the same-origin
 `/api/ai-proxy` endpoint, chosen from the legal move menu, and re-validated by the rules engine
 before it touches the board. In `npm run dev` you can still roll and move for any seat by hand.
@@ -24,7 +29,7 @@ it made, and writes that sentence on screen **while the provider is still stream
 | Inference   | Native `fetch` per provider — OpenAI, Anthropic, Google, any OpenAI-compatible endpoint (DashScope included). No SDK. |
 | Relay       | One runtime-agnostic core, `shared/aiProxy.ts`, mounted twice: a Vite dev middleware and a Cloudflare Pages Function. |
 | Testing     | Vitest 5 — `environment: 'node'` for the pure rules engine, the seat planning and the proxy core, jsdom for the component tests |
-| Hosting     | Cloudflare Pages — static assets plus one Pages Function under `functions/api/ai-proxy/` |
+| Hosting     | Cloudflare Pages — static assets plus Pages Functions under `functions/api/` ([backgammon.kamenonline.com](https://backgammon.kamenonline.com/)) |
 
 Node 22 is required (`.nvmrc`, `package.json` `engines`): `nvm use`.
 
@@ -35,7 +40,7 @@ npm install          # install dependencies
 npm run dev          # dev server on http://localhost:5173
 npm run typecheck    # tsc -b (no emit) — 0 errors required
 npm run lint         # eslint .
-npm run test         # vitest run (334 passed + 6 skipped: rules, seats, click-to-move, AI client,
+npm run test         # vitest run (346 passed + 6 skipped: rules, seats, click-to-move, AI client,
                      # AI turn driver, proxy core, SSE stream parsing — the 6 skipped are the opt-in
                      # relay e2e suite, which runs live when its origins are set)
 npm run test:watch   # vitest in watch mode
@@ -706,11 +711,14 @@ local run use `npm run pages:local` with `STATS_DEV_BYPASS=1` in `.env` (honoure
    `AiThoughtPanel` shows it — written on screen as it streams, because the relay pipes SSE through
    instead of buffering it. What is left of Phase 3's list: nothing; the side-panel explanations this
    section used to promise are in.
-5. **Phase 5 — polish:** spectator controls for AI vs AI, drag-and-drop, animations,
-   accessibility pass, persistence of games.
+5. **Phase 5 — polish: in progress.** Shipped: spectator controls (`Pause`/`Resume` and step-by-step
+   `Undo`/`Redo` replay), checker drag-and-drop, smooth checker move animations, five handcrafted board
+   designs, and a resizable 4-way dockable workspace (`SplitPane` — left, right, top, bottom). Remaining:
+   accessibility pass and persistence of games.
 
 ## Author & Links
 
+- **Live App:** [backgammon.kamenonline.com](https://backgammon.kamenonline.com/)
 - **Author & Developer:** Kamen Kolev
 - **Website:** [www.kamenonline.com](https://www.kamenonline.com)
 - **Repository:** [https://github.com/kolevkamena1/ai-backgammon](https://github.com/kolevkamena1/ai-backgammon)
