@@ -5,7 +5,9 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./LICENSE)
 
 AI-powered (BYOK) Backgammon — **[Play live at backgammon.kamenonline.com](https://backgammon.kamenonline.com/)**
+
 [![AI Backgammon gameplay](./public/og-preview.png)](https://backgammon.kamenonline.com/)
+
 **Current status: Phase 4 & core Phase 5 shipped — rules, turn flow, BYOK inference, the CORS relay,
 configurable strength, move explanations, streamed reasoning, spectator controls, drag-and-drop,
 checker animations, and a 4-way dockable workspace.**
