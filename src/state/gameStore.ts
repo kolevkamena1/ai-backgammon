@@ -975,6 +975,13 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         return
       }
 
+      // Our own offer is still awaiting the opponent's answer. Return before any set() so we never
+      // flip isAiThinking: that flip re-triggered useAiTurn in a busy loop while the human deliberated.
+      // This must NOT gate the branch above — an AI must still respond to a human's double.
+      if (pendingOffer === seat.color) {
+        return
+      }
+
       // Single flight: React may mount the trigger twice, and two components can observe the
       // same turn. Only one request chain may ever be in progress.
       if (get().isAiThinking) {

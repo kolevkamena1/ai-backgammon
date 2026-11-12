@@ -360,3 +360,69 @@ describe('aiThought', () => {
     expect(state.aiThought).toBeNull()
   })
 })
+
+describe('runAiTurn pending double (B2 regression)', () => {
+  const startHumanVsAi = (): void => {
+    expect(useGameStore.getState().startNewGame(humanVsAi, personal)).toBe(true)
+    useGameStore.setState({ aiMoveDelayMs: 0 })
+  }
+
+  it('performs zero store writes while its own offer awaits a human answer', async () => {
+    startHumanVsAi()
+    // Dark (AI) has proposed a double; the human (light) has not answered yet.
+    useGameStore.setState({
+      board: { ...getInitialBoardState(), turn: 'dark', dice: [], phase: 'playing' },
+      cube: { value: 1, owner: 'centered', proposedBy: 'dark' },
+    })
+
+    let writes = 0
+    const unsubscribe = useGameStore.subscribe(() => {
+      writes += 1
+    })
+    await useGameStore.getState().runAiTurn()
+    unsubscribe()
+
+    // Before the fix this flipped isAiThinking true then false (2 writes), which re-triggered
+    // useAiTurn in a busy loop until the human answered.
+    expect(writes).toBe(0)
+    expect(useGameStore.getState().isAiThinking).toBe(false)
+    expect(useGameStore.getState().cube.proposedBy).toBe('dark')
+    expect(mockedGetAiMove).not.toHaveBeenCalled()
+  })
+
+  it("still accepts a human's double", async () => {
+    startHumanVsAi()
+    useGameStore.setState({
+      board: { ...getInitialBoardState(), turn: 'dark', dice: [], phase: 'playing' },
+      cube: { value: 1, owner: 'centered', proposedBy: 'light' },
+    })
+
+    await useGameStore.getState().runAiTurn()
+
+    const { cube } = useGameStore.getState()
+    expect(cube.proposedBy).toBeNull()
+    expect(cube.value).toBe(2)
+    expect(cube.owner).toBe('dark')
+  })
+
+  it("still declines a human's double when badly behind", async () => {
+    startHumanVsAi()
+    // Dark is far behind in the race and White has already borne off 7: a clear drop.
+    const board = getInitialBoardState()
+    board.points = Array.from({ length: 24 }, () => 0)
+    board.points[0] = 8 // White: 8 on point 1 (1 pip each)
+    board.points[1] = -15 // Black: 15 on point 2 (23 pips each)
+    board.off.light = 7
+    board.turn = 'dark'
+    board.dice = []
+    board.phase = 'playing'
+    useGameStore.setState({ board, cube: { value: 1, owner: 'centered', proposedBy: 'light' } })
+
+    await useGameStore.getState().runAiTurn()
+
+    const state = useGameStore.getState()
+    expect(state.board?.phase).toBe('finished')
+    expect(state.board?.winner).toBe('light')
+    expect(state.cube.proposedBy).toBeNull()
+  })
+})
