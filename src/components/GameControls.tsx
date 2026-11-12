@@ -56,7 +56,7 @@ function seatSummary(seat: SeatAssignment): string {
  */
 const GameControls = () => {
   const game = useGame()
-  const { openSettings } = useSettings()
+  const { openSettings, settings } = useSettings()
   const { board, currentSeat, lastRoll, history, selectedFrom, turnPassed, isAiThinking, lastAiError, aiThought } =
     game
 
@@ -317,7 +317,14 @@ const GameControls = () => {
                   </p>
                   <button
                     type="button"
-                    onClick={() => game.startNewGame(game.config!, {} as never, true)}
+                    onClick={() => {
+                      // Restart with the CURRENT BYOK settings, not a stale or empty engine. The
+                      // active config is guaranteed here (a match can only be won mid-game), but we
+                      // guard rather than assert so a future caller can never pass `undefined`.
+                      if (game.config !== null) {
+                        game.startNewGame(game.config, settings, true)
+                      }
+                    }}
                     className={cn(PRIMARY, 'mt-1 text-xs py-1.5')}
                   >
                     Start New Match Set

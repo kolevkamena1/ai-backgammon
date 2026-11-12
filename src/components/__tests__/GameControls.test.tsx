@@ -11,6 +11,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getAiMove } from '@/utils/aiClient'
+import { useSettingsStore } from '@/state/settingsStore'
 
 // The transport is stubbed: these tests must never reach a real provider.
 vi.mock('@/utils/aiClient', async (importOriginal) => {
@@ -496,5 +497,53 @@ describe('AI thought panel', () => {
     expect(text()).not.toContain('I hit your blot.')
     expect(useGameStore.getState().board).toEqual(before)
     expect(useGameStore.getState().board?.turn).toBe('light')
+  })
+})
+
+describe('Start New Match Set (B1 regression)', () => {
+  it('restarts without throwing and uses the current BYOK settings', () => {
+    // A won match set: targetPoints > 1 and a match winner, so the restart button renders.
+    const matchConfig: GameConfigSnapshot = {
+      ...humanVsAi,
+      match: { targetPoints: 3, enableCrawford: false },
+    }
+    act(() => {
+      useGameStore.getState().startNewGame(matchConfig, personal)
+    })
+    act(() => {
+      const { board, match } = useGameStore.getState()
+      useGameStore.setState({
+        board: board ? { ...board, phase: 'finished', winner: 'light', dice: [] } : board,
+        match: match ? { ...match, matchWinner: 'light', light: 3 } : match,
+      })
+    })
+
+    // The current settings carry a distinctive key the restarted AI seat must pick up.
+    act(() => {
+      useSettingsStore.setState({
+        provider: 'openai',
+        apiKey: 'sk-current-settings',
+        model: 'current-model',
+        baseUrl: '',
+      })
+    })
+
+    act(() => root.render(<GameControls />))
+
+    const button = labelled('Start New Match Set')
+    expect(button).toBeTruthy()
+    // Before the fix this threw `TypeError: Cannot read properties of undefined (reading 'trim')`
+    // because the handler passed `{} as never` as the personal engine.
+    expect(() => click(button)).not.toThrow()
+
+    const state = useGameStore.getState()
+    expect(state.match?.matchWinner).toBeNull()
+    expect(state.match?.light).toBe(0)
+    const aiSeat = state.seatPlan?.dark
+    expect(aiSeat?.kind).toBe('ai')
+    if (aiSeat?.kind === 'ai') {
+      expect(aiSeat.engine.apiKey).toBe('sk-current-settings')
+      expect(aiSeat.engine.model).toBe('current-model')
+    }
   })
 })
