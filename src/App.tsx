@@ -15,7 +15,7 @@ import { startTelemetry } from '@/utils/telemetry'
 import type { GameMode } from '@/types/gameConfig'
 import { cn } from '@/utils/cn'
 import { Dices, GripVertical, PanelBottom, PanelLeft, PanelRight, PanelTop } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 const App = () => {
   const {
@@ -51,6 +51,15 @@ const App = () => {
   const handleResetToOpening = (): void => {
     game.resetGame()
   }
+
+  // Stable so memo(Board) is not defeated by a fresh closure on every App render. The board object
+  // and the store action are both referentially stable between turns.
+  const { board: activeBoard, proposeDouble } = game
+  const handleDouble = useCallback((): void => {
+    if (activeBoard !== null) {
+      proposeDouble(activeBoard.turn)
+    }
+  }, [activeBoard, proposeDouble])
 
   // Keep the root <html data-theme="..."> attribute synced with the user's chosen theme.
   useEffect(() => {
@@ -247,7 +256,7 @@ const App = () => {
                     design={boardDesign}
                     cube={game.cube}
                     canDouble={game.canDouble}
-                    onDouble={() => game.proposeDouble(game.board!.turn)}
+                    onDouble={handleDouble}
                   />
                 </div>
               </div>

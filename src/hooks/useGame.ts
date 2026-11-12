@@ -4,7 +4,7 @@ import { logger } from '@/lib/logger'
 import { useGameStore } from '@/state/gameStore'
 import { derivePendingTurns, deriveTurnEntries } from '@/utils/gameLog'
 import { getLegalMoves } from '@/utils/gameLogic'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 
 /**
  * Everything the UI needs about the active game: the board, whose turn it is according to the
@@ -22,7 +22,8 @@ export function useGame() {
   const turnPassed = useGameStore((state) => state.turnPassed)
   const isAiThinking = useGameStore((state) => state.isAiThinking)
   const lastAiError = useGameStore((state) => state.lastAiError)
-  const aiThought = useGameStore((state) => state.aiThought)
+  // `aiThought` is intentionally NOT subscribed here: it changes on every streamed token, and
+  // broadcasting it through `useGame` re-rendered the whole board. See `useAiThought`.
   const isPaused = useGameStore((state) => state.isPaused)
   const turnNumber = useGameStore((state) => state.turnNumber)
   const stepHistory = useGameStore((state) => state.stepHistory)
@@ -121,70 +122,78 @@ export function useGame() {
   /** True when a chain is running for a seat the player may not act on: Roll should stay hidden. */
   const aiSeatThinking = isAiThinking && isHumanTurn === false
 
-  const handlePointClick = (target: MoveSource | MoveTarget): void => {
-    if (board === null || isFinished || canInteract === false) {
-      return
-    }
-
-    // Clicking a highlighted destination plays the matching move ('off' targets the tray).
-    if (selectedFrom !== null && legalTargets.has(target)) {
-      const move = selectedMoves.find((candidate) => candidate.to === target)
-      if (move !== undefined && makeMove(move)) {
+  // Stable callbacks so `memo(Board)`/`memo(Point)` can skip re-renders: their identity changes
+  // only when the position or selection actually changes, never on an unrelated store write.
+  const handlePointClick = useCallback(
+    (target: MoveSource | MoveTarget): void => {
+      if (board === null || isFinished || canInteract === false) {
         return
       }
-    }
 
-    // Only a point or the bar can be a source; `typeof` narrows that for the set lookup.
-    if (target === 'bar' || typeof target === 'number') {
-      selectPoint(target)
+      // Clicking a highlighted destination plays the matching move ('off' targets the tray).
+      if (selectedFrom !== null && legalTargets.has(target)) {
+        const move = selectedMoves.find((candidate) => candidate.to === target)
+        if (move !== undefined && makeMove(move)) {
+          return
+        }
+      }
 
-      if (selectedFrom !== target && selectableSources.has(target)) {
-        // Direct logging is banned by .clinerules, so the legal-move dump goes through the logger.
-        logger.debug('legal moves for point', {
-          from: String(target),
-          count: allLegalMoves.filter((move) => move.from === target).length,
+      // Only a point or the bar can be a source; `typeof` narrows that for the set lookup.
+      if (target === 'bar' || typeof target === 'number') {
+        selectPoint(target)
+
+        if (selectedFrom !== target && selectableSources.has(target)) {
+          // Direct logging is banned by .clinerules, so the legal-move dump goes through the logger.
+          logger.debug('legal moves for point', {
+            from: String(target),
+            count: allLegalMoves.filter((move) => move.from === target).length,
+          })
+        }
+        return
+      }
+
+      selectPoint(null)
+    },
+    [board, isFinished, canInteract, selectedFrom, legalTargets, selectedMoves, makeMove, selectPoint, selectableSources, allLegalMoves],
+  )
+
+  const handlePointDragStart = useCallback(
+    (source: MoveSource): void => {
+      if (board === null || isFinished || canInteract === false) {
+        return
+      }
+      if (selectableSources.has(source) === false) {
+        return
+      }
+      if (selectedFrom !== source) {
+        selectPoint(source)
+        logger.debug('legal moves for dragged source', {
+          from: String(source),
+          count: allLegalMoves.filter((move) => move.from === source).length,
         })
       }
-      return
-    }
+    },
+    [board, isFinished, canInteract, selectableSources, selectedFrom, selectPoint, allLegalMoves],
+  )
 
-    selectPoint(null)
-  }
-
-  const handlePointDragStart = (source: MoveSource): void => {
-    if (board === null || isFinished || canInteract === false) {
-      return
-    }
-    if (selectableSources.has(source) === false) {
-      return
-    }
-    if (selectedFrom !== source) {
-      selectPoint(source)
-      logger.debug('legal moves for dragged source', {
-        from: String(source),
-        count: allLegalMoves.filter((move) => move.from === source).length,
-      })
-    }
-  }
-
-  const handlePointDrop = (
-    target: MoveSource | MoveTarget,
-    draggedSource?: MoveSource | null,
-  ): void => {
-    if (board === null || isFinished || canInteract === false) {
-      return
-    }
-    const from = draggedSource ?? selectedFrom
-    if (from === null) {
-      return
-    }
-    const move = allLegalMoves.find(
-      (candidate) => candidate.from === from && candidate.to === target,
-    )
-    if (move !== undefined) {
-      makeMove(move)
-    }
-  }
+  const handlePointDrop = useCallback(
+    (target: MoveSource | MoveTarget, draggedSource?: MoveSource | null): void => {
+      if (board === null || isFinished || canInteract === false) {
+        return
+      }
+      const from = draggedSource ?? selectedFrom
+      if (from === null) {
+        return
+      }
+      const move = allLegalMoves.find(
+        (candidate) => candidate.from === from && candidate.to === target,
+      )
+      if (move !== undefined) {
+        makeMove(move)
+      }
+    },
+    [board, isFinished, canInteract, selectedFrom, allLegalMoves, makeMove],
+  )
 
   return {
     board,
@@ -196,7 +205,6 @@ export function useGame() {
     turnPassed,
     isAiThinking,
     lastAiError,
-    aiThought,
     currentSeat,
     allLegalMoves,
     selectedMoves,

@@ -1,5 +1,6 @@
 import type { PlayerColor } from '@/types/game'
 import { cn } from '@/utils/cn'
+import { memo } from 'react'
 
 interface CheckerProps {
   owner: PlayerColor
@@ -19,7 +20,10 @@ const CHECKER_STYLES: Record<PlayerColor, string> = {
   dark: 'bg-checker-dark border-slate-50 checker-disc-dark',
 }
 
-/** A single disc. Deliberately inert — click/drag handling belongs to the move phase. */
+/**
+ * A single disc. Deliberately inert — click/drag handling belongs to the move phase. Memoized because
+ * a board renders ~30 of these and their props (owner, className) only change when a move lands.
+ */
 const Checker = ({ owner, className }: CheckerProps) => (
   <span
     aria-hidden
@@ -35,4 +39,4 @@ const Checker = ({ owner, className }: CheckerProps) => (
   />
 )
 
-export default Checker
+export default memo(Checker)

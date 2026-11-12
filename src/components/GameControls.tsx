@@ -57,7 +57,7 @@ function seatSummary(seat: SeatAssignment): string {
 const GameControls = () => {
   const game = useGame()
   const { openSettings, settings } = useSettings()
-  const { board, currentSeat, lastRoll, history, selectedFrom, turnPassed, isAiThinking, lastAiError, aiThought } =
+  const { board, currentSeat, lastRoll, history, selectedFrom, turnPassed, isAiThinking, lastAiError } =
     game
 
   const [manualD1, setManualD1] = useState<DieFace>(1)
@@ -279,22 +279,9 @@ const GameControls = () => {
         ) : null}
       </div>
 
-      {/* Live feedback that the engine is thinking, for the seat that is waiting. Superseded by the
-          thought panel as soon as streamed text exists, so the player never reads the same status
-          twice: the panel says more, and says it earlier. */}
-      {isAiThinking && aiThought === null ? (
-        <p className="flex items-center gap-2 text-sm text-sky-300" aria-live="polite">
-          <span className="relative flex size-2.5" aria-hidden>
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-sky-400 opacity-75" />
-            <span className="relative inline-flex size-2.5 rounded-full bg-sky-500" />
-          </span>
-          Asking the engine{providerName ? ` (${providerName})` : ''} for a move…
-        </p>
-      ) : null}
-
-      {/* The engine's own words. Rendered last of the three status lines so a failure banner, when
-          there is one, always sits underneath everything the player is still reading. */}
-      {aiThought !== null ? <AiThoughtPanel thought={aiThought} onDismiss={game.clearAiThought} /> : null}
+      {/* The engine's own words, or the waiting line before any arrive. AiThoughtPanel owns the
+          aiThought subscription, so a streamed token repaints only it — never these controls. */}
+      <AiThoughtPanel providerName={providerName} />
 
       {game.isFinished && board.winner !== null ? (
         <div className="space-y-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs">

@@ -1,6 +1,6 @@
 import type { PlayerColor, PointIndex } from '@/types/game'
 import { cn } from '@/utils/cn'
-import { useState, type DragEvent } from 'react'
+import { memo, useState, type DragEvent } from 'react'
 import Checker from './Checker'
 
 type PointOrientation = 'top' | 'bottom'
@@ -16,14 +16,18 @@ interface PointProps {
   owner?: PlayerColor | null
   /** Overlay hint; `target` marks a legal destination, `selected` the active source. */
   state?: PointState
-  /** When provided the point becomes a real button; otherwise it stays a static graphic. */
-  onSelect?: () => void
+  /**
+   * When provided the point becomes a real button; otherwise it stays a static graphic. Receives the
+   * point's own index so the parent can hand the SAME stable callback to all 24 points — a fresh
+   * per-point closure would defeat `memo(Point)` on every board re-render.
+   */
+  onSelect?: (index: PointIndex) => void
   /** True when the top checker on this point has at least one legal move and can be dragged. */
   draggable?: boolean
-  onDragStart?: (event: DragEvent<HTMLButtonElement>) => void
+  onDragStart?: (index: PointIndex, event: DragEvent<HTMLButtonElement>) => void
   onDragEnd?: (event: DragEvent<HTMLButtonElement>) => void
   onDragOver?: (event: DragEvent<HTMLButtonElement>) => void
-  onDrop?: (event: DragEvent<HTMLButtonElement>) => void
+  onDrop?: (index: PointIndex, event: DragEvent<HTMLButtonElement>) => void
 }
 
 const CLIP_PATH: Record<PointOrientation, string> = {
@@ -93,7 +97,7 @@ const Point = ({
         event.dataTransfer.setDragImage(grabbed, rect.width / 2, rect.height / 2)
       }
     }
-    onDragStart?.(event)
+    onDragStart?.(index, event)
   }
 
   const handleDragOver = (event: DragEvent<HTMLButtonElement>): void => {
@@ -118,7 +122,7 @@ const Point = ({
     if (!onDrop) return
     event.preventDefault()
     setIsDragOver(false)
-    onDrop(event)
+    onDrop(index, event)
   }
 
   const inner = (
@@ -188,7 +192,7 @@ const Point = ({
         type="button"
         aria-label={description}
         draggable={draggable}
-        onClick={onSelect}
+        onClick={() => onSelect(index)}
         onDragStart={draggable ? handleDragStart : undefined}
         onDragEnd={draggable ? onDragEnd : undefined}
         onDragOver={onDragOver ? handleDragOver : undefined}
@@ -212,4 +216,4 @@ const Point = ({
   )
 }
 
-export default Point
+export default memo(Point)

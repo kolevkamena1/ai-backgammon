@@ -23,6 +23,8 @@ import { getInitialBoardState, toPointViews } from '@/utils/gameLogic'
 import { cn } from '@/utils/cn'
 import { RotateCcw } from 'lucide-react'
 import {
+  memo,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -86,6 +88,9 @@ const SEAT_NAMES: Record<PlayerColor, string> = { light: 'White', dark: 'Black' 
 
 /** Used until a game starts, and by any render that passes no board. */
 const OPENING_BOARD = getInitialBoardState()
+
+/** Stable no-op so a target point enables drag-over highlighting without a fresh closure per render. */
+const noopDragOver = (): void => undefined
 
 const MAX_VISIBLE_TRAY_CHECKERS = 15
 const MAX_VISIBLE_BAR_CHECKERS = 5
@@ -414,36 +419,44 @@ const Board = ({
     return 'none'
   }
 
-  const beginDragSource = (source: MoveSource, event: DragEvent<HTMLButtonElement>): void => {
-    draggedSourceRef.current = source
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'move'
-      try {
-        event.dataTransfer.setData('text/plain', String(source))
-      } catch {
-        // Ignore browser environments that disallow setData on synthetic DragEvents
+  // Stable drag/drop handlers: memo(Point) compares them by reference, so they must not be recreated
+  // on every board re-render (each resize tick, selection change, or unrelated store write).
+  const beginDragSource = useCallback(
+    (source: MoveSource, event: DragEvent<HTMLButtonElement>): void => {
+      draggedSourceRef.current = source
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move'
+        try {
+          event.dataTransfer.setData('text/plain', String(source))
+        } catch {
+          // Ignore browser environments that disallow setData on synthetic DragEvents
+        }
       }
-    }
-    if (onDragStartSource) {
-      onDragStartSource(source)
-    } else if (onSelectPoint && selectedFrom !== source) {
-      onSelectPoint(source)
-    }
-  }
+      if (onDragStartSource) {
+        onDragStartSource(source)
+      } else if (onSelectPoint && selectedFrom !== source) {
+        onSelectPoint(source)
+      }
+    },
+    [onDragStartSource, onSelectPoint, selectedFrom],
+  )
 
-  const endDragSource = (): void => {
+  const endDragSource = useCallback((): void => {
     draggedSourceRef.current = null
-  }
+  }, [])
 
-  const dropOnTarget = (target: MoveSource | MoveTarget): void => {
-    const from = draggedSourceRef.current
-    draggedSourceRef.current = null
-    if (onDropTarget) {
-      onDropTarget(target, from)
-    } else if (onSelectPoint && legalTargets?.has(target)) {
-      onSelectPoint(target)
-    }
-  }
+  const dropOnTarget = useCallback(
+    (target: MoveSource | MoveTarget): void => {
+      const from = draggedSourceRef.current
+      draggedSourceRef.current = null
+      if (onDropTarget) {
+        onDropTarget(target, from)
+      } else if (onSelectPoint && legalTargets?.has(target)) {
+        onSelectPoint(target)
+      }
+    },
+    [onDropTarget, onSelectPoint, legalTargets],
+  )
 
   const quadrantStyle: CSSProperties | undefined = metrics
     ? { height: `${metrics.quadrantHeight}px` }
@@ -468,12 +481,13 @@ const Board = ({
             owner={point?.owner ?? null}
             state={state}
             draggable={isDraggable}
-            onDragStart={isDraggable ? (e) => beginDragSource(index, e) : undefined}
+            onDragStart={isDraggable ? beginDragSource : undefined}
             onDragEnd={isDraggable ? endDragSource : undefined}
-            onDragOver={isDropTarget ? () => undefined : undefined}
-            onDrop={isDropTarget ? () => dropOnTarget(index) : undefined}
-            // Static triangles stay static: only relevant points become tab stops.
-            onSelect={onSelectPoint && state !== 'none' ? () => onSelectPoint(index) : undefined}
+            onDragOver={isDropTarget ? noopDragOver : undefined}
+            onDrop={isDropTarget ? dropOnTarget : undefined}
+            // Static triangles stay static: only relevant points become tab stops. The callback is
+            // the same stable reference for every point; Point supplies its own index.
+            onSelect={onSelectPoint && state !== 'none' ? onSelectPoint : undefined}
           />
         )
       })}
@@ -671,4 +685,4 @@ const Board = ({
   )
 }
 
-export default Board
+export default memo(Board)

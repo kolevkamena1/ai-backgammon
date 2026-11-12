@@ -1,13 +1,12 @@
-import type { AiThought } from '@/state/gameStore'
+import { useAiThought } from '@/hooks/useAiThought'
 import { cn } from '@/utils/cn'
 import { SEAT_LABELS } from '@/utils/gameConfig'
 import { Brain, X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
 interface AiThoughtPanelProps {
-  /** The parent decides when there is nothing to say; this component never renders an empty box. */
-  thought: AiThought
-  onDismiss: () => void
+  /** Provider name for the "Asking the engine (…)" line shown before any text arrives. */
+  providerName?: string | null
 }
 
 const PANEL = 'flex gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2'
@@ -21,10 +20,12 @@ const CARET = 'ml-0.5 inline-block h-3.5 w-1.5 translate-y-0.5 animate-pulse rou
 
 /**
  * What the engine said about the move it just made, or the text still arriving for the next one.
- * Purely a mirror of `gameStore.aiThought`: it holds no state, draws no conclusions, and cannot
- * affect the game — the move has already been validated and applied before this is ever rendered.
+ * It owns the `aiThought` subscription (via `useAiThought`) so a streamed token repaints only this
+ * panel — not the board or the controls around it. Purely a mirror: it holds no game state, draws no
+ * conclusions, and cannot affect the game — the move is validated and applied before this renders.
  */
-const AiThoughtPanel = ({ thought, onDismiss }: AiThoughtPanelProps) => {
+const AiThoughtPanel = ({ providerName = null }: AiThoughtPanelProps) => {
+  const { thought, isAiThinking, clearAiThought } = useAiThought()
   const body = useRef<HTMLParagraphElement>(null)
 
   // Keep the newest words in view while they stream in. Without this the panel looks frozen at the
@@ -35,7 +36,24 @@ const AiThoughtPanel = ({ thought, onDismiss }: AiThoughtPanelProps) => {
     if (node !== null) {
       node.scrollTop = node.scrollHeight
     }
-  }, [thought.text, thought.phase])
+  }, [thought?.text, thought?.phase])
+
+  if (thought === null) {
+    // No sentence yet: while a request is in flight, show the waiting line. Superseded by the panel
+    // below as soon as streamed text exists, so the player never reads the same status twice.
+    if (isAiThinking) {
+      return (
+        <p className="flex items-center gap-2 text-sm text-sky-300" aria-live="polite">
+          <span className="relative flex size-2.5" aria-hidden>
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-sky-400 opacity-75" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-sky-500" />
+          </span>
+          Asking the engine{providerName ? ` (${providerName})` : ''} for a move…
+        </p>
+      )
+    }
+    return null
+  }
 
   const streaming = thought.phase === 'streaming'
 
@@ -54,7 +72,7 @@ const AiThoughtPanel = ({ thought, onDismiss }: AiThoughtPanelProps) => {
       </div>
       <button
         type="button"
-        onClick={onDismiss}
+        onClick={clearAiThought}
         aria-label="Hide the engine's reasoning"
         className="shrink-0 self-start rounded p-1 text-slate-500 transition hover:bg-slate-800 hover:text-slate-200"
       >

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FC, type ReactNode } from 'react'
+import { useAiThought } from '@/hooks/useAiThought'
 import { useGame } from '@/hooks/useGame'
 import type { CubeLogAction, LoggedMove, PendingTurn, TurnLogEntry } from '@/types/gameLog'
 import { cn } from '@/utils/cn'
@@ -46,7 +47,6 @@ export const GameLog: FC = () => {
     active,
     isPaused,
     isAiThinking,
-    aiThought,
     seatPlan,
     togglePause,
     turnEntries,
@@ -55,6 +55,9 @@ export const GameLog: FC = () => {
     rewindMovesFrom,
     rewindRollsFrom,
   } = useGame()
+  // The live sentence is the only thing here that changes per streamed token; it comes from its own
+  // selector so the rest of the log (and the board) is not dragged along with it.
+  const { thought: aiThought } = useAiThought()
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const [stickToBottom, setStickToBottom] = useState(true)
