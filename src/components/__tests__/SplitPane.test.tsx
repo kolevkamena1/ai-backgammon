@@ -189,3 +189,39 @@ describe('SplitPane', () => {
     expect(boardContainer?.className).toContain('overflow-hidden')
   })
 })
+
+describe('SplitPane divider sizing (B4 regression)', () => {
+  const divider = (): Element | null => host.querySelector('[role="separator"]')
+
+  // Below lg a left/right dock stacks as a column. The divider must be a fixed 12px bar (h-3 +
+  // shrink-0), full-height only from lg up — otherwise its 100% basis collapses both flex-1 panes.
+  it.each(['left', 'right'] as const)('is a fixed-thickness bar that stacks below lg with a %s dock', (pos) => {
+    act(() => {
+      root.render(<SplitPane board={<div>b</div>} panel={<div>p</div>} panelPosition={pos} />)
+    })
+
+    const cls = divider()?.className ?? ''
+    expect(cls).toContain('shrink-0')
+    expect(cls).toContain('h-3')
+    expect(cls).toContain('lg:h-full')
+    expect(cls).toContain('lg:w-3')
+
+    // Both panes keep flex-1 so they split the space the divider does not claim.
+    const container = host.firstElementChild
+    const panes = Array.from(container?.children ?? []).filter((c) => c.getAttribute('role') !== 'separator')
+    expect(panes).toHaveLength(2)
+    for (const pane of panes) {
+      expect(pane.className).toContain('flex-1')
+    }
+  })
+
+  it.each(['top', 'bottom'] as const)('keeps a fixed thickness with a %s dock', (pos) => {
+    act(() => {
+      root.render(<SplitPane board={<div>b</div>} panel={<div>p</div>} panelPosition={pos} />)
+    })
+
+    const cls = divider()?.className ?? ''
+    expect(cls).toContain('shrink-0')
+    expect(cls).toContain('h-3')
+  })
+})

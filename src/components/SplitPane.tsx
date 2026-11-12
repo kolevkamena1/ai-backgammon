@@ -146,8 +146,12 @@ export const SplitPane: FC<SplitPaneProps> = ({
       onDoubleClick={handleDoubleClick}
       title="Drag to resize panels (Double-click to reset)"
       className={cn(
-        'group relative z-20 flex select-none items-center justify-center bg-slate-900/60 hover:bg-sky-500/20 active:bg-sky-500/40 transition-colors',
-        isVertical ? 'h-3 w-full cursor-row-resize' : 'w-full lg:w-3 h-full cursor-col-resize',
+        // shrink-0 keeps the divider at its fixed 12px thickness: the two flex-1 panes (basis 0%)
+        // must split the leftover space, never be squeezed to zero by a divider that claims 100%.
+        'group relative z-20 flex shrink-0 select-none items-center justify-center bg-slate-900/60 hover:bg-sky-500/20 active:bg-sky-500/40 transition-colors',
+        // Below lg a left/right dock stacks as a column, so the divider is a 12px-tall bar (h-3),
+        // not h-full — h-full gave it a 100% basis and collapsed both panes on phones/tablets.
+        isVertical ? 'h-3 w-full cursor-row-resize' : 'h-3 w-full cursor-col-resize lg:h-full lg:w-3',
       )}
     >
       {/* Divider line */}
