@@ -62,11 +62,14 @@ export const useGameConfigStore = create<GameConfigState>()(
       saveSetup: (snapshot) =>
         set({
           mode: snapshot.mode,
-          humanColor: snapshot.humanColor ?? 'light',
-          dice: snapshot.dice ?? { mode: 'random' },
           aiMatchType: snapshot.aiMatchType,
           opponent: snapshot.opponent,
-          match: snapshot.match,
+          // Optional keys merge only when actually provided. Defaults live in the initializer
+          // (DEFAULT_GAME_CONFIG), so a partial save — e.g. Settings saving just the match type and
+          // opponent — never clobbers the player's dice mode, seat colour or match configuration.
+          ...(snapshot.humanColor !== undefined ? { humanColor: snapshot.humanColor } : {}),
+          ...(snapshot.dice !== undefined ? { dice: snapshot.dice } : {}),
+          ...(snapshot.match !== undefined ? { match: snapshot.match } : {}),
           isSetupOpen: false,
         }),
       openSetup: () => set({ isSetupOpen: true }),
