@@ -27,24 +27,21 @@ export const DoublingCube: FC<DoublingCubeProps> = ({
     lg: 'size-11 text-base font-extrabold',
   }[size]
 
-  return (
-    <div
-      role="img"
-      aria-label={`Doubling cube showing ${displayValue} (current stake multiplier ${cube.value})`}
-      title={
-        title ??
-        `Doubling cube: ${cube.value}x stake (Owned by: ${cube.owner === 'centered' ? 'Centered / Neutral' : cube.owner})`
-      }
-      onClick={interactive ? onClick : undefined}
-      className={cn(
-        'relative grid place-items-center select-none rounded-lg border-2 shadow-md transition-all',
-        'border-amber-500/80 bg-gradient-to-br from-amber-100 via-amber-200 to-amber-300 text-slate-900',
-        'dark:border-amber-400/90 dark:from-amber-200 dark:via-amber-300 dark:to-amber-400',
-        interactive && 'cursor-pointer hover:scale-105 active:scale-95 hover:shadow-lg hover:ring-2 hover:ring-amber-400/60',
-        sizeClasses,
-        className,
-      )}
-    >
+  const label = `Doubling cube showing ${displayValue} (current stake multiplier ${cube.value})`
+  const resolvedTitle =
+    title ??
+    `Doubling cube: ${cube.value}x stake (Owned by: ${cube.owner === 'centered' ? 'Centered / Neutral' : cube.owner})`
+  const sharedClassName = cn(
+    'relative grid place-items-center select-none rounded-lg border-2 shadow-md transition-all',
+    'border-amber-500/80 bg-gradient-to-br from-amber-100 via-amber-200 to-amber-300 text-slate-900',
+    'dark:border-amber-400/90 dark:from-amber-200 dark:via-amber-300 dark:to-amber-400',
+    interactive &&
+      'cursor-pointer hover:scale-105 active:scale-95 hover:shadow-lg hover:ring-2 hover:ring-amber-400/60',
+    sizeClasses,
+    className,
+  )
+  const content = (
+    <>
       <span className="font-mono tracking-tighter drop-shadow-xs">{displayValue}</span>
       {cube.owner !== 'centered' && (
         <span
@@ -55,6 +52,32 @@ export const DoublingCube: FC<DoublingCubeProps> = ({
           title={`Owned by ${cube.owner === 'light' ? 'White' : 'Black'}`}
         />
       )}
+    </>
+  )
+
+  if (interactive) {
+    return (
+      <button
+        type="button"
+        aria-label={label}
+        title={resolvedTitle}
+        onClick={onClick}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            onClick?.()
+          }
+        }}
+        className={sharedClassName}
+      >
+        {content}
+      </button>
+    )
+  }
+
+  return (
+    <div role="img" aria-label={label} title={resolvedTitle} className={sharedClassName}>
+      {content}
     </div>
   )
 }

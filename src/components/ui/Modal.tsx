@@ -1,7 +1,10 @@
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { cn } from '@/utils/cn'
 import { X } from 'lucide-react'
-import type { ComponentType, MouseEvent, ReactNode, SVGProps } from 'react'
+import { useEffect, useRef, type ComponentType, type MouseEvent, type ReactNode, type SVGProps } from 'react'
+
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 interface ModalProps {
   /** Stable id for the heading, wired to aria-labelledby. */
@@ -17,9 +20,9 @@ interface ModalProps {
 }
 
 /**
- * Dialog chrome shared by every modal: backdrop, Escape to close, click-outside to close and a
- * titled panel. Focus is deliberately NOT managed here — a parent effect would override the
- * child `autoFocus` that the BYOK form relies on, so each host owns its own initial focus.
+ * Dialog chrome shared by every modal: backdrop, Escape to close, click-outside to close, a
+ * titled panel, keyboard focus trap (Tab / Shift+Tab), and focus restoration on unmount. If a child
+ * already claimed focus via `autoFocus` (such as the BYOK form), initial focus stays on that child.
  */
 const Modal = ({
   titleId,
@@ -31,6 +34,13 @@ const Modal = ({
   panelClassName = 'max-w-md',
   closeLabel = 'Close',
 }: ModalProps) => {
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  const previousFocusRef = useRef<HTMLElement | null>(
+    typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  )
+
   const handleBackdropClick = (event: MouseEvent<HTMLDivElement>): void => {
     if (event.target === event.currentTarget) {
       onClose()
@@ -39,15 +49,59 @@ const Modal = ({
 
   useEscapeKey(onClose)
 
+  useEffect(() => {
+    const panel = panelRef.current
+    const previousFocus = previousFocusRef.current ?? null
+
+    if (panel && !panel.contains(document.activeElement)) {
+      const firstFocusable = panel.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)
+      ;(firstFocusable ?? panel).focus()
+    }
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Tab' || !panelRef.current) return
+      const focusables = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+      if (focusables.length === 0) {
+        event.preventDefault()
+        return
+      }
+      const first = focusables[0]!
+      const last = focusables[focusables.length - 1]!
+      const active = document.activeElement as HTMLElement | null
+
+      if (event.shiftKey) {
+        if (active === first || !panelRef.current.contains(active)) {
+          event.preventDefault()
+          last.focus()
+        }
+      } else {
+        if (active === last || !panelRef.current.contains(active)) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      if (previousFocus && typeof previousFocus.focus === 'function' && document.contains(previousFocus)) {
+        previousFocus.focus()
+      }
+    }
+  }, [])
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
       onClick={handleBackdropClick}
     >
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        tabIndex={-1}
         className={cn(
           'max-h-[92vh] w-full overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl',
           panelClassName,

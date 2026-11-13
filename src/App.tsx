@@ -7,6 +7,7 @@ import MatchScoreboard from '@/components/MatchScoreboard'
 import MenuBar from '@/components/MenuBar'
 import SettingsModal from '@/components/SettingsModal'
 import SplitPane from '@/components/SplitPane'
+import { useDockDrag } from '@/hooks/useDockDrag'
 import { useGame } from '@/hooks/useGame'
 import { useAiTurn } from '@/hooks/useAiTurn'
 import { useGameConfig } from '@/hooks/useGameConfig'
@@ -36,6 +37,17 @@ const App = () => {
   const [isAboutOpen, setIsAboutOpen] = useState(false)
   const [setupInitialMode, setSetupInitialMode] = useState<GameMode | undefined>(undefined)
   const [draggingSource, setDraggingSource] = useState<'panel' | 'board' | null>(null)
+
+  const boardDockDrag = useDockDrag({
+    source: 'board',
+    setDraggingSource,
+    setPanelPosition,
+  })
+  const panelDockDrag = useDockDrag({
+    source: 'panel',
+    setDraggingSource,
+    setPanelPosition,
+  })
 
   const handleOpenNewGame = (preferredMode?: GameMode): void => {
     setSetupInitialMode(preferredMode)
@@ -126,54 +138,7 @@ const App = () => {
             <div className="flex h-full w-full min-h-0 min-w-0 flex-col items-center justify-start overflow-hidden gap-2">
               {/* Draggable Board Header */}
               <div
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData('text/plain', 'board-panel')
-                  e.dataTransfer.effectAllowed = 'move'
-                  setDraggingSource('board')
-                }}
-                onDragEnd={() => setDraggingSource(null)}
-                onPointerDown={(e) => {
-                  if ((e.target as HTMLElement).closest('button')) return
-                  const startX = e.clientX
-                  const startY = e.clientY
-                  let hasStarted = false
-
-                  const handlePointerMove = (moveEvent: PointerEvent) => {
-                    const deltaX = Math.abs(moveEvent.clientX - startX)
-                    const deltaY = Math.abs(moveEvent.clientY - startY)
-                    if ((deltaX > 20 || deltaY > 20) && !hasStarted) {
-                      hasStarted = true
-                      setDraggingSource('board')
-                    }
-                  }
-
-                  const handlePointerUp = (upEvent: PointerEvent) => {
-                    window.removeEventListener('pointermove', handlePointerMove)
-                    window.removeEventListener('pointerup', handlePointerUp)
-                    if (hasStarted) {
-                      setDraggingSource(null)
-                      const w = window.innerWidth
-                      const h = window.innerHeight
-                      const x = upEvent.clientX
-                      const y = upEvent.clientY
-                      const distLeft = x
-                      const distRight = w - x
-                      const distTop = y
-                      const distBottom = h - y
-                      const minDist = Math.min(distLeft, distRight, distTop, distBottom)
-
-                      // Moving board to an edge docks board there (so log panel goes to opposite)
-                      if (minDist === distLeft) setPanelPosition('right')
-                      else if (minDist === distRight) setPanelPosition('left')
-                      else if (minDist === distTop) setPanelPosition('bottom')
-                      else if (minDist === distBottom) setPanelPosition('top')
-                    }
-                  }
-
-                  window.addEventListener('pointermove', handlePointerMove)
-                  window.addEventListener('pointerup', handlePointerUp)
-                }}
+                {...boardDockDrag}
                 className="flex w-full items-center justify-between px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/80 shadow-xs cursor-grab active:cursor-grabbing select-none hover:border-slate-700 transition-colors shrink-0 max-w-5xl"
                 title="Drag and drop board to reposition layout, or choose a dock option"
               >
@@ -266,53 +231,7 @@ const App = () => {
             <div className="flex h-full min-h-0 flex-col gap-2.5 overflow-hidden">
               {/* Draggable panel dock bar */}
               <div
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData('text/plain', 'log-panel')
-                  e.dataTransfer.effectAllowed = 'move'
-                  setDraggingSource('panel')
-                }}
-                onDragEnd={() => setDraggingSource(null)}
-                onPointerDown={(e) => {
-                  if ((e.target as HTMLElement).closest('button')) return
-                  const startX = e.clientX
-                  const startY = e.clientY
-                  let hasStarted = false
-
-                  const handlePointerMove = (moveEvent: PointerEvent) => {
-                    const deltaX = Math.abs(moveEvent.clientX - startX)
-                    const deltaY = Math.abs(moveEvent.clientY - startY)
-                    if ((deltaX > 20 || deltaY > 20) && !hasStarted) {
-                      hasStarted = true
-                      setDraggingSource('panel')
-                    }
-                  }
-
-                  const handlePointerUp = (upEvent: PointerEvent) => {
-                    window.removeEventListener('pointermove', handlePointerMove)
-                    window.removeEventListener('pointerup', handlePointerUp)
-                    if (hasStarted) {
-                      setDraggingSource(null)
-                      const w = window.innerWidth
-                      const h = window.innerHeight
-                      const x = upEvent.clientX
-                      const y = upEvent.clientY
-                      const distLeft = x
-                      const distRight = w - x
-                      const distTop = y
-                      const distBottom = h - y
-                      const minDist = Math.min(distLeft, distRight, distTop, distBottom)
-
-                      if (minDist === distLeft) setPanelPosition('left')
-                      else if (minDist === distRight) setPanelPosition('right')
-                      else if (minDist === distTop) setPanelPosition('top')
-                      else if (minDist === distBottom) setPanelPosition('bottom')
-                    }
-                  }
-
-                  window.addEventListener('pointermove', handlePointerMove)
-                  window.addEventListener('pointerup', handlePointerUp)
-                }}
+                {...panelDockDrag}
                 className="flex items-center justify-between px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-900/80 shadow-xs cursor-grab active:cursor-grabbing select-none hover:border-slate-700 transition-colors shrink-0"
                 title="Drag and drop to dock on Left, Right, Top, or Bottom"
               >
