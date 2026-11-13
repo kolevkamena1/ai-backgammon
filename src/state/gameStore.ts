@@ -122,10 +122,15 @@ interface GameStoreState {
   rewindMovesFrom: (turnNumber: number) => boolean
   /**
    * Deletes turn `turnNumber` and every later turn, dice included: the board returns to the
-   * moment before that turn's roll and every roll from there on is random again. Refused while
-   * an AI request is in flight. Leaves the game paused.
+   * moment before that turn's first action (including pre-roll double steps) and every roll from
+   * there on is random again. Refused while an AI request is in flight. Leaves the game paused.
    */
   rewindRollsFrom: (turnNumber: number) => boolean
+  /**
+   * Restores the store state to the exact snapshot at `stepIndex` (`0 <= stepIndex < stepHistory.length`),
+   * truncating any later steps. Leaves the game paused.
+   */
+  restoreToStep: (stepIndex: number) => boolean
 }
 
 /**
@@ -142,18 +147,61 @@ function sleep(ms: number): Promise<void> {
   })
 }
 
+function cloneBoard(board: BoardState): BoardState {
+  return {
+    points: [...board.points],
+    bar: { ...board.bar },
+    off: { ...board.off },
+    turn: board.turn,
+    dice: [...board.dice],
+    phase: board.phase,
+    winner: board.winner,
+  }
+}
+
+function cloneCube(cube: DoublingCubeState): DoublingCubeState {
+  return {
+    value: cube.value,
+    owner: cube.owner,
+    proposedBy: cube.proposedBy,
+  }
+}
+
+function cloneMatch(match: MatchScoreState | null): MatchScoreState | null {
+  if (match === null) {
+    return null
+  }
+  return {
+    ...match,
+    lastVictory: match.lastVictory ? { ...match.lastVictory } : null,
+  }
+}
+
 /**
- * Index of the snapshot that rolled the dice for `turnNumber`: the first step logged under that
- * turn (step 0 is the opening layout, never a roll). -1 when the turn has not been rolled.
+ * Index of the snapshot that rolled the dice for `turnNumber`.
+ * -1 when the turn has not been rolled.
  */
 function findRollStep(stepHistory: GameSnapshot[], turnNumber: number): number {
   return stepHistory.findIndex(
-    (snap) =>
-      snap.stepIndex > 0 &&
-      snap.turnNumber === turnNumber &&
-      snap.lastMove === undefined &&
-      snap.description.startsWith('Rolled'),
+    (snap) => snap.stepIndex > 0 && snap.turnNumber === turnNumber && snap.kind === 'roll',
   )
+}
+
+/**
+ * Index of the FIRST action of `turnNumber` (step 0 is the opening layout, never a turn action).
+ * Includes pre-roll double proposals/responses as well as rolls or passes, so a turn that doubled
+ * before rolling (or ended on a declined double without rolling) rewinds to before the double.
+ */
+function findTurnStartStep(stepHistory: GameSnapshot[], turnNumber: number): number {
+  return stepHistory.findIndex((snap) => snap.stepIndex > 0 && snap.turnNumber === turnNumber)
+}
+
+function liveTurnNumberAtSnapshot(last: GameSnapshot): number {
+  const turnEnded =
+    (last.kind === 'roll' && last.turnPassed === 'unplayable-roll') ||
+    (last.kind === 'move' && last.board.phase !== 'finished' && last.board.turn !== last.player) ||
+    last.kind === 'pass'
+  return turnEnded ? last.turnNumber + 1 : last.turnNumber
 }
 
 /**
@@ -294,20 +342,21 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
 
     cancelAi()
     set({
-      board: last.board,
-      lastRoll: last.lastRoll,
-      cube: last.cube ?? get().cube,
+      board: cloneBoard(last.board),
+      lastRoll: last.lastRoll ? ([...last.lastRoll] as DiceRoll) : null,
+      cube: cloneCube(last.cube),
+      match: cloneMatch(last.match),
       history: kept.flatMap((snap) =>
         snap.lastMove ? [{ from: snap.lastMove.from, to: snap.lastMove.to, die: snap.lastMove.die }] : [],
       ),
-      selectedFrom: null,
-      turnPassed: null,
+      selectedFrom: last.selectedFrom,
+      turnPassed: last.turnPassed,
       isAiThinking: false,
       lastAiError: null,
       aiThought: null,
       isPaused: true,
       turnNumber,
-      recordedRolls,
+      recordedRolls: recordedRolls.map((r) => [...r] as DiceRoll),
       stepHistory: kept,
       currentStepIndex: kept.length - 1,
     })
@@ -360,20 +409,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
 
       cancelAi()
       const initialBoard = getInitialBoardState()
-      const initialSnapshot: GameSnapshot = {
-        stepIndex: 0,
-        turnNumber: 1,
-        player: 'light',
-        board: initialBoard,
-        lastRoll: null,
-        diceRemaining: [],
-        selectedFrom: null,
-        turnPassed: null,
-        cube: { value: 1, owner: 'centered', proposedBy: null },
-        aiThought: null,
-        description: 'Game started',
-        at: Date.now(),
-      }
+      const initialCube: DoublingCubeState = { value: 1, owner: 'centered', proposedBy: null }
 
       const matchConfig = config.match ?? { targetPoints: 1, enableCrawford: false }
       const isAiVsAi = config.mode === 'aiVsAi'
@@ -393,6 +429,23 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         }
       }
 
+      const initialSnapshot: GameSnapshot = {
+        stepIndex: 0,
+        turnNumber: 1,
+        player: 'light',
+        kind: 'game-start',
+        board: cloneBoard(initialBoard),
+        lastRoll: null,
+        diceRemaining: [],
+        selectedFrom: null,
+        turnPassed: null,
+        cube: cloneCube(initialCube),
+        match: cloneMatch(matchState),
+        aiThought: null,
+        description: 'Game started',
+        at: Date.now(),
+      }
+
       set({
         board: initialBoard,
         seatPlan,
@@ -410,11 +463,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         recordedRolls: [],
         stepHistory: [initialSnapshot],
         currentStepIndex: 0,
-        cube: {
-          value: 1,
-          owner: 'centered',
-          proposedBy: null,
-        },
+        cube: initialCube,
         match: matchState,
         rng,
       })
@@ -429,20 +478,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       }
 
       const initialBoard = getInitialBoardState()
-      const initialSnapshot: GameSnapshot = {
-        stepIndex: 0,
-        turnNumber: 1,
-        player: 'light',
-        board: initialBoard,
-        lastRoll: null,
-        diceRemaining: [],
-        selectedFrom: null,
-        turnPassed: null,
-        cube: { value: 1, owner: 'centered', proposedBy: null },
-        aiThought: null,
-        description: `Game ${match.gameIndex + 1} started`,
-        at: Date.now(),
-      }
+      const initialCube: DoublingCubeState = { value: 1, owner: 'centered', proposedBy: null }
 
       // Check if next game is Crawford game:
       // When Crawford is enabled and either player is exactly 1 point away from match target
@@ -455,6 +491,23 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         gameIndex: match.gameIndex + 1,
         isCrawfordGame: isCrawford,
         lastVictory: null,
+      }
+
+      const initialSnapshot: GameSnapshot = {
+        stepIndex: 0,
+        turnNumber: 1,
+        player: 'light',
+        kind: 'game-start',
+        board: cloneBoard(initialBoard),
+        lastRoll: null,
+        diceRemaining: [],
+        selectedFrom: null,
+        turnPassed: null,
+        cube: cloneCube(initialCube),
+        match: cloneMatch(updatedMatch),
+        aiThought: null,
+        description: `Game ${match.gameIndex + 1} started`,
+        at: Date.now(),
       }
 
       cancelAi()
@@ -473,18 +526,14 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         recordedRolls: [],
         stepHistory: [initialSnapshot],
         currentStepIndex: 0,
-        cube: {
-          value: 1,
-          owner: 'centered',
-          proposedBy: null,
-        },
+        cube: initialCube,
         match: updatedMatch,
       })
       return true
     },
 
     proposeDouble: (proposer) => {
-      const { board, cube, isAiThinking, match } = get()
+      const { board, cube, isAiThinking, match, stepHistory, currentStepIndex } = get()
       if (
         board === null ||
         board.phase === 'finished' ||
@@ -503,15 +552,19 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         ...cube,
         proposedBy: proposer,
       }
-      const currentHistory = get().stepHistory
-      const nextIndex = currentHistory.length
+      const baseHistory =
+        currentStepIndex < stepHistory.length - 1
+          ? stepHistory.slice(0, currentStepIndex + 1)
+          : stepHistory
+      const nextIndex = baseHistory.length
       const targetValue = cube.value * 2
 
       const proposeSnapshot: GameSnapshot = {
         stepIndex: nextIndex,
         turnNumber: get().turnNumber,
         player: proposer,
-        board,
+        kind: 'double-proposed',
+        board: cloneBoard(board),
         lastRoll: null,
         diceRemaining: [],
         selectedFrom: null,
@@ -522,7 +575,8 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           value: targetValue,
           at: Date.now(),
         },
-        cube: nextCube,
+        cube: cloneCube(nextCube),
+        match: cloneMatch(match),
         aiThought: null,
         description: `${proposer === 'light' ? 'White' : 'Black'} proposed double to ${targetValue}`,
         at: Date.now(),
@@ -530,7 +584,10 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
 
       set({
         cube: nextCube,
-        stepHistory: [...currentHistory, proposeSnapshot],
+        lastRoll: null,
+        selectedFrom: null,
+        turnPassed: null,
+        stepHistory: [...baseHistory, proposeSnapshot],
         currentStepIndex: nextIndex,
       })
       logger.info('double proposed', { proposer, currentCube: cube.value, targetValue })
@@ -547,14 +604,17 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
     },
 
     respondToDouble: (responder, accept, reasoning) => {
-      const { board, cube, match } = get()
+      const { board, cube, match, stepHistory, currentStepIndex } = get()
       if (board === null || cube.proposedBy === null || cube.proposedBy === responder) {
         return
       }
 
       const proposer = cube.proposedBy
-      const currentHistory = get().stepHistory
-      const nextIndex = currentHistory.length
+      const baseHistory =
+        currentStepIndex < stepHistory.length - 1
+          ? stepHistory.slice(0, currentStepIndex + 1)
+          : stepHistory
+      const nextIndex = baseHistory.length
 
       if (accept) {
         // Player accepts (Take): cube value doubles, responder now owns the cube
@@ -568,7 +628,8 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           stepIndex: nextIndex,
           turnNumber: get().turnNumber,
           player: responder,
-          board,
+          kind: 'double-accepted',
+          board: cloneBoard(board),
           lastRoll: null,
           diceRemaining: [],
           selectedFrom: null,
@@ -580,7 +641,8 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
             reasoning,
             at: Date.now(),
           },
-          cube: nextCube,
+          cube: cloneCube(nextCube),
+          match: cloneMatch(match),
           aiThought: reasoning ?? null,
           description: `${responder === 'light' ? 'White' : 'Black'} accepted double (${nextValue}x)`,
           at: Date.now(),
@@ -588,7 +650,10 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
 
         set({
           cube: nextCube,
-          stepHistory: [...currentHistory, acceptSnapshot],
+          lastRoll: null,
+          selectedFrom: null,
+          turnPassed: null,
+          stepHistory: [...baseHistory, acceptSnapshot],
           currentStepIndex: nextIndex,
         })
         logger.info('double accepted', { responder, newValue: nextValue, reasoning })
@@ -635,7 +700,8 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           stepIndex: nextIndex,
           turnNumber: get().turnNumber,
           player: responder,
-          board: nextBoard,
+          kind: 'double-declined',
+          board: cloneBoard(nextBoard),
           lastRoll: null,
           diceRemaining: [],
           selectedFrom: null,
@@ -647,7 +713,8 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
             reasoning,
             at: Date.now(),
           },
-          cube: nextCube,
+          cube: cloneCube(nextCube),
+          match: cloneMatch(updatedMatch),
           aiThought: reasoning ?? null,
           description: `${responder === 'light' ? 'White' : 'Black'} declined double`,
           at: Date.now(),
@@ -657,7 +724,10 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         set({
           board: nextBoard,
           cube: nextCube,
-          stepHistory: [...currentHistory, declineSnapshot],
+          lastRoll: null,
+          selectedFrom: null,
+          turnPassed: null,
+          stepHistory: [...baseHistory, declineSnapshot],
           currentStepIndex: nextIndex,
           match: updatedMatch,
         })
@@ -708,11 +778,14 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           stepIndex: baseHistory.length,
           turnNumber,
           player: rolled.turn,
-          board: nextBoard,
-          lastRoll: pair,
+          kind: 'roll',
+          board: cloneBoard(nextBoard),
+          lastRoll: [...pair] as DiceRoll,
           diceRemaining: [],
           selectedFrom: null,
           turnPassed: 'unplayable-roll',
+          cube: cloneCube(get().cube),
+          match: cloneMatch(get().match),
           aiThought: null,
           description: `Rolled ${pair[0]}-${pair[1]} (Pass)`,
           at: Date.now(),
@@ -736,11 +809,14 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         stepIndex: baseHistory.length,
         turnNumber,
         player: rolled.turn,
-        board: rolled,
-        lastRoll: pair,
-        diceRemaining: dice,
+        kind: 'roll',
+        board: cloneBoard(rolled),
+        lastRoll: [...pair] as DiceRoll,
+        diceRemaining: [...dice],
         selectedFrom: null,
         turnPassed: null,
+        cube: cloneCube(get().cube),
+        match: cloneMatch(get().match),
         aiThought: null,
         description: `Rolled ${pair[0]}-${pair[1]}`,
         at: Date.now(),
@@ -814,20 +890,72 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           next = endTurn(next)
         }
 
+        const currentMatch = get().match
+        let updatedMatch = currentMatch
+        let finishLogInfo: {
+          winner: PlayerColor
+          grade: ReturnType<typeof evaluateVictoryGrade>
+          basePoints: 1 | 2 | 3
+          cubeMult: number
+          totalPoints: number
+        } | null = null
+
+        if (next.phase === 'finished' && next.winner !== null) {
+          const winner = next.winner
+          const loser: PlayerColor = winner === 'light' ? 'dark' : 'light'
+          const grade = evaluateVictoryGrade(next, winner)
+          const basePoints: 1 | 2 | 3 = grade === 'single' ? 1 : grade === 'gammon' ? 2 : 3
+          const cubeMult = get().cube.value
+          const totalPoints = basePoints * cubeMult
+
+          const victory: GameVictory = {
+            winner,
+            loser,
+            grade,
+            basePoints,
+            cubeMultiplier: cubeMult,
+            totalPoints,
+            reason: 'bear-off',
+          }
+
+          if (currentMatch) {
+            const newLight = currentMatch.light + (winner === 'light' ? totalPoints : 0)
+            const newDark = currentMatch.dark + (winner === 'dark' ? totalPoints : 0)
+            const matchWon =
+              newLight >= currentMatch.targetPoints
+                ? 'light'
+                : newDark >= currentMatch.targetPoints
+                  ? 'dark'
+                  : null
+            updatedMatch = {
+              ...currentMatch,
+              light: newLight,
+              dark: newDark,
+              matchWinner: matchWon,
+              lastVictory: victory,
+            }
+          }
+          finishLogInfo = { winner, grade, basePoints, cubeMult, totalPoints }
+        }
+
         const baseHistory =
           currentStepIndex < stepHistory.length - 1
             ? stepHistory.slice(0, currentStepIndex + 1)
             : stepHistory
 
+        const liveLastRoll = get().lastRoll
         const nextSnapshot: GameSnapshot = {
           stepIndex: baseHistory.length,
           turnNumber,
           player,
-          board: next,
-          lastRoll: get().lastRoll,
+          kind: 'move',
+          board: cloneBoard(next),
+          lastRoll: liveLastRoll ? ([...liveLastRoll] as DiceRoll) : null,
           diceRemaining: [...next.dice],
           selectedFrom: null,
           turnPassed: stranded ? 'stranded-dice' : null,
+          cube: cloneCube(get().cube),
+          match: cloneMatch(updatedMatch),
           // Always empty here: `takeOneMove` writes this move's own explanation onto this snapshot
           // once the move is on the board. Copying the live thought would hand the PREVIOUS move's
           // reasoning to a move the model said nothing about.
@@ -849,43 +977,11 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           turnNumber: nextTurnNumber,
           stepHistory: [...baseHistory, nextSnapshot],
           currentStepIndex: nextSnapshot.stepIndex,
+          match: updatedMatch,
         })
 
-        if (next.phase === 'finished' && next.winner !== null) {
-          const winner = next.winner
-          const loser: PlayerColor = winner === 'light' ? 'dark' : 'light'
-          const grade = evaluateVictoryGrade(next, winner)
-          const basePoints: 1 | 2 | 3 = grade === 'single' ? 1 : grade === 'gammon' ? 2 : 3
-          const cubeMult = get().cube.value
-          const totalPoints = basePoints * cubeMult
-
-          const victory: GameVictory = {
-            winner,
-            loser,
-            grade,
-            basePoints,
-            cubeMultiplier: cubeMult,
-            totalPoints,
-            reason: 'bear-off',
-          }
-
-          const currentMatch = get().match
-          let updatedMatch = currentMatch
-          if (currentMatch) {
-            const newLight = currentMatch.light + (winner === 'light' ? totalPoints : 0)
-            const newDark = currentMatch.dark + (winner === 'dark' ? totalPoints : 0)
-            const matchWon = newLight >= currentMatch.targetPoints ? 'light' : newDark >= currentMatch.targetPoints ? 'dark' : null
-            updatedMatch = {
-              ...currentMatch,
-              light: newLight,
-              dark: newDark,
-              matchWinner: matchWon,
-              lastVictory: victory,
-            }
-          }
-
-          set({ match: updatedMatch })
-          logger.info('game finished', { winner, grade, basePoints, cubeMult, totalPoints, match: updatedMatch })
+        if (finishLogInfo !== null) {
+          logger.info('game finished', { ...finishLogInfo, match: updatedMatch })
         }
         return true
       } catch (error) {
@@ -911,15 +1007,19 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           ? stepHistory.slice(0, currentStepIndex + 1)
           : stepHistory
 
+      const liveLastRoll = get().lastRoll
       const snapshot: GameSnapshot = {
         stepIndex: baseHistory.length,
         turnNumber,
         player: board.turn,
-        board: next,
-        lastRoll: get().lastRoll,
+        kind: 'pass',
+        board: cloneBoard(next),
+        lastRoll: liveLastRoll ? ([...liveLastRoll] as DiceRoll) : null,
         diceRemaining: [],
         selectedFrom: null,
         turnPassed: null,
+        cube: cloneCube(get().cube),
+        match: cloneMatch(get().match),
         aiThought: null,
         description: 'Passed turn',
         at: Date.now(),
@@ -1146,15 +1246,33 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
 
     rewindRollsFrom: (turnNumber) => {
       const { stepHistory, recordedRolls } = get()
-      const rollIndex = findRollStep(stepHistory, turnNumber)
+      const startIndex = findTurnStartStep(stepHistory, turnNumber)
 
-      if (get().isAiThinking || rollIndex === -1) {
+      if (get().isAiThinking || startIndex === -1) {
         return false
       }
 
-      // Forgetting the rolls of this turn and later is what makes the next roll random again.
-      restore(stepHistory.slice(0, rollIndex), turnNumber, recordedRolls.slice(0, turnNumber - 1))
+      // Rewinds to before the first action of `turnNumber` (including pre-roll double steps and
+      // declined-double turns that never rolled) and forgets the rolls of this turn and later.
+      restore(stepHistory.slice(0, startIndex), turnNumber, recordedRolls.slice(0, turnNumber - 1))
       logger.debug('rewound moves and dice', { turnNumber })
+      return true
+    },
+
+    restoreToStep: (stepIndex) => {
+      const { stepHistory, isAiThinking } = get()
+      if (isAiThinking || stepIndex < 0 || stepIndex >= stepHistory.length) {
+        return false
+      }
+
+      const kept = stepHistory.slice(0, stepIndex + 1)
+      const last = kept[kept.length - 1]
+      const turnNumber = liveTurnNumberAtSnapshot(last)
+      const rolls = kept
+        .filter((snap) => snap.kind === 'roll' && snap.lastRoll !== null)
+        .map((snap) => [...snap.lastRoll!] as DiceRoll)
+
+      restore(kept, turnNumber, rolls)
       return true
     },
   }

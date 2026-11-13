@@ -1,8 +1,17 @@
 import type { BoardState, DiceRoll, DieFace, MoveSource, MoveTarget, PlayerColor } from '@/types/game'
 import type { TurnPassReason } from '@/state/gameStore'
-import type { DoublingCubeState } from '@/types/gameMatch'
+import type { DoublingCubeState, MatchScoreState } from '@/types/gameMatch'
 
 export type CubeActionKind = 'propose' | 'accept' | 'decline'
+
+export type GameSnapshotKind =
+  | 'game-start'
+  | 'roll'
+  | 'move'
+  | 'pass'
+  | 'double-proposed'
+  | 'double-accepted'
+  | 'double-declined'
 
 export interface CubeLogAction {
   type: CubeActionKind
@@ -24,13 +33,15 @@ export interface GameSnapshot {
   stepIndex: number
   turnNumber: number
   player: PlayerColor
+  kind: GameSnapshotKind
   board: BoardState
   lastRoll: DiceRoll | null
   diceRemaining: DieFace[]
   selectedFrom: MoveSource | null
   turnPassed: TurnPassReason | null
   cubeAction?: CubeLogAction | null
-  cube?: DoublingCubeState
+  cube: DoublingCubeState
+  match: MatchScoreState | null
   /**
    * The engine's explanation for THIS step's move only. Never inherited from an earlier step, so a
    * move the model said nothing about shows nothing instead of the previous move's reasoning.

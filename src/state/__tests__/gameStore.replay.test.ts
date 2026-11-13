@@ -1,5 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+// @vitest-environment jsdom
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useGameStore } from '@/state/gameStore'
+import { getInitialBoardState } from '@/utils/gameLogic'
+import { startTelemetry } from '@/utils/telemetry'
 import type { GameConfigSnapshot } from '@/types/gameConfig'
 import type { AiEngineConfig } from '@/types/settings'
 
@@ -130,5 +133,220 @@ describe('gameStore rewind (keep dice vs. discard dice) and pause', () => {
 
     useGameStore.getState().togglePause()
     expect(useGameStore.getState().isPaused).toBe(false)
+  })
+
+  it('double -> rewind restores cube value/owner and rewindRollsFrom(T) rewinds pre-roll double steps', () => {
+    const matchCfg: GameConfigSnapshot = {
+      ...HUMAN_VS_AI_CONFIG,
+      match: { targetPoints: 7, enableCrawford: true },
+    }
+    useGameStore.getState().startNewGame(matchCfg, PERSONAL_AI)
+
+    // Turn 1: no double, roll [4, 3], play both dice
+    useGameStore.getState().roll([4, 3])
+    expect(useGameStore.getState().makeMove({ from: 24, to: 20, die: 4 })).toBe(true)
+    expect(useGameStore.getState().makeMove({ from: 13, to: 10, die: 3 })).toBe(true)
+    expect(useGameStore.getState().turnNumber).toBe(2)
+
+    // Turn 2 (dark): propose double -> light accepts (cube becomes 2, owned by light), then dark rolls and moves
+    expect(useGameStore.getState().proposeDouble('dark')).toBe(true)
+    useGameStore.getState().respondToDouble('light', true)
+    expect(useGameStore.getState().cube).toEqual({ value: 2, owner: 'light', proposedBy: null })
+
+    useGameStore.getState().roll([2, 1])
+    expect(useGameStore.getState().makeMove({ from: 1, to: 3, die: 2 })).toBe(true)
+
+    // Rewinding Turn 1 moves restores Turn 1's pre-double cube state (value 1, centered)
+    expect(useGameStore.getState().rewindMovesFrom(1)).toBe(true)
+    expect(useGameStore.getState().cube).toEqual({ value: 1, owner: 'centered', proposedBy: null })
+
+    // Re-play Turn 1 and Turn 2 double + roll, then rewindRollsFrom(2) must rewind BEFORE Turn 2's pre-roll double
+    useGameStore.getState().setPaused(false)
+    expect(useGameStore.getState().makeMove({ from: 24, to: 20, die: 4 })).toBe(true)
+    expect(useGameStore.getState().makeMove({ from: 13, to: 10, die: 3 })).toBe(true)
+    expect(useGameStore.getState().proposeDouble('dark')).toBe(true)
+    useGameStore.getState().respondToDouble('light', true)
+    expect(useGameStore.getState().cube).toEqual({ value: 2, owner: 'light', proposedBy: null })
+    useGameStore.getState().roll([2, 1])
+
+    expect(useGameStore.getState().rewindRollsFrom(2)).toBe(true)
+    expect(useGameStore.getState().turnNumber).toBe(2)
+    expect(useGameStore.getState().cube).toEqual({ value: 1, owner: 'centered', proposedBy: null })
+    expect(useGameStore.getState().board?.dice).toEqual([])
+  })
+
+  it('declined-double turn (no roll) rewinds cleanly via rewindRollsFrom', () => {
+    const matchCfg: GameConfigSnapshot = {
+      ...HUMAN_VS_AI_CONFIG,
+      match: { targetPoints: 5, enableCrawford: true },
+    }
+    useGameStore.getState().startNewGame(matchCfg, PERSONAL_AI)
+
+    // Turn 1: roll and play
+    useGameStore.getState().roll([4, 3])
+    expect(useGameStore.getState().makeMove({ from: 24, to: 20, die: 4 })).toBe(true)
+    expect(useGameStore.getState().makeMove({ from: 13, to: 10, die: 3 })).toBe(true)
+    expect(useGameStore.getState().turnNumber).toBe(2)
+
+    // Turn 2: dark proposes double, light declines -> game finishes without any roll on Turn 2
+    expect(useGameStore.getState().proposeDouble('dark')).toBe(true)
+    useGameStore.getState().respondToDouble('light', false)
+    expect(useGameStore.getState().board?.phase).toBe('finished')
+    expect(useGameStore.getState().match?.dark).toBe(1)
+
+    // Rewinding Turn 2 (which had no roll) must succeed and restore pre-double state and match score
+    expect(useGameStore.getState().rewindRollsFrom(2)).toBe(true)
+    const after = useGameStore.getState()
+    expect(after.board?.phase).toBe('playing')
+    expect(after.board?.winner).toBeNull()
+    expect(after.turnNumber).toBe(2)
+    expect(after.cube).toEqual({ value: 1, owner: 'centered', proposedBy: null })
+    expect(after.match?.dark).toBe(0)
+    expect(after.match?.lastVictory).toBeNull()
+  })
+
+  it('finish -> rewind -> re-finish scores match points once and emits one game_end telemetry event', () => {
+    const sentEvents: Array<{ type?: string; gameId?: string; outcome?: string }> = []
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      if (typeof init?.body === 'string') {
+        sentEvents.push(JSON.parse(init.body) as { type?: string; gameId?: string; outcome?: string })
+      }
+      return new Response(null, { status: 204 })
+    })
+
+    const stopTelemetry = (startTelemetry as (opts?: { forceEnable?: boolean }) => () => void)({
+      forceEnable: true,
+    })
+
+    try {
+      const matchCfg: GameConfigSnapshot = {
+        ...HUMAN_VS_AI_CONFIG,
+        match: { targetPoints: 5, enableCrawford: true },
+      }
+      useGameStore.getState().startNewGame(matchCfg, PERSONAL_AI)
+      const gameId = useGameStore.getState().gameId
+
+      // Set up a board where light has 14 borne off and 1 checker on point 1, then roll [1, 2]
+      const nearlyDone = getInitialBoardState()
+      nearlyDone.points = Array<number>(24).fill(0)
+      nearlyDone.points[0] = 1 // 1 light checker on point 1
+      nearlyDone.points[23] = -15 // 15 dark checkers on point 24
+      nearlyDone.off = { light: 14, dark: 1 }
+      useGameStore.setState({
+        board: nearlyDone,
+        stepHistory: [
+          {
+            ...useGameStore.getState().stepHistory[0],
+            board: {
+              ...nearlyDone,
+              points: [...nearlyDone.points],
+              bar: { ...nearlyDone.bar },
+              off: { ...nearlyDone.off },
+              dice: [],
+            },
+          },
+        ],
+      })
+
+      useGameStore.getState().roll([1, 2])
+      expect(useGameStore.getState().makeMove({ from: 1, to: 'off', die: 1 })).toBe(true)
+      expect(useGameStore.getState().board?.phase).toBe('finished')
+      expect(useGameStore.getState().match?.light).toBe(1)
+
+      // Rewind the winning move, then bear off again
+      expect(useGameStore.getState().rewindMovesFrom(1)).toBe(true)
+      expect(useGameStore.getState().board?.phase).toBe('playing')
+      expect(useGameStore.getState().match?.light).toBe(0)
+      expect(useGameStore.getState().match?.lastVictory).toBeNull()
+
+      useGameStore.getState().setPaused(false)
+      expect(useGameStore.getState().makeMove({ from: 1, to: 'off', die: 1 })).toBe(true)
+      expect(useGameStore.getState().board?.phase).toBe('finished')
+      // Match score must be 1, NOT 2
+      expect(useGameStore.getState().match?.light).toBe(1)
+
+      const gameEndsForId = sentEvents.filter((e) => e.type === 'game_end' && e.gameId === gameId)
+      expect(gameEndsForId).toHaveLength(1)
+    } finally {
+      stopTelemetry()
+      fetchSpy.mockRestore()
+    }
+  })
+
+  it('invariant: for every step i, restoring snapshot[i] deep-equals the full recorded state at i', () => {
+    const matchCfg: GameConfigSnapshot = {
+      ...HUMAN_VS_AI_CONFIG,
+      match: { targetPoints: 5, enableCrawford: true },
+    }
+
+    const captureLiveState = () => {
+      const s = useGameStore.getState()
+      return structuredClone({
+        board: s.board,
+        lastRoll: s.lastRoll,
+        cube: s.cube,
+        match: s.match,
+        history: s.history,
+        selectedFrom: s.selectedFrom,
+        turnPassed: s.turnPassed,
+        turnNumber: s.turnNumber,
+        recordedRolls: s.recordedRolls,
+        currentStepIndex: s.currentStepIndex,
+      })
+    }
+
+    const recorded: ReturnType<typeof captureLiveState>[] = []
+
+    // Step 0: game-start
+    useGameStore.getState().startNewGame(matchCfg, PERSONAL_AI)
+    recorded.push(captureLiveState())
+
+    // Step 1: double-proposed (light proposes -> AI dark immediately responds in step 2)
+    // To capture step 1 and step 2 separately, let's testdark proposing to human light on Turn 2!
+    // Step 1: Turn 1 roll
+    useGameStore.getState().roll([4, 3])
+    recorded.push(captureLiveState())
+
+    // Step 2: Turn 1 move 1
+    expect(useGameStore.getState().makeMove({ from: 24, to: 20, die: 4 })).toBe(true)
+    recorded.push(captureLiveState())
+
+    // Step 3: Turn 1 move 2 (ends Turn 1)
+    expect(useGameStore.getState().makeMove({ from: 13, to: 10, die: 3 })).toBe(true)
+    recorded.push(captureLiveState())
+
+    // Step 4: Turn 2 double-proposed by dark (human light is responder, so it stays pending at step 4)
+    expect(useGameStore.getState().proposeDouble('dark')).toBe(true)
+    recorded.push(captureLiveState())
+
+    // Step 5: Turn 2 double-accepted by light
+    useGameStore.getState().respondToDouble('light', true)
+    recorded.push(captureLiveState())
+
+    // Step 6: Turn 2 passTurn
+    useGameStore.getState().passTurn()
+    recorded.push(captureLiveState())
+
+    const fullSteps = structuredClone(useGameStore.getState().stepHistory)
+    expect(fullSteps).toHaveLength(recorded.length)
+
+    // Verify structured kind flag on every step
+    expect(fullSteps.map((s) => (s as { kind?: string }).kind)).toEqual([
+      'game-start',
+      'roll',
+      'move',
+      'move',
+      'double-proposed',
+      'double-accepted',
+      'pass',
+    ])
+
+    for (let i = 0; i < fullSteps.length; i += 1) {
+      // Restore full history first, then restore to step i
+      useGameStore.setState({ stepHistory: structuredClone(fullSteps), currentStepIndex: fullSteps.length - 1 })
+      const ok = (useGameStore.getState() as { restoreToStep?: (idx: number) => boolean }).restoreToStep?.(i)
+      expect(ok).toBe(true)
+      expect(captureLiveState()).toEqual(recorded[i])
+    }
   })
 })

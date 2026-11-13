@@ -18,6 +18,9 @@ import { describeEngine } from '@/utils/gameConfig'
 const COLLECT_URL = '/api/event'
 const SESSION_KEY = 'ai-backgammon:session'
 
+/** Deduplicates game_end events by gameId across rewinds and re-finishes. */
+const reportedGameEnds = new Set<string>()
+
 interface GameTracker {
   gameId: string
   sessionId: string
@@ -45,8 +48,8 @@ function isDoNotTrackEnabled(): boolean {
   )
 }
 
-function enabled(): boolean {
-  return !import.meta.env.DEV && !isDoNotTrackEnabled()
+function enabled(forceEnable = false): boolean {
+  return (forceEnable || !import.meta.env.DEV) && !isDoNotTrackEnabled()
 }
 
 function utcDay(): string {
@@ -133,8 +136,8 @@ function describeEngines(): { provider: string | null; model: string | null; dif
 }
 
 /** Starts tracking; returns a cleanup. Mount once, from the game app only (never from /stats). */
-export function startTelemetry(): () => void {
-  if (!enabled()) return () => undefined
+export function startTelemetry(options?: { forceEnable?: boolean }): () => void {
+  if (!enabled(options?.forceEnable)) return () => undefined
 
   const sid = sessionId()
   let tracker: GameTracker | null = null
@@ -151,8 +154,9 @@ export function startTelemetry(): () => void {
   })
 
   const endGame = (outcome: GameEndEvent['outcome'], viaBeacon = false): void => {
-    if (tracker === null || tracker.ended) return
+    if (tracker === null || tracker.ended || reportedGameEnds.has(tracker.gameId)) return
     tracker.ended = true
+    reportedGameEnds.add(tracker.gameId)
     send(
       {
         type: 'game_end',
