@@ -1,7 +1,19 @@
-import type { AiCallOptions, AiDelta, AiErrorCode, AiMoveFailure, AiRequestInit, AiResponse, AiResult, AiStreamBudget, FetchLike } from '@/types/ai'
+import type {
+  AiCallOptions,
+  AiDelta,
+  AiErrorCode,
+  AiMoveFailure,
+  AiRequestClass,
+  AiRequestInit,
+  AiResponse,
+  AiResult,
+  AiStreamBudget,
+  FetchLike,
+} from '@/types/ai'
 import type { BoardState, DieFace, Move, MoveSource, MoveTarget, PlayerColor } from '@/types/game'
 import type { AiDifficulty, AiEngineConfig, AiProvider, AiThinkingLevel } from '@/types/settings'
 import { logger } from '@/lib/logger'
+import { lookupCatalogMetadata } from '@/utils/aiModels'
 import { buildMovePrompt } from '@/utils/aiPrompt'
 import { isEventStream, readProviderStream, type StreamReadResult } from '@/utils/aiStream'
 import { POINT_COUNT, getLegalMoves } from '@/utils/gameLogic'
@@ -623,6 +635,8 @@ export interface MoveContext {
   topP?: number
   contextWindow?: number
   thinkingLevel: AiThinkingLevel
+  requestClass?: AiRequestClass
+  omitTemperature?: boolean
   /**
    * Request SSE and consume it incrementally. Only the OpenAI-compatible handlers honour it; the
    * others stay buffered, which is a scope limit, not an oversight — see the Phase 4 plan.
@@ -660,24 +674,44 @@ function readString(root: unknown, key: string): string | null {
 
 /**
  * OpenAI-compatible chat body. `jsonMode` is off for custom gateways that reject the field, and
- * `thinkingOff` is set only for the host that defines `enable_thinking`.
+ * request shaping is driven by catalog metadata (`ctx.requestClass` / `ctx.omitTemperature`):
+ * - `'openai-reasoning'` (`o1`, `o3`, `o4`, `gpt-5`): sends `max_completion_tokens` and omits
+ *   `temperature` entirely.
+ * - `'qwen4'` (`qwen4-max-preview` and successors): `max_tokens` is the combined thinking+answer
+ *   budget (>= 8192); uses `reasoning_effort` (`"low"` default, `"medium"` max) and NEVER sends
+ *   `thinking_budget` or `enable_thinking`.
+ * - `'qwen3-hybrid'` / `'standard'`: keeps `enable_thinking` + `thinking_budget` on DashScope and
+ *   `reasoning_effort` on other OpenAI-compatible gateways; never sends both together.
  */
 function chatBody(ctx: MoveContext, jsonMode: boolean, isDashScope: boolean): Record<string, unknown> {
+  const requestClass: AiRequestClass = ctx.requestClass ?? 'standard'
+  const omitTemp = ctx.omitTemperature === true || requestClass === 'openai-reasoning'
+
   const body: Record<string, unknown> = {
     model: ctx.model,
     messages: [
       { role: 'system', content: ctx.system },
       { role: 'user', content: ctx.user },
     ],
-    temperature: ctx.temperature,
-    max_tokens: ctx.maxTokens,
+  }
+
+  if (!omitTemp) {
+    body.temperature = ctx.temperature
+  }
+
+  if (requestClass === 'openai-reasoning') {
+    body.max_completion_tokens = ctx.maxTokens
+  } else if (requestClass === 'qwen4') {
+    body.max_tokens = Math.max(8192, ctx.maxTokens)
+  } else {
+    body.max_tokens = ctx.maxTokens
   }
 
   if (ctx.topP !== undefined) {
     body.top_p = ctx.topP
   }
 
-  if ( !jsonMode && !isDashScope && ctx.contextWindow !== undefined) {
+  if (!jsonMode && !isDashScope && ctx.contextWindow !== undefined) {
     body.num_ctx = ctx.contextWindow
   }
 
@@ -693,13 +727,14 @@ function chatBody(ctx: MoveContext, jsonMode: boolean, isDashScope: boolean): Re
     body.stream_options = { include_usage: true }
   }
 
-  // `enable_thinking` is not a standard OpenAI parameter - DashScope documents it as a top-level
-  // body field that an OpenAI SDK has to smuggle through `extra_body`. Strict gateways answer 400
-  // for fields they do not know, which is exactly why it is sent only where it is defined.
-  // By default (`thinkingLevel: 'off'`) it stays `false` at every difficulty; when the user turns
-  // thinking on in Settings, DashScope gets `enable_thinking: true` + `thinking_budget` and
-  // OpenAI-compatible endpoints get `reasoning_effort`.
-  if (isDashScope) {
+  if (requestClass === 'qwen4') {
+    body.reasoning_effort =
+      ctx.thinkingLevel === 'medium' || ctx.thinkingLevel === 'high' ? 'medium' : 'low'
+  } else if (requestClass === 'openai-reasoning') {
+    if (ctx.thinkingLevel !== 'off') {
+      body.reasoning_effort = ctx.thinkingLevel
+    }
+  } else if (isDashScope) {
     if (ctx.thinkingLevel === 'off') {
       body.enable_thinking = false
     } else {
@@ -1030,14 +1065,18 @@ export async function getAiMove(
 
   const timeoutMs = options.timeoutMs ?? AI_TIMEOUT_MS
   const difficulty = difficultyOf(config)
+  const catalogMeta = lookupCatalogMetadata(config.provider, model)
   const defaults = budgetFor(difficulty)
+  const defaultMaxTokens = Math.max(defaults.maxTokens, catalogMeta.defaultMaxTokens ?? 0)
   const customParams = config.params
-  const maxTokens =
+  const rawMaxTokens =
     typeof customParams?.maxTokens === 'number' &&
     Number.isFinite(customParams.maxTokens) &&
     customParams.maxTokens >= 64
       ? Math.trunc(customParams.maxTokens)
-      : defaults.maxTokens
+      : defaultMaxTokens
+  const maxTokens =
+    catalogMeta.requestClass === 'qwen4' ? Math.max(8192, rawMaxTokens) : rawMaxTokens
   const temperature =
     typeof customParams?.temperature === 'number' &&
     Number.isFinite(customParams.temperature) &&
@@ -1060,9 +1099,12 @@ export async function getAiMove(
   const thinkingLevel: AiThinkingLevel =
     customParams?.thinkingLevel === 'low' ||
     customParams?.thinkingLevel === 'medium' ||
-    customParams?.thinkingLevel === 'high'
+    customParams?.thinkingLevel === 'high' ||
+    customParams?.thinkingLevel === 'off'
       ? customParams.thinkingLevel
-      : 'off'
+      : catalogMeta.requestClass === 'qwen4'
+        ? catalogMeta.defaultThinkingLevel
+        : 'off'
   // Streamed only when somebody is watching and the provider speaks this dialect: the buffered path
   // is byte-for-byte what it always was for Anthropic and Google, and for callers with no listener.
   const wantsStream = options.onDelta !== undefined && supportsStreaming(config.provider)
@@ -1121,6 +1163,8 @@ export async function getAiMove(
     topP,
     contextWindow,
     thinkingLevel,
+    requestClass: catalogMeta.requestClass,
+    omitTemperature: catalogMeta.omitTemperature,
     stream: wantsStream,
     onDelta: options.onDelta,
     budget,

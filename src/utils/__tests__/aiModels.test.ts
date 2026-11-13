@@ -259,5 +259,12 @@ describe('resolveDefaultParams and resolveEffectiveParams', () => {
       systemPrompt: 'Play a relentless blitz game.',
     })
   })
+
+  it('resolves Qwen4 catalog defaults with maxTokens >= 8192 and thinkingLevel low', () => {
+    const qwen4Meta = lookupCatalogMetadata('custom', 'qwen4-max-preview')
+    const defaults = resolveDefaultParams('medium', qwen4Meta)
+    expect(defaults.maxTokens).toBeGreaterThanOrEqual(8192)
+    expect(defaults.thinkingLevel).toBe('low')
+  })
 })
 

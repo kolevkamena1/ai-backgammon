@@ -1134,3 +1134,76 @@ describe('streaming', () => {
     expect(googleGenConfig.thinkingConfig).toEqual({ thinkingBudget: 4096 })
   })
 })
+
+describe('model-aware request shaping (A3 regression)', () => {
+  it('shapes OpenAI reasoning models (o1, o3, o4, gpt-5) with max_completion_tokens and omits temperature even without fetched metadata', async () => {
+    for (const model of ['o1', 'o3-mini', 'o4-mini', 'gpt-5']) {
+      const { calls } = await ask({
+        provider: 'openai',
+        model,
+        params: { temperature: 0.7 },
+      })
+
+      const body = innerBody(calls[0]) as Record<string, unknown>
+      expect(body.model).toBe(model)
+      expect(body.max_completion_tokens).toBe(2048)
+      expect(body.max_tokens).toBeUndefined()
+      expect('temperature' in body).toBe(false)
+      expect(body.thinking_budget).toBeUndefined()
+    }
+  })
+
+  it('shapes Qwen4 (qwen4-max-preview and successors) with max_tokens >= 8192, reasoning_effort low (medium max), and never thinking_budget', async () => {
+    const defaultQwen4 = await ask({
+      provider: 'custom',
+      baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+      model: 'qwen4-max-preview',
+    })
+
+    const defaultBody = innerBody(defaultQwen4.calls[0]) as Record<string, unknown>
+    expect(defaultBody.model).toBe('qwen4-max-preview')
+    expect(defaultBody.max_tokens).toBeGreaterThanOrEqual(8192)
+    expect(defaultBody.max_completion_tokens).toBeUndefined()
+    expect(defaultBody.reasoning_effort).toBe('low')
+    expect(defaultBody.thinking_budget).toBeUndefined()
+    expect(defaultBody.enable_thinking).toBeUndefined()
+
+    // Even when a user selects 'high' thinking on Qwen4, reasoning_effort is capped at 'medium' and thinking_budget is never sent.
+    const highQwen4 = await ask({
+      provider: 'custom',
+      baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+      model: 'qwen4-plus',
+      params: { thinkingLevel: 'high' },
+    })
+
+    const highBody = innerBody(highQwen4.calls[0]) as Record<string, unknown>
+    expect(highBody.max_tokens).toBeGreaterThanOrEqual(8192)
+    expect(highBody.reasoning_effort).toBe('medium')
+    expect(highBody.thinking_budget).toBeUndefined()
+    expect(highBody.enable_thinking).toBeUndefined()
+  })
+
+  it('keeps legacy Qwen3 hybrid enable_thinking and thinking_budget behavior unchanged on DashScope', async () => {
+    const offCall = await ask({
+      provider: 'custom',
+      baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+      model: 'qwen3-235b-a22b',
+    })
+    const offBody = innerBody(offCall.calls[0]) as Record<string, unknown>
+    expect(offBody.max_tokens).toBe(2048)
+    expect(offBody.enable_thinking).toBe(false)
+    expect(offBody.thinking_budget).toBeUndefined()
+    expect(offBody.reasoning_effort).toBeUndefined()
+
+    const onCall = await ask({
+      provider: 'custom',
+      baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+      model: 'qwen3-235b-a22b',
+      params: { thinkingLevel: 'medium' },
+    })
+    const onBody = innerBody(onCall.calls[0]) as Record<string, unknown>
+    expect(onBody.enable_thinking).toBe(true)
+    expect(onBody.thinking_budget).toBe(2048)
+    expect(onBody.reasoning_effort).toBeUndefined()
+  })
+})

@@ -137,6 +137,9 @@ export interface AiCallOptions {
   onDelta?: (delta: AiDelta) => void
 }
 
+/** Model request-shaping class derived from catalog metadata (with `'standard'` fallback). */
+export type AiRequestClass = 'standard' | 'openai-reasoning' | 'qwen4' | 'qwen3-hybrid'
+
 /**
  * Capabilities and default inference parameters discovered for a model from its provider metadata
  * endpoint (or enriched from the built-in catalog when a provider's `/v1/models/<id>` endpoint
@@ -147,11 +150,14 @@ export interface AiModelMetadata {
   readonly displayName: string
   readonly contextWindow: number | null
   readonly maxOutputTokens: number | null
+  readonly defaultMaxTokens?: number | null
   readonly defaultTemperature: number | null
   readonly maxTemperature: number | null
   readonly defaultTopP: number | null
   readonly supportsThinking: boolean
   readonly defaultThinkingLevel: AiThinkingLevel
+  readonly requestClass?: AiRequestClass
+  readonly omitTemperature?: boolean
   /** `'endpoint'` when returned by the provider's model metadata API, `'catalog'` when fallback. */
   readonly source: 'endpoint' | 'catalog'
 }

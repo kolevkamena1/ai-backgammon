@@ -1,4 +1,11 @@
-import type { AiErrorCode, AiModelMetadata, AiRequestInit, AiResponse, FetchLike } from '@/types/ai'
+import type {
+  AiErrorCode,
+  AiModelMetadata,
+  AiRequestClass,
+  AiRequestInit,
+  AiResponse,
+  FetchLike,
+} from '@/types/ai'
 import type {
   AiDifficulty,
   AiEngineConfig,
@@ -90,11 +97,14 @@ interface CatalogEntry {
   match: RegExp
   contextWindow: number
   maxOutputTokens: number
+  defaultMaxTokens?: number
   defaultTemperature: number
   maxTemperature: number
   defaultTopP: number
   supportsThinking: boolean
   defaultThinkingLevel: AiThinkingLevel
+  requestClass?: AiRequestClass
+  omitTemperature?: boolean
 }
 
 const CATALOG: readonly CatalogEntry[] = [
@@ -108,6 +118,8 @@ const CATALOG: readonly CatalogEntry[] = [
     defaultTopP: 1,
     supportsThinking: true,
     defaultThinkingLevel: 'low',
+    requestClass: 'openai-reasoning',
+    omitTemperature: true,
   },
   {
     match: /^gpt-4\.1/i,
@@ -171,6 +183,21 @@ const CATALOG: readonly CatalogEntry[] = [
     supportsThinking: false,
     defaultThinkingLevel: 'off',
   },
+  // Qwen4 (qwen4-max-preview and successors): max_tokens is the combined thinking+answer budget
+  // (default >= 8192); uses reasoning_effort ("low" default, "medium" max) and never thinking_budget.
+  {
+    match: /qwen4/i,
+    contextWindow: 131_072,
+    maxOutputTokens: 32_768,
+    defaultMaxTokens: 8_192,
+    defaultTemperature: 0,
+    maxTemperature: 2,
+    defaultTopP: 0.95,
+    supportsThinking: true,
+    defaultThinkingLevel: 'low',
+    requestClass: 'qwen4',
+    omitTemperature: false,
+  },
   // Qwen3 / QwQ / DeepSeek R1 (thinking capable open/custom models)
   {
     match: /(qwen3|qwq|deepseek-r1|r1)/i,
@@ -181,6 +208,7 @@ const CATALOG: readonly CatalogEntry[] = [
     defaultTopP: 0.95,
     supportsThinking: true,
     defaultThinkingLevel: 'off',
+    requestClass: 'qwen3-hybrid',
   },
   // Other Qwen / Llama / Mistral / Gemma models
   {
@@ -208,11 +236,14 @@ export function lookupCatalogMetadata(
       displayName: id,
       contextWindow: matched.contextWindow,
       maxOutputTokens: matched.maxOutputTokens,
+      defaultMaxTokens: matched.defaultMaxTokens ?? null,
       defaultTemperature: matched.defaultTemperature,
       maxTemperature: matched.maxTemperature,
       defaultTopP: matched.defaultTopP,
       supportsThinking: matched.supportsThinking,
       defaultThinkingLevel: matched.defaultThinkingLevel,
+      requestClass: matched.requestClass ?? 'standard',
+      omitTemperature: matched.omitTemperature ?? false,
       source: 'catalog',
     }
   }
@@ -222,11 +253,14 @@ export function lookupCatalogMetadata(
     displayName: id,
     contextWindow: DEFAULT_CONTEXT_WINDOW,
     maxOutputTokens: provider === 'anthropic' ? 8_192 : 16_384,
+    defaultMaxTokens: null,
     defaultTemperature: 0,
     maxTemperature: provider === 'anthropic' ? 1 : 2,
     defaultTopP: DEFAULT_TOP_P,
     supportsThinking: provider === 'custom',
     defaultThinkingLevel: 'off',
+    requestClass: 'standard',
+    omitTemperature: false,
     source: 'catalog',
   }
 }
@@ -340,11 +374,14 @@ export function parseModelMetadataObject(
     displayName,
     contextWindow: endpointContextWindow ?? base.contextWindow,
     maxOutputTokens: endpointMaxOutput ?? base.maxOutputTokens,
+    defaultMaxTokens: base.defaultMaxTokens ?? null,
     defaultTemperature: endpointTemp ?? base.defaultTemperature,
     maxTemperature: endpointMaxTemp ?? base.maxTemperature,
     defaultTopP: endpointTopP ?? base.defaultTopP,
     supportsThinking: endpointThinking || base.supportsThinking,
     defaultThinkingLevel: base.defaultThinkingLevel,
+    requestClass: base.requestClass ?? 'standard',
+    omitTemperature: base.omitTemperature ?? false,
     source: 'endpoint',
   }
 }
@@ -627,7 +664,10 @@ export function resolveDefaultParams(
   difficulty: AiDifficulty,
   metadata?: AiModelMetadata | null,
 ): ResolvedInferenceParams {
-  const baseMaxTokens = difficulty === 'hard' ? AI_MAX_TOKENS_HARD : AI_MAX_TOKENS
+  const baseMaxTokens = Math.max(
+    difficulty === 'hard' ? AI_MAX_TOKENS_HARD : AI_MAX_TOKENS,
+    metadata?.defaultMaxTokens ?? 0,
+  )
   const maxOutputLimit = metadata?.maxOutputTokens ?? null
   const maxTokens =
     maxOutputLimit !== null ? Math.min(baseMaxTokens, maxOutputLimit) : baseMaxTokens
