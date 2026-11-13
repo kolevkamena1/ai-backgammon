@@ -18,7 +18,7 @@ import {
 } from '@/utils/aiClient'
 // The policies live outside `src` deliberately, but the ordering of the two timeout budgets is a
 // contract between the layers, so it is asserted here rather than only restated in a comment.
-import { DEV_POLICY, PRODUCTION_POLICY } from '../../../shared/aiProxy.ts'
+import { DEV_POLICY, handleProxyRequest, PRODUCTION_POLICY } from '../../../shared/aiProxy.ts'
 import { getInitialBoardState, getLegalMoves } from '@/utils/gameLogic'
 import { describe, expect, it } from 'vitest'
 
@@ -665,6 +665,79 @@ describe('CORS relay transport', () => {
       expect(result.code).toBe('proxy-blocked')
       expect(result.error).toContain('proxy')
     }
+  })
+
+  it('routes custom provider calls through handleProxyRequest and surfaces relay rejections for non-allowlisted public and private hosts as proxy-blocked', async () => {
+    let upstreamCount = 0
+    const proxyFetch: FetchLike = async (url, init) => {
+      expect(url).toBe(AI_PROXY_PATH)
+      const outcome = await handleProxyRequest(
+        {
+          method: init.method,
+          url: 'https://backgammon.example/api/ai-proxy',
+          headers: { get: (name) => init.headers[name.toLowerCase()] ?? null },
+          text: async () => init.body,
+        },
+        PRODUCTION_POLICY,
+        async () => {
+          upstreamCount += 1
+          return {
+            status: 200,
+            headers: { get: () => 'application/json' },
+            text: async () => '{"choices":[{"message":{"content":"{\\"choice\\":1}"}}]}',
+          }
+        },
+      )
+
+      return {
+        ok: outcome.status >= 200 && outcome.status < 300,
+        status: outcome.status,
+        headers: { get: (name) => outcome.headers[name.toLowerCase()] ?? null },
+        json: async () => JSON.parse(outcome.body) as unknown,
+        text: async () => outcome.body,
+      }
+    }
+
+    const publicBlocked = await getAiMove(
+      engine({ provider: 'custom', baseUrl: 'https://api.together.xyz/v1', model: 'meta-llama/Llama-3-70b' }),
+      PLAYING,
+      'light',
+      { fetchImpl: proxyFetch },
+    )
+    expect(publicBlocked.success).toBe(false)
+    if (!publicBlocked.success) {
+      expect(publicBlocked.code).toBe('proxy-blocked')
+      expect(publicBlocked.error).toContain('AI proxy (target-not-allowed)')
+      expect(publicBlocked.error).toContain('api.together.xyz is not in the proxy allowlist')
+    }
+
+    const privateBlocked = await getAiMove(
+      engine({ provider: 'custom', baseUrl: 'https://127.0.0.1:11434/v1', model: 'qwen2.5:7b' }),
+      PLAYING,
+      'light',
+      { fetchImpl: proxyFetch },
+    )
+    expect(privateBlocked.success).toBe(false)
+    if (!privateBlocked.success) {
+      expect(privateBlocked.code).toBe('proxy-blocked')
+      expect(privateBlocked.error).toContain('AI proxy (target-not-allowed)')
+      expect(privateBlocked.error).toContain('Local and private addresses cannot be reached from the edge')
+    }
+
+    const localhostHttpBlocked = await getAiMove(
+      engine({ provider: 'custom', baseUrl: 'http://localhost:11434', model: 'qwen2.5:7b' }),
+      PLAYING,
+      'light',
+      { fetchImpl: proxyFetch },
+    )
+    expect(localhostHttpBlocked.success).toBe(false)
+    if (!localhostHttpBlocked.success) {
+      expect(localhostHttpBlocked.code).toBe('proxy-blocked')
+      expect(localhostHttpBlocked.error).toContain('AI proxy (target-not-allowed)')
+      expect(localhostHttpBlocked.error).toContain('Only https targets are permitted')
+    }
+
+    expect(upstreamCount).toBe(0)
   })
 })
 

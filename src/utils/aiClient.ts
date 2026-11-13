@@ -15,12 +15,14 @@ import { difficultyOf, validateEngine } from '@/utils/gameConfig'
  * It is deliberately not a React module: no hooks, no store, no DOM. `fetchImpl` is injectable so
  * tests never stub globals.
  *
- * Transport shape: every provider call is wrapped in an envelope and posted to the same-origin
- * `/api/ai-proxy` relay (`shared/aiProxy.ts`, served by the Vite middleware in dev and by a Pages
- * Function in production). Providers such as DashScope send no CORS headers, so a direct browser
- * call dies in the preflight before the key is ever sent; relaying it removes that failure and gives
- * one place to enforce which hosts may be reached. The relay passes a provider's status and body
- * through unchanged, so the mapping below still sees real provider answers.
+ * Transport shape: EVERY provider call — including `provider: 'custom'` (OpenAI-compatible
+ * gateways, DashScope, Ollama, vLLM, LM Studio) — is wrapped in a JSON `{ targetUrl, method,
+ * headers, body }` envelope and POSTed to the same-origin `/api/ai-proxy` relay
+ * (`shared/aiProxy.ts`, served by the Vite middleware in dev and by a Cloudflare Pages Function in
+ * production). Nothing in the browser ever fetches `config.baseUrl` directly, so CSP `connect-src
+ * 'self'` is never the gate for custom endpoints: the relay's policy (`DEV_POLICY` locally,
+ * `PRODUCTION_POLICY` allowlist at the edge) decides which `targetUrl` hosts may be contacted, and
+ * relay rejections are surfaced with `x-ai-proxy-error` and mapped to `code: 'proxy-blocked'`.
  *
  * Security note: `baseUrl` is honoured **only** for `provider: 'custom'` (see `types/settings.ts`).
  * An OpenAI or Anthropic key is therefore never sent to a host the user did not choose.
@@ -273,19 +275,31 @@ async function postJson(args: {
  * keep their existing codes so the retry policy still applies to them; everything else is
  * `proxy-blocked`, which is not transient - only Settings can fix it.
  */
-async function mapProxyFailure(response: AiResponse, proxyErrorCode: string): Promise<AiMoveFailure> {
+export async function mapProxyFailure(response: AiResponse, proxyErrorCode: string): Promise<AiMoveFailure> {
   const message = await readProxyMessage(response)
 
   if (proxyErrorCode === 'gateway-timeout') {
-    return { success: false, error: message ?? 'The provider did not answer in time.', code: 'timeout', retryAfterMs: null }
+    return {
+      success: false,
+      error: message ? `AI proxy (${proxyErrorCode}): ${message}` : 'The provider did not answer in time.',
+      code: 'timeout',
+      retryAfterMs: null,
+    }
   }
   if (proxyErrorCode === 'bad-gateway') {
-    return { success: false, error: message ?? 'The AI proxy could not reach the provider.', code: 'network', retryAfterMs: null }
+    return {
+      success: false,
+      error: message ? `AI proxy (${proxyErrorCode}): ${message}` : 'The AI proxy could not reach the provider.',
+      code: 'network',
+      retryAfterMs: null,
+    }
   }
 
   return {
     success: false,
-    error: message ?? 'The AI proxy blocked this endpoint. Check the Base URL in Settings.',
+    error: message
+      ? `AI proxy (${proxyErrorCode}): ${message}`
+      : `The AI proxy (${proxyErrorCode}) blocked this endpoint. Check the Base URL in Settings.`,
     code: 'proxy-blocked',
     retryAfterMs: null,
   }
@@ -827,7 +841,11 @@ export function fetchOpenAiMove(ctx: MoveContext, baseUrl: string, jsonMode: boo
   )
 }
 
-/** Custom gateways (Ollama, vLLM, LM Studio) speak the chat format but often reject JSON mode. */
+/**
+ * Custom gateways (Ollama, vLLM, LM Studio, DashScope, OpenAI-compatible endpoints) speak the chat
+ * format but often reject JSON mode. Like built-in providers, requests are POSTed to the same-origin
+ * `/api/ai-proxy` relay with `targetUrl: "${baseUrl}/chat/completions"` in the envelope.
+ */
 export function fetchCustomMove(ctx: MoveContext, baseUrl: string): Promise<AiResult> {
   return fetchOpenAiMove(ctx, baseUrl, false)
 }

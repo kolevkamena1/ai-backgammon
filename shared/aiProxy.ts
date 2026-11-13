@@ -9,10 +9,13 @@
  * response type, which is also what makes the whole thing unit-testable with an injected `fetch`.
  *
  * Security stance: the client is a browser the user controls, and the key is theirs, so passing
- * `Authorization` through is fine. What is NOT fine is fetching an arbitrary `targetUrl`: this
- * endpoint is public, so without the allowlist below it would be an open SSRF relay that anyone
- * could drive through this project's Cloudflare account. Hence: https-only, exact-host allowlist,
- * no userinfo, no IP literals, redirects never followed, size caps, and no credential logging.
+ * `Authorization` through is fine. Every provider in the client — including `provider: 'custom'` —
+ * posts its `{ targetUrl, method, headers, body }` envelope here rather than fetching cross-origin
+ * from the browser. What is NOT fine is fetching an arbitrary `targetUrl`: this endpoint is public,
+ * so without the allowlist below it would be an open SSRF relay that anyone could drive through this
+ * project's Cloudflare account. Hence: https-only, exact-host allowlist (`DEFAULT_ALLOWED_HOSTS` +
+ * `AI_PROXY_ALLOWED_HOSTS`), no userinfo, no IP literals or private ranges, redirects never
+ * followed, size caps, and no credential logging.
  */
 
 /** Envelope the client POSTs: what to fetch, with which headers, and what to send. */

@@ -9,6 +9,7 @@ import {
   resolveEffectiveParams,
 } from '@/utils/aiModels'
 import { defaultStrategyPrompt } from '@/utils/aiPrompt'
+import { handleProxyRequest, PRODUCTION_POLICY } from '../../../shared/aiProxy.ts'
 import { describe, expect, it } from 'vitest'
 
 function mockFetch(
@@ -32,7 +33,9 @@ function mockFetch(
     return {
       ok: status >= 200 && status < 300,
       status,
-      headers: { get: () => 'application/json' },
+      headers: {
+        get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null),
+      },
       json: async () => result.body,
       text: async () => JSON.stringify(result.body),
     }
@@ -114,6 +117,48 @@ describe('fetchProviderModels', () => {
     expect(res.models[0].contextWindow).toBe(128_000)
     expect(res.models[1].supportsThinking).toBe(true)
     expect(res.models[1].defaultThinkingLevel).toBe('low')
+  })
+
+  it('surfaces relay rejections as proxy-blocked for non-allowlisted public and localhost custom targets', async () => {
+    const proxyFetch: FetchLike = async (_url, init) => {
+      const outcome = await handleProxyRequest(
+        {
+          method: init.method,
+          url: 'https://backgammon.example/api/ai-proxy',
+          headers: { get: (name) => init.headers[name.toLowerCase()] ?? null },
+          text: async () => init.body,
+        },
+        PRODUCTION_POLICY,
+        async () => {
+          throw new Error('upstream should not be called')
+        },
+      )
+      return {
+        ok: outcome.status >= 200 && outcome.status < 300,
+        status: outcome.status,
+        headers: { get: (name) => outcome.headers[name.toLowerCase()] ?? null },
+        json: async () => JSON.parse(outcome.body) as unknown,
+        text: async () => outcome.body,
+      }
+    }
+
+    const publicBlocked = await fetchProviderModels(
+      baseConfig({ provider: 'custom', baseUrl: 'https://openrouter.ai/api/v1' }),
+      { fetchImpl: proxyFetch },
+    )
+    expect(publicBlocked.ok).toBe(false)
+    expect(publicBlocked.code).toBe('proxy-blocked')
+    expect(publicBlocked.error).toContain('AI proxy (target-not-allowed)')
+    expect(publicBlocked.error).toContain('openrouter.ai is not in the proxy allowlist')
+
+    const localMetaBlocked = await fetchModelMetadata(
+      baseConfig({ provider: 'custom', baseUrl: 'http://localhost:11434', model: 'qwen2.5:7b' }),
+      'qwen2.5:7b',
+      { fetchImpl: proxyFetch },
+    )
+    expect(localMetaBlocked.ok).toBe(false)
+    expect(localMetaBlocked.code).toBe('proxy-blocked')
+    expect(localMetaBlocked.error).toContain('AI proxy (target-not-allowed)')
   })
 })
 

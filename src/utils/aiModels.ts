@@ -1,4 +1,4 @@
-import type { AiModelMetadata, AiRequestInit, AiResponse, FetchLike } from '@/types/ai'
+import type { AiErrorCode, AiModelMetadata, AiRequestInit, AiResponse, FetchLike } from '@/types/ai'
 import type {
   AiDifficulty,
   AiEngineConfig,
@@ -13,6 +13,7 @@ import {
   AI_PROXY_PATH,
   AI_TEMPERATURE,
   DEFAULT_MODELS,
+  mapProxyFailure,
   normalizeBaseUrl,
 } from '@/utils/aiClient'
 import { defaultStrategyPrompt, MAX_CUSTOM_SYSTEM_PROMPT_CHARS } from '@/utils/aiPrompt'
@@ -36,12 +37,14 @@ export interface ProviderModelsResult {
   ok: boolean
   models: AiModelMetadata[]
   error: string | null
+  code?: AiErrorCode
 }
 
 export interface ModelMetadataResult {
   ok: boolean
   metadata: AiModelMetadata
   error: string | null
+  code?: AiErrorCode
 }
 
 /** Fully resolved inference parameters (never undefined). */
@@ -363,6 +366,12 @@ function providerHeaders(config: AiEngineConfig): Record<string, string> {
   }
 }
 
+/**
+ * Sends a model-discovery or model-metadata request through the same-origin `/api/ai-proxy` relay.
+ * Built-in and `custom` providers alike wrap `targetUrl` inside the JSON envelope; relay rejections
+ * (`x-ai-proxy-error`) are mapped to typed `AiErrorCode` values (`proxy-blocked`, `timeout`, `network`)
+ * so callers can distinguish relay policy blocks from upstream provider HTTP responses.
+ */
 async function callProxyJson(args: {
   targetUrl: string
   method: 'GET' | 'POST'
@@ -370,7 +379,7 @@ async function callProxyJson(args: {
   body?: Record<string, unknown>
   fetchImpl: FetchLike
   signal?: AbortSignal
-}): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
+}): Promise<{ ok: true; data: unknown } | { ok: false; error: string; code?: AiErrorCode }> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), METADATA_TIMEOUT_MS)
   const onAbort = (): void => controller.abort()
@@ -394,6 +403,11 @@ async function callProxyJson(args: {
 
   try {
     const response: AiResponse = await args.fetchImpl(AI_PROXY_PATH, init)
+    const proxyErrorCode = response.headers.get('x-ai-proxy-error')
+    if (proxyErrorCode !== null) {
+      const mapped = await mapProxyFailure(response, proxyErrorCode)
+      return { ok: false, error: mapped.error, code: mapped.code }
+    }
     if (!response.ok) {
       return { ok: false, error: `Provider responded with status ${response.status}.` }
     }
@@ -401,7 +415,7 @@ async function callProxyJson(args: {
     return { ok: true, data }
   } catch (error) {
     logger.debug('model metadata request failed', { target: args.targetUrl, reason: String(error) })
-    return { ok: false, error: 'Could not reach the model metadata endpoint.' }
+    return { ok: false, error: 'Could not reach the model metadata endpoint.', code: 'network' }
   } finally {
     clearTimeout(timer)
     args.signal?.removeEventListener('abort', onAbort)
@@ -480,7 +494,7 @@ export async function fetchProviderModels(
   })
 
   if (!outcome.ok) {
-    return { ok: false, models: [], error: outcome.error }
+    return { ok: false, models: [], error: outcome.error, code: outcome.code }
   }
 
   const root = asRecord(outcome.data)
@@ -594,6 +608,7 @@ export async function fetchModelMetadata(
       ok: false,
       metadata: lookupCatalogMetadata(config.provider, targetModel),
       error: outcome.error,
+      code: outcome.code,
     }
   }
 

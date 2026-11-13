@@ -422,6 +422,35 @@ describe('SSRF policy', () => {
     expect(classifyTarget('https://gateway.example.evil.test/v1', extended).ok).toBe(false)
   })
 
+  it('cleanly rejects custom targets on non-allowlisted public hosts and localhost/private hosts through handleProxyRequest', async () => {
+    const nonAllowlistedPublic = [
+      'https://api.together.xyz/v1/chat/completions',
+      'https://openrouter.ai/api/v1/chat/completions',
+      'https://api.groq.com/openai/v1/chat/completions',
+    ]
+    const privateOrLocal = [
+      'http://localhost:11434/v1/chat/completions',
+      'https://localhost:11434/v1/chat/completions',
+      'http://127.0.0.1:1234/v1/chat/completions',
+      'https://127.0.0.1:1234/v1/chat/completions',
+      'https://10.0.0.8:8000/v1/chat/completions',
+      'https://172.20.0.3:8000/v1/chat/completions',
+      'https://192.168.1.50:8000/v1/chat/completions',
+    ]
+
+    for (const targetUrl of [...nonAllowlistedPublic, ...privateOrLocal]) {
+      const spy = upstream(() => reply({}))
+      const outcome = await relay(envelope({ targetUrl }), spy.fetchImpl, PRODUCTION_POLICY)
+      expect(outcome.status).toBe(403)
+      expect(outcome.headers['x-ai-proxy-error']).toBe('target-not-allowed')
+      expect(spy.calls).toHaveLength(0)
+
+      const parsed = JSON.parse(outcome.body) as { error: { code: string; message: string } }
+      expect(parsed.error.code).toBe('target-not-allowed')
+      expect(parsed.error.message.length).toBeGreaterThan(0)
+    }
+  })
+
   function DEFAULTS() {
     return ['api.openai.com'] as const satisfies readonly string[]
   }
