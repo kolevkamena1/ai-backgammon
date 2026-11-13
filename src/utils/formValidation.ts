@@ -14,7 +14,10 @@ export function revealFirstInvalidField(form: HTMLFormElement): string | null {
   }
 
   type ValidatableControl = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
-  const invalid = form.querySelector<ValidatableControl>(':invalid')
+  // Controls only: a bare `:invalid` also matches the ancestor `<fieldset>` (and the form itself),
+  // which precedes its children in document order. Focusing a fieldset is a no-op and its
+  // `validationMessage` is empty, which silently degraded the alert to the generic fallback (R2).
+  const invalid = form.querySelector<ValidatableControl>('input:invalid, select:invalid, textarea:invalid')
   if (invalid === null) {
     return form.validationMessage || 'Please review the highlighted fields.'
   }
