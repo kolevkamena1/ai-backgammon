@@ -4,7 +4,29 @@ import { X } from 'lucide-react'
 import { useEffect, useRef, type ComponentType, type MouseEvent, type ReactNode, type SVGProps } from 'react'
 
 const FOCUSABLE_SELECTOR =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  // `summary` is natively focusable (the visible handle of a <details>) and must be a trap
+  // boundary too, or Tab from it walks straight out of the dialog (R5).
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+
+/**
+ * Whether a focusable candidate is actually rendered. Controls inside a collapsed `<details>`
+ * still match the selector but cannot receive focus, so a trap that counts them stalls at the
+ * boundary (R5). Structural rather than layout-based, so it behaves the same in jsdom tests.
+ */
+function isRenderedFocusable(el: HTMLElement): boolean {
+  if (el.hidden) {
+    return false
+  }
+  const closed = el.closest<HTMLDetailsElement>('details:not([open])')
+  if (closed !== null) {
+    // The summary itself stays visible while its <details> is collapsed.
+    const summary = closed.querySelector('summary')
+    if (summary === null || !summary.contains(el)) {
+      return false
+    }
+  }
+  return true
+}
 
 interface ModalProps {
   /** Stable id for the heading, wired to aria-labelledby. */
@@ -54,13 +76,17 @@ const Modal = ({
     const previousFocus = previousFocusRef.current ?? null
 
     if (panel && !panel.contains(document.activeElement)) {
-      const firstFocusable = panel.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)
+      const firstFocusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).find(
+        isRenderedFocusable,
+      )
       ;(firstFocusable ?? panel).focus()
     }
 
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Tab' || !panelRef.current) return
-      const focusables = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+      const focusables = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+        isRenderedFocusable,
+      )
       if (focusables.length === 0) {
         event.preventDefault()
         return

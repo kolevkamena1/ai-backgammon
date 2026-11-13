@@ -62,6 +62,11 @@ export const DoublingCube: FC<DoublingCubeProps> = ({
         aria-label={label}
         title={resolvedTitle}
         onClick={onClick}
+        // Explicit Enter/Space activation. `preventDefault()` is load-bearing: it suppresses the
+        // native button activation so the click fires exactly once, here. Do not drop it (the
+        // handler would then double-fire with the native click), and do not drop the handler
+        // either — jsdom does not synthesize native clicks from keydown, so the D15 keyboard
+        // regression test relies on it (R4).
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault()

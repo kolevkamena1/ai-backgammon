@@ -167,3 +167,49 @@ describe('D15 — DoublingCube button semantics, Modal focus trap/restore, and d
     expect(addedUpListeners.size).toBe(0)
   })
 })
+
+describe('R5 — modal focus trap skips controls hidden in a collapsed <details>', () => {
+  it('wraps Tab between the rendered controls, never into the collapsed details', () => {
+    const onClose = vi.fn()
+    act(() => {
+      root.render(
+        <Modal titleId="r5-modal" title="R5 Modal" icon={Info} onClose={onClose}>
+          <button type="button" id="visible-action">
+            Visible
+          </button>
+          <details>
+            <summary>More options</summary>
+            <button type="button" id="hidden-action">
+              Hidden
+            </button>
+          </details>
+        </Modal>,
+      )
+    })
+
+    const dialog = host.querySelector('[role="dialog"]') as HTMLElement
+    const closeBtn = dialog.querySelector('button[aria-label="Close"]') as HTMLButtonElement
+    const summary = dialog.querySelector('summary') as HTMLElement
+    const hidden = dialog.querySelector('#hidden-action') as HTMLButtonElement
+
+    // The hidden control exists in the DOM but must not become a trap boundary. The summary is
+    // the LAST rendered focusable: Close (header) -> Visible -> summary.
+    expect(hidden).not.toBeNull()
+    expect(hidden.closest('details')?.open).toBe(false)
+
+    summary.focus()
+    expect(document.activeElement).toBe(summary)
+
+    // Tab from the last rendered control wraps to the first (Close), not into the details.
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
+    })
+    expect(document.activeElement).toBe(closeBtn)
+
+    // Shift+Tab from the first wraps back to the last RENDERED control (the summary).
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }))
+    })
+    expect(document.activeElement).toBe(summary)
+  })
+})
