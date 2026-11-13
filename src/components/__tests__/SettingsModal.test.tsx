@@ -3,6 +3,7 @@ import GameSetupModal from '@/components/GameSetupModal'
 import SettingsModal from '@/components/SettingsModal'
 import { DEFAULT_OPPONENT_CONFIG, useGameConfigStore } from '@/state/gameConfigStore'
 import { DEFAULT_SETTINGS, useSettingsStore } from '@/state/settingsStore'
+import * as aiModels from '@/utils/aiModels'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -208,6 +209,72 @@ describe('SettingsModal (side-by-side BYOK 1 & BYOK 2)', () => {
     })
 
     expect(host.textContent).toContain('You play Black; BYOK 1 plays White.')
+  })
+
+  it('does not re-fetch model metadata on unrelated systemPrompt edits and aborts in-flight fetch on unmount (P3)', async () => {
+    vi.useFakeTimers()
+    const capturedSignals: AbortSignal[] = []
+    const metadataSpy = vi
+      .spyOn(aiModels, 'fetchModelMetadata')
+      .mockImplementation(async (_engine, _modelId, options) => {
+        if (options?.signal) capturedSignals.push(options.signal)
+        return {
+          ok: true,
+          metadata: aiModels.lookupCatalogMetadata('openai', 'gpt-4o-mini'),
+          error: null,
+        }
+      })
+
+    try {
+      useSettingsStore.setState({
+        provider: 'openai',
+        apiKey: 'sk-test-key-1234',
+        model: 'gpt-4o-mini',
+        baseUrl: '',
+        difficulty: 'medium',
+      })
+
+      act(() => {
+        root.render(<SettingsModal onClose={() => undefined} />)
+      })
+
+      await act(async () => {
+        vi.advanceTimersByTime(400)
+      })
+      expect(metadataSpy).toHaveBeenCalledTimes(1)
+
+      // Editing system prompt must NOT re-trigger fetchModelMetadata
+      const promptTextarea = host.querySelector<HTMLTextAreaElement>(
+        '#settings-byok1-system-prompt',
+      )!
+      act(() => {
+        setInputValue(promptTextarea, 'Anchor early and avoid leaving blots.')
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(400)
+      })
+      expect(metadataSpy).toHaveBeenCalledTimes(1)
+
+      // Changing model triggers a new metadata fetch; unmounting aborts its AbortSignal
+      const modelInput = host.querySelector<HTMLInputElement>('#settings-byok1-model')!
+      act(() => {
+        setInputValue(modelInput, 'gpt-4o')
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(400)
+      })
+      expect(metadataSpy).toHaveBeenCalledTimes(2)
+      const latestSignal = capturedSignals[capturedSignals.length - 1]
+      expect(latestSignal?.aborted).toBe(false)
+
+      act(() => {
+        root.unmount()
+      })
+      expect(latestSignal?.aborted).toBe(true)
+    } finally {
+      metadataSpy.mockRestore()
+      vi.useRealTimers()
+    }
   })
 })
 

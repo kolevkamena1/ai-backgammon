@@ -129,28 +129,36 @@ const ByokFields = ({
       return
     }
 
+    const endpointConfig: AiEngineConfig = {
+      provider: value.provider,
+      model: value.model,
+      apiKey: value.apiKey,
+      baseUrl: value.baseUrl,
+    }
     const controller = new AbortController()
     const timer = setTimeout(() => {
       setLoadingMetadata(true)
-      void fetchModelMetadata(value, targetModel, { signal: controller.signal }).then((res) => {
-        if (controller.signal.aborted) {
-          return
-        }
-        setLoadingMetadata(false)
-        if (res.ok) {
-          setEndpointMetadata(res.metadata)
-          setMetadataNotice(
-            `Loaded metadata for ${res.metadata.displayName} from provider endpoint.`,
-          )
-        }
-      })
+      void fetchModelMetadata(endpointConfig, targetModel, { signal: controller.signal }).then(
+        (res) => {
+          if (controller.signal.aborted) {
+            return
+          }
+          setLoadingMetadata(false)
+          if (res.ok) {
+            setEndpointMetadata(res.metadata)
+            setMetadataNotice(
+              `Loaded metadata for ${res.metadata.displayName} from provider endpoint.`,
+            )
+          }
+        },
+      )
     }, 350)
 
     return () => {
       clearTimeout(timer)
       controller.abort()
     }
-  }, [value.provider, value.model, value.apiKey, value.baseUrl, canQueryEndpoint, value])
+  }, [value.provider, value.model, value.apiKey, value.baseUrl, canQueryEndpoint])
 
   const handleLoadModels = async (): Promise<void> => {
     setLoadingModels(true)
