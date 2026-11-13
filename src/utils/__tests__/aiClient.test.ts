@@ -456,6 +456,51 @@ describe('transport failures', () => {
     }
   })
 
+  it('includes the provider error code and credential-redacted message on a 400 JSON body, distinct from a relay rejection', async () => {
+    const { result } = await ask({}, PLAYING, 'light', () =>
+      fakeResponse({
+        status: 400,
+        body: {
+          error: {
+            code: 'invalid_parameter_error',
+            message: `thinking_budget is not supported for this model (key ${KEY}, Bearer sk-live-secret999)`,
+          },
+        },
+      }),
+    )
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.code).toBe('bad-response')
+      expect(result.error).toContain('The provider returned status 400')
+      expect(result.error).toContain('invalid_parameter_error')
+      expect(result.error).toContain('thinking_budget is not supported for this model')
+      expect(result.error).not.toContain(KEY)
+      expect(result.error).not.toContain('sk-live-secret999')
+    }
+
+    const relayBlocked = await ask({}, PLAYING, 'light', () =>
+      fakeResponse({
+        status: 403,
+        headers: { 'x-ai-proxy-error': 'target-not-allowed' },
+        body: {
+          error: {
+            code: 'target-not-allowed',
+            message: 'The host custom.example is not in the proxy allowlist.',
+          },
+        },
+      }),
+    )
+
+    expect(relayBlocked.result.success).toBe(false)
+    if (!relayBlocked.result.success && !result.success) {
+      expect(relayBlocked.result.code).toBe('proxy-blocked')
+      expect(relayBlocked.result.error).toContain('AI proxy (target-not-allowed)')
+      expect(relayBlocked.result.error).not.toContain('The provider returned status')
+      expect(relayBlocked.result.error).not.toBe(result.error)
+    }
+  })
+
   it('honours Retry-After and recovers on the second attempt', async () => {
     let attempts = 0
     const { result, calls } = await ask({}, PLAYING, 'light', () => {

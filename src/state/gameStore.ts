@@ -237,7 +237,12 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       // The failure banner replaces any earlier rationale: the position it described never got to
       // happen, and two explanations on screen would read as one of them being a lie.
       set({ lastAiError: { message: result.error, code: result.code }, aiThought: null })
-      logger.error('ai move failed', { code: result.code, provider: engine.provider, seat: color })
+      logger.error('ai move failed', {
+        code: result.code,
+        provider: engine.provider,
+        seat: color,
+        message: result.error,
+      })
       return 'stop'
     }
 

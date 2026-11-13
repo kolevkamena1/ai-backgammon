@@ -235,6 +235,86 @@ describe('AI turn feedback', () => {
 
     expect(text()).toContain('still down')
   })
+
+  it('renders a mocked 400 JSON error message in the banner and logs the redacted provider error, distinct from a relay rejection', async () => {
+    const actualAiClient = await vi.importActual<typeof import('@/utils/aiClient')>('@/utils/aiClient')
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      startMirror()
+      useGameStore.setState({
+        board: { ...getInitialBoardState(), dice: [5], phase: 'playing' },
+      })
+
+      mockedGetAiMove.mockImplementationOnce((cfg, b, p, opts) =>
+        actualAiClient.getAiMove(cfg, b, p, {
+          ...opts,
+          fetchImpl: async () => ({
+            ok: false,
+            status: 400,
+            headers: { get: () => null },
+            json: async () => ({
+              error: {
+                code: 'invalid_parameter_error',
+                message: 'thinking_budget is not supported for qwen4 (used sk-test-1234)',
+              },
+            }),
+            text: async () => '',
+          }),
+        }),
+      )
+
+      act(() => root.render(<GameControls />))
+      await act(async () => {
+        await useGameStore.getState().runAiTurn()
+      })
+      act(() => root.render(<GameControls />))
+
+      const upstreamBanner = text()
+      expect(upstreamBanner).toContain('The provider returned status 400')
+      expect(upstreamBanner).toContain('invalid_parameter_error')
+      expect(upstreamBanner).toContain('thinking_budget is not supported for qwen4')
+      expect(upstreamBanner).not.toContain('sk-test-1234')
+
+      const loggedArgs = JSON.stringify(errorSpy.mock.calls)
+      expect(loggedArgs).toContain('invalid_parameter_error')
+      expect(loggedArgs).toContain('thinking_budget is not supported for qwen4')
+      expect(loggedArgs).not.toContain('sk-test-1234')
+
+      // Now verify a relay rejection renders a distinct banner message with Open Settings
+      mockedGetAiMove.mockImplementationOnce((cfg, b, p, opts) =>
+        actualAiClient.getAiMove(cfg, b, p, {
+          ...opts,
+          fetchImpl: async () => ({
+            ok: false,
+            status: 403,
+            headers: {
+              get: (name: string) => (name.toLowerCase() === 'x-ai-proxy-error' ? 'target-not-allowed' : null),
+            },
+            json: async () => ({
+              error: {
+                code: 'target-not-allowed',
+                message: 'The host blocked.example is not in the proxy allowlist.',
+              },
+            }),
+            text: async () => '',
+          }),
+        }),
+      )
+
+      await act(async () => {
+        await useGameStore.getState().runAiTurn()
+      })
+      act(() => root.render(<GameControls />))
+
+      const relayBanner = text()
+      expect(relayBanner).toContain('AI proxy (target-not-allowed)')
+      expect(relayBanner).toContain('blocked.example is not in the proxy allowlist')
+      expect(relayBanner).not.toContain('The provider returned status')
+      expect(labelled('Open Settings')).toBeTruthy()
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
 })
 
 describe('click-to-move through the wired board', () => {

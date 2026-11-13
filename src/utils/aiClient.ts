@@ -204,6 +204,7 @@ async function postJson(args: {
   url: string
   headers: Record<string, string>
   body: Record<string, unknown>
+  apiKey?: string
   fetchImpl: FetchLike
   signal: AbortSignal
   timedOut: () => boolean
@@ -258,7 +259,8 @@ async function postJson(args: {
   }
 
   if (!response.ok) {
-    return { failure: mapHttpError(response.status, readRetryAfterMs(response)) }
+    const details = await readProviderErrorDetails(response, args.apiKey)
+    return { failure: mapHttpError(response.status, readRetryAfterMs(response), details) }
   }
 
   // The content type is the only honest signal that a reply is incremental: a `fetch` Response always
@@ -347,8 +349,97 @@ function readRetryAfterMs(response: AiResponse): number | null {
   return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : null
 }
 
+export interface ProviderErrorDetails {
+  code: string | null
+  message: string | null
+}
+
+/**
+ * Strips any literal API key or bearer/provider token shape before a provider error string is
+ * surfaced in the UI banner or written to logs.
+ */
+export function redactErrorCredentials(raw: string, apiKey?: string): string {
+  let clean = raw
+  const trimmedKey = apiKey?.trim()
+  if (trimmedKey !== undefined && trimmedKey.length > 0) {
+    clean = clean.split(trimmedKey).join('[redacted]')
+  }
+  if (apiKey !== undefined && apiKey.length > 0 && apiKey !== trimmedKey) {
+    clean = clean.split(apiKey).join('[redacted]')
+  }
+  clean = clean
+    .replace(/\bBearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]')
+    .replace(/\b(sk-[A-Za-z0-9._-]{3,}|AIza[A-Za-z0-9_-]{10,})/g, '[redacted]')
+    .replace(/(https?:\/\/)[^/\s@]+@/gi, '$1[redacted]@')
+  return clean
+}
+
+async function readProviderErrorDetails(
+  response: AiResponse,
+  apiKey?: string,
+): Promise<ProviderErrorDetails> {
+  try {
+    const data = await response.json()
+    if (typeof data !== 'object' || data === null) {
+      return { code: null, message: null }
+    }
+
+    const root = data as Record<string, unknown>
+    const error = root.error
+    let rawCode: string | null = null
+    let rawMessage: string | null = null
+
+    if (typeof error === 'object' && error !== null) {
+      const rec = error as Record<string, unknown>
+      if (typeof rec.message === 'string' && rec.message.trim().length > 0) {
+        rawMessage = rec.message.trim()
+      }
+      if (typeof rec.code === 'string' && rec.code.trim().length > 0) {
+        rawCode = rec.code.trim()
+      } else if (typeof rec.status === 'string' && rec.status.trim().length > 0) {
+        rawCode = rec.status.trim()
+      } else if (typeof rec.type === 'string' && rec.type.trim().length > 0) {
+        rawCode = rec.type.trim()
+      } else if (typeof rec.code === 'number' && Number.isFinite(rec.code)) {
+        rawCode = String(rec.code)
+      }
+    } else if (typeof error === 'string' && error.trim().length > 0) {
+      rawMessage = error.trim()
+      if (typeof root.code === 'string' && root.code.trim().length > 0) {
+        rawCode = root.code.trim()
+      }
+    } else {
+      if (typeof root.message === 'string' && root.message.trim().length > 0) {
+        rawMessage = root.message.trim()
+      } else if (typeof root.detail === 'string' && root.detail.trim().length > 0) {
+        rawMessage = root.detail.trim()
+      }
+      if (typeof root.code === 'string' && root.code.trim().length > 0) {
+        rawCode = root.code.trim()
+      }
+    }
+
+    const code =
+      rawCode !== null
+        ? redactErrorCredentials(rawCode.replace(/\s+/g, ' '), apiKey).slice(0, 64)
+        : null
+    const message =
+      rawMessage !== null
+        ? redactErrorCredentials(rawMessage.replace(/\s+/g, ' '), apiKey).slice(0, 240)
+        : null
+
+    return { code, message }
+  } catch {
+    return { code: null, message: null }
+  }
+}
+
 /** Status code to typed error, with a message a player can act on. */
-export function mapHttpError(status: number, retryAfterMs: number | null = null): AiMoveFailure {
+export function mapHttpError(
+  status: number,
+  retryAfterMs: number | null = null,
+  details?: ProviderErrorDetails,
+): AiMoveFailure {
   const code: AiErrorCode =
     status === 401
       ? 'unauthorized'
@@ -362,20 +453,24 @@ export function mapHttpError(status: number, retryAfterMs: number | null = null)
               ? 'server-error'
               : 'bad-response'
 
+  const detailCode = details?.code ? ` [${details.code}]` : ''
+  const detailMsg = details?.message ? `: ${details.message}` : ''
+  const hasDetail = detailCode.length > 0 || detailMsg.length > 0
+
   const error =
     code === 'unauthorized'
-      ? 'Invalid API key. Check Settings.'
+      ? `Invalid API key. Check Settings.${detailCode}${detailMsg}`
       : code === 'forbidden'
-        ? 'The provider refused this key for this model (403).'
+        ? `The provider refused this key for this model (403)${hasDetail ? `${detailCode}${detailMsg}` : '.'}`
         : code === 'not-found'
-          ? 'Model or endpoint not found (404). Check the model name and Base URL.'
+          ? `Model or endpoint not found (404). Check the model name and Base URL.${detailCode}${detailMsg}`
           : code === 'rate-limited'
             ? retryAfterMs === null
-              ? 'Rate limited by the provider (429).'
-              : `Rate limited by the provider (429). Try again in ${Math.ceil(retryAfterMs / 1000)}s.`
+              ? `Rate limited by the provider (429)${hasDetail ? `${detailCode}${detailMsg}` : '.'}`
+              : `Rate limited by the provider (429). Try again in ${Math.ceil(retryAfterMs / 1000)}s.${detailCode}${detailMsg}`
             : code === 'server-error'
-              ? `The provider is having trouble (${status}).`
-              : `The provider returned status ${status}.`
+              ? `The provider is having trouble (${status})${hasDetail ? `${detailCode}${detailMsg}` : '.'}`
+              : `The provider returned status ${status}${detailCode}${detailMsg.length > 0 ? detailMsg : '.'}`
 
   return { success: false, error, code, retryAfterMs }
 }
@@ -789,6 +884,7 @@ async function requestText(
     url: args.url,
     headers: { 'content-type': 'application/json', ...args.headers },
     body: args.body,
+    apiKey: ctx.apiKey,
     fetchImpl: ctx.fetchImpl,
     signal: ctx.signal,
     timedOut: ctx.timedOut,
