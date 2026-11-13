@@ -885,13 +885,14 @@ export function fetchCustomMove(ctx: MoveContext, baseUrl: string): Promise<AiRe
   return fetchOpenAiMove(ctx, baseUrl, false)
 }
 
-export function fetchAnthropicMove(ctx: MoveContext): Promise<AiResult> {
+export function anthropicBody(ctx: MoveContext): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: ctx.model,
     system: ctx.system,
     messages: [{ role: 'user', content: ctx.user }],
     max_tokens: ctx.maxTokens,
-    temperature: ctx.temperature,
+    // Anthropic's `/v1/messages` API strictly requires `0 <= temperature <= 1`.
+    temperature: Math.min(1, Math.max(0, ctx.temperature)),
   }
 
   if (ctx.topP !== undefined) {
@@ -906,6 +907,10 @@ export function fetchAnthropicMove(ctx: MoveContext): Promise<AiResult> {
     }
   }
 
+  return body
+}
+
+export function fetchAnthropicMove(ctx: MoveContext): Promise<AiResult> {
   return requestText(
     {
       url: ANTHROPIC_MESSAGES_URL,
@@ -915,7 +920,7 @@ export function fetchAnthropicMove(ctx: MoveContext): Promise<AiResult> {
         // Without this header Anthropic rejects calls made straight from a browser.
         'anthropic-dangerous-direct-browser-access': 'true',
       },
-      body,
+      body: anthropicBody(ctx),
       extract: extractAnthropicText,
     },
     ctx,

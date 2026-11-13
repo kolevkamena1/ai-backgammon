@@ -1206,4 +1206,20 @@ describe('model-aware request shaping (A3 regression)', () => {
     expect(onBody.thinking_budget).toBe(2048)
     expect(onBody.reasoning_effort).toBeUndefined()
   })
+
+  it('clamps Anthropic temperature to [0, 1] in anthropicBody (A4 regression: 1.5 -> 1)', async () => {
+    const { calls } = await ask(
+      {
+        provider: 'anthropic',
+        model: 'claude-3-5-haiku-latest',
+        params: { temperature: 1.5 },
+      },
+      PLAYING,
+      'light',
+      () => fakeResponse({ body: { content: [{ type: 'text', text: '{"choice": 1}' }] } }),
+    )
+
+    const body = innerBody(calls[0]) as Record<string, unknown>
+    expect(body.temperature).toBe(1)
+  })
 })
