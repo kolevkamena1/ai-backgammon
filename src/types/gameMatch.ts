@@ -38,6 +38,11 @@ export interface MatchScoreState {
   enableCrawford: boolean
   /** Whether the current game is a Crawford game (doubling disabled) */
   isCrawfordGame: boolean
+  /**
+   * Whether the match's one Crawford game has already been started. The rule applies once per
+   * match, so this — not `isCrawfordGame` — is what gates the next trigger (R1).
+   */
+  crawfordPlayed: boolean
   lastVictory: GameVictory | null
 }
 

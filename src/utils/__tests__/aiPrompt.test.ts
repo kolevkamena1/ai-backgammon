@@ -210,6 +210,7 @@ describe('buildMovePrompt', () => {
         matchWinner: null,
         enableCrawford: true,
         isCrawfordGame: true,
+        crawfordPlayed: true,
         lastVictory: null,
       },
     })
@@ -229,6 +230,7 @@ describe('buildMovePrompt', () => {
         matchWinner: null,
         enableCrawford: true,
         isCrawfordGame: false,
+        crawfordPlayed: false,
         lastVictory: null,
       },
     })
@@ -260,6 +262,7 @@ describe('buildMovePrompt', () => {
             matchWinner: null,
             enableCrawford: true,
             isCrawfordGame: true,
+            crawfordPlayed: true,
             lastVictory: null,
           },
         })

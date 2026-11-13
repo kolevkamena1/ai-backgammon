@@ -427,6 +427,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
           matchWinner: null,
           enableCrawford,
           isCrawfordGame: false,
+          crawfordPlayed: false,
           lastVictory: null,
         }
       }
@@ -482,16 +483,20 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       const initialBoard = getInitialBoardState()
       const initialCube: DoublingCubeState = { value: 1, owner: 'centered', proposedBy: null }
 
-      // Check if next game is Crawford game:
-      // When Crawford is enabled and either player is exactly 1 point away from match target
+      // Crawford rule: the FIRST time either seat reaches one point from the target, the next
+      // game is the Crawford game (doubling disabled). It happens once per match — `crawfordPlayed`
+      // remembers it across games, because `isCrawfordGame` alone only describes the current game
+      // and would re-trigger Crawford every other game while the trailer stays one point away (R1).
       const lightNeed = match.targetPoints - match.light
       const darkNeed = match.targetPoints - match.dark
-      const isCrawford = match.enableCrawford && !match.isCrawfordGame && (lightNeed === 1 || darkNeed === 1)
+      const isCrawford =
+        match.enableCrawford && !match.crawfordPlayed && (lightNeed === 1 || darkNeed === 1)
 
       const updatedMatch: MatchScoreState = {
         ...match,
         gameIndex: match.gameIndex + 1,
         isCrawfordGame: isCrawford,
+        crawfordPlayed: match.crawfordPlayed || isCrawford,
         lastVictory: null,
       }
 

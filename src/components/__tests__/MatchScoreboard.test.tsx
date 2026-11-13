@@ -34,6 +34,7 @@ describe('MatchScoreboard', () => {
     matchWinner: null,
     enableCrawford: true,
     isCrawfordGame: false,
+    crawfordPlayed: false,
     lastVictory: null,
   }
 
