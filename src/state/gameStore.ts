@@ -1,7 +1,7 @@
 import type { AiDelta, AiErrorInfo, AiResult } from '@/types/ai'
 import type { BoardState, DieFace, DiceRoll, Move, MoveSource, PlayerColor } from '@/types/game'
 import type { GameConfigSnapshot, SeatAssignment, SeatPlan } from '@/types/gameConfig'
-import type { GameSnapshot, MoveRecord } from '@/types/gameLog'
+import type { GameSnapshot, MoveRecord, TurnPassReason } from '@/types/gameLog'
 import type { DoublingCubeState, GameVictory, MatchScoreState } from '@/types/gameMatch'
 import type { AiEngineConfig } from '@/types/settings'
 import {
@@ -29,8 +29,9 @@ import {
 } from '@/utils/gameLogic'
 import { create } from 'zustand'
 
-/** Why the last turn ended early, so the UI can explain it instead of looking broken. */
-export type TurnPassReason = 'unplayable-roll' | 'stranded-dice'
+// Re-exported for existing consumers; the definition lives with the log types so `types/` never
+// depends on `state/` (R11).
+export type { TurnPassReason } from '@/types/gameLog'
 
 /**
  * What the engine said about its move. Transient by design â€” the store is never persisted, and a

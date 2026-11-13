@@ -1,6 +1,8 @@
 import type { BoardState, DiceRoll, DieFace, MoveSource, MoveTarget, PlayerColor } from '@/types/game'
-import type { TurnPassReason } from '@/state/gameStore'
 import type { DoublingCubeState, MatchScoreState } from '@/types/gameMatch'
+
+/** Why the last turn ended early, so the UI can explain it instead of looking broken. */
+export type TurnPassReason = 'unplayable-roll' | 'stranded-dice'
 
 export type CubeActionKind = 'propose' | 'accept' | 'decline'
 
