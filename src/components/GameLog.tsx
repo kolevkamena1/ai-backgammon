@@ -11,6 +11,9 @@ const TH = 'sticky top-0 z-10 border-b border-slate-800 bg-slate-900 px-2 py-1.5
 const TD = 'border-b border-slate-800/70 px-2 py-1 align-top'
 /** Cells that can start a rewind look and behave like spreadsheet cells you can pick. */
 const PICKABLE = 'cursor-pointer hover:bg-sky-500/10 hover:ring-1 hover:ring-inset hover:ring-sky-500/40'
+/** Rewind cells are real buttons (E4) so Enter/Space and screen readers work, not just clicks. */
+const REWIND_BUTTON =
+  'block w-full rounded-sm text-left outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-sky-400 disabled:cursor-default'
 const DOOMED = 'bg-red-500/10 text-red-300 line-through decoration-red-400/60'
 const SELECTED = 'ring-2 ring-inset ring-red-400'
 const CARET = 'ml-0.5 inline-block h-3 w-1 translate-y-0.5 animate-pulse rounded-sm bg-sky-400'
@@ -231,7 +234,6 @@ export const GameLog: FC = () => {
         </td>
         <td
           rowSpan={span}
-          onClick={() => choose(entry, 'dice')}
           title={canRewind ? 'Remove this turn and everything after it, dice included' : undefined}
           className={cn(
             TD,
@@ -241,7 +243,15 @@ export const GameLog: FC = () => {
             pickedDice && SELECTED,
           )}
         >
-          {diceText(entry.roll)}
+          <button
+            type="button"
+            disabled={!canRewind}
+            onClick={() => choose(entry, 'dice')}
+            className={REWIND_BUTTON}
+            aria-label={`Rewind to turn ${entry.turnNumber}, dice included`}
+          >
+            {diceText(entry.roll)}
+          </button>
         </td>
       </>
     )
@@ -298,8 +308,16 @@ export const GameLog: FC = () => {
       rows.push(
         <tr key={`m-${move.stepIndex}`} className={cn(current && 'bg-sky-500/5')}>
           {shouldAttachHead ? head : null}
-          <td onClick={() => choose(entry, 'moves')} title={movesTitle} className={movesCellClass}>
-            <span className={cn(move.isHit && 'text-rose-400')}>{move.formatted}</span>
+          <td title={movesTitle} className={movesCellClass}>
+            <button
+              type="button"
+              disabled={!movesClickable}
+              onClick={() => choose(entry, 'moves')}
+              className={REWIND_BUTTON}
+              aria-label={`Rewind moves to turn ${entry.turnNumber}, keep dice`}
+            >
+              <span className={cn(move.isHit && 'text-rose-400')}>{move.formatted}</span>
+            </button>
           </td>
           <td className={reasonCellClass}>{renderReasoning(move, entry)}</td>
         </tr>,
@@ -332,14 +350,22 @@ export const GameLog: FC = () => {
       rows.push(
         <tr key={`empty-${entry.turnNumber}`} className={cn(current && 'bg-sky-500/5')}>
           {head}
-          <td onClick={() => choose(entry, 'moves')} title={movesTitle} className={cn(movesCellClass, 'font-sans')}>
-            {passed ? (
-              <span className="italic text-amber-400">
-                {entry.passedReason === 'unplayable-roll' ? 'No legal move' : 'Passed'}
-              </span>
-            ) : (
-              <span className="italic text-slate-500">to move…</span>
-            )}
+          <td title={movesTitle} className={cn(movesCellClass, 'font-sans')}>
+            <button
+              type="button"
+              disabled={!movesClickable}
+              onClick={() => choose(entry, 'moves')}
+              className={REWIND_BUTTON}
+              aria-label={`Rewind moves to turn ${entry.turnNumber}, keep dice`}
+            >
+              {passed ? (
+                <span className="italic text-amber-400">
+                  {entry.passedReason === 'unplayable-roll' ? 'No legal move' : 'Passed'}
+                </span>
+              ) : (
+                <span className="italic text-slate-500">to move…</span>
+              )}
+            </button>
           </td>
           <td className={reasonCellClass} />
         </tr>,
