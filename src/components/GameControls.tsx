@@ -1,6 +1,7 @@
 import type { AiErrorCode } from '@/types/ai'
 import type { DieFace, PlayerColor } from '@/types/game'
 import type { SeatAssignment } from '@/types/gameConfig'
+import type { GameVictory } from '@/types/gameMatch'
 import type { TurnPassReason } from '@/state/gameStore'
 import { BUTTON } from '@/components/ui/controls'
 import { useGame } from '@/hooks/useGame'
@@ -48,6 +49,38 @@ function seatSummary(seat: SeatAssignment): string {
   // The level belongs in the line the player reads while the engine works: the same provider and
   // model play very differently at Easy and at Hard, and nothing else on screen says which was picked.
   return `${seat.label} · ${engine.providerName}${engine.model ? ` · ${engine.model}` : ''} · ${DIFFICULTY_LABELS[engine.difficulty]}`
+}
+
+function renderVictoryHeadline(winner: PlayerColor, lastVictory: GameVictory | null): string {
+  const winnerLabel = SEAT_LABELS[winner]
+  if (lastVictory === null) {
+    return `${winnerLabel} bore off all 15 checkers and wins.`
+  }
+
+  switch (lastVictory.reason) {
+    case 'bear-off': {
+      switch (lastVictory.grade) {
+        case 'single':
+          return `${winnerLabel} bore off all 15 checkers and wins (single).`
+        case 'gammon':
+          return `${winnerLabel} bore off all 15 checkers and wins a gammon!`
+        case 'backgammon':
+          return `${winnerLabel} bore off all 15 checkers and wins a backgammon!`
+        default: {
+          const _exhaustiveGrade: never = lastVictory.grade
+          return _exhaustiveGrade
+        }
+      }
+    }
+    case 'resigned-double': {
+      const loserLabel = SEAT_LABELS[lastVictory.loser]
+      return `${winnerLabel} wins — ${loserLabel} declined the double.`
+    }
+    default: {
+      const _exhaustiveReason: never = lastVictory.reason
+      return _exhaustiveReason
+    }
+  }
 }
 
 /**
@@ -286,12 +319,17 @@ const GameControls = () => {
       {game.isFinished && board.winner !== null ? (
         <div className="space-y-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs">
           <p className="text-sm font-semibold text-emerald-300">
-            {SEAT_LABELS[board.winner]} bore off all 15 checkers and wins.
+            {renderVictoryHeadline(board.winner, game.match?.lastVictory ?? null)}
           </p>
           {game.match?.lastVictory && (
             <p className="text-slate-300">
-              Victory: <strong className="capitalize text-emerald-300">{game.match.lastVictory.grade}</strong> (
-              {game.match.lastVictory.basePoints} pt{game.match.lastVictory.basePoints > 1 ? 's' : ''} × cube{' '}
+              Victory:{' '}
+              <strong className="capitalize text-emerald-300">
+                {game.match.lastVictory.reason === 'resigned-double'
+                  ? 'resigned double'
+                  : game.match.lastVictory.grade}
+              </strong>{' '}
+              ({game.match.lastVictory.basePoints} pt{game.match.lastVictory.basePoints > 1 ? 's' : ''} × cube{' '}
               {game.match.lastVictory.cubeMultiplier} = <strong className="text-slate-50">{game.match.lastVictory.totalPoints} pts</strong>)
             </p>
           )}

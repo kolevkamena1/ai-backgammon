@@ -627,3 +627,109 @@ describe('Start New Match Set (B1 regression)', () => {
     }
   })
 })
+
+describe('Victory banner reason & grade coverage (C10 regression)', () => {
+  it('distinguishes resigned-double from bear-off (single, gammon, backgammon)', () => {
+    act(() => {
+      useGameStore.getState().startNewGame(humanVsAi, personal)
+    })
+
+    // 1. Declined double (resigned-double): must NOT claim all 15 checkers were borne off.
+    act(() => {
+      const { board, match } = useGameStore.getState()
+      useGameStore.setState({
+        board: board ? { ...board, phase: 'finished', winner: 'light', dice: [] } : board,
+        match: match
+          ? {
+              ...match,
+              lastVictory: {
+                winner: 'light',
+                loser: 'dark',
+                grade: 'single',
+                basePoints: 1,
+                cubeMultiplier: 2,
+                totalPoints: 2,
+                reason: 'resigned-double',
+              },
+            }
+          : match,
+      })
+      root.render(<GameControls />)
+    })
+    expect(text()).toContain('declined the double')
+    expect(text()).not.toContain('bore off all 15 checkers')
+
+    // 2. Bear-off single
+    act(() => {
+      const { match } = useGameStore.getState()
+      useGameStore.setState({
+        match: match
+          ? {
+              ...match,
+              lastVictory: {
+                winner: 'light',
+                loser: 'dark',
+                grade: 'single',
+                basePoints: 1,
+                cubeMultiplier: 1,
+                totalPoints: 1,
+                reason: 'bear-off',
+              },
+            }
+          : match,
+      })
+      root.render(<GameControls />)
+    })
+    expect(text()).toContain('bore off all 15 checkers')
+    expect(text()).toContain('single')
+
+    // 3. Bear-off gammon
+    act(() => {
+      const { match } = useGameStore.getState()
+      useGameStore.setState({
+        match: match
+          ? {
+              ...match,
+              lastVictory: {
+                winner: 'light',
+                loser: 'dark',
+                grade: 'gammon',
+                basePoints: 2,
+                cubeMultiplier: 2,
+                totalPoints: 4,
+                reason: 'bear-off',
+              },
+            }
+          : match,
+      })
+      root.render(<GameControls />)
+    })
+    expect(text()).toContain('bore off all 15 checkers and wins a gammon')
+
+    // 4. Bear-off backgammon
+    act(() => {
+      const { match } = useGameStore.getState()
+      useGameStore.setState({
+        match: match
+          ? {
+              ...match,
+              lastVictory: {
+                winner: 'dark',
+                loser: 'light',
+                grade: 'backgammon',
+                basePoints: 3,
+                cubeMultiplier: 1,
+                totalPoints: 3,
+                reason: 'bear-off',
+              },
+            }
+          : match,
+      })
+      useGameStore.setState((s) => ({
+        board: s.board ? { ...s.board, winner: 'dark' } : s.board,
+      }))
+      root.render(<GameControls />)
+    })
+    expect(text()).toContain('Black bore off all 15 checkers and wins a backgammon')
+  })
+})
