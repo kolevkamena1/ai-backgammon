@@ -640,12 +640,12 @@ the app shell for an unknown path. Pages production parses the file itself, so c
 the first preview deployment; it never affects `/api/*` either way, because Functions win.
 
 `public/_redirects` (`/* /index.html 200`) provides the single-page fallback and
-`public/_headers` sets `nosniff`, `DENY` framing, a strict referrer policy and a locked-down
-permissions policy. Both are copied into `dist/` by Vite. Those rules cover **static assets only**:
-Pages does not apply `_headers` to a Functions response, which is why the relay attaches
-`Cache-Control: no-store` in code. A CSP is deliberately **not** enabled:
-Tailwind injects inline `<style>` tags during dev/HMR, so add one with `style-src 'unsafe-inline'`
-only once the production CSS pipeline is stable.
+`public/_headers` sets HSTS, `nosniff`, `DENY` framing, a strict referrer policy, a locked-down
+permissions policy, and a strict `Content-Security-Policy` (`default-src 'self'`, `connect-src 'self'`
+plus the pinned Cloudflare Access team domain, `style-src 'self' 'unsafe-inline'`, `frame-ancestors 'none'`,
+`base-uri 'none'`, `form-action 'none'`). Both are copied into `dist/` by Vite. Those rules cover **static
+assets only**: Pages does not apply `_headers` to a Functions response, which is why the relay attaches
+`Cache-Control: no-store` and `X-Content-Type-Options: nosniff` in code.
 
 ## Admin stats (`/stats`)
 

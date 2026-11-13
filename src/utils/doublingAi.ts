@@ -20,7 +20,7 @@ export interface AiAcceptDecision {
 /**
  * Determines whether the AI should offer a double on its turn before rolling:
  * - Must be allowed to double (cube owner or centered, not Crawford game, max 64)
- * - Has a significant pip count race lead (e.g. >= 10% or >= 12 pips ahead)
+ * - Has a significant pip count race lead (>= 8% and >= 12 pips ahead, or >= 5 pips with opponent on bar)
  * - Loser is not already at match point where doubling would grant free victory without advantage
  */
 export function evaluateAiShouldDouble(
@@ -56,7 +56,7 @@ export function evaluateAiShouldDouble(
     return { shouldDouble: true, reason: 'Strong position with opponent checker on bar and pip lead' }
   }
 
-  // Pip race lead threshold: at least 12% lead and 10 pips ahead
+  // Pip race lead threshold: at least 8% lead and 12 pips ahead
   if (lead >= 12 && lead / Math.max(1, oppPips) >= 0.08) {
     return { shouldDouble: true, reason: `Favorable pip race lead of ${lead} pips` }
   }
