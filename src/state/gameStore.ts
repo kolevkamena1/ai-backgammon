@@ -535,13 +535,14 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
     },
 
     proposeDouble: (proposer) => {
-      const { board, cube, isAiThinking, match, stepHistory, currentStepIndex } = get()
+      const { board, cube, isAiThinking, isPaused, match, stepHistory, currentStepIndex } = get()
       if (
         board === null ||
         board.phase === 'finished' ||
         board.dice.length > 0 ||
         board.turn !== proposer ||
         isAiThinking ||
+        isPaused ||
         cube.value >= 64 ||
         cube.proposedBy !== null ||
         (cube.owner !== 'centered' && cube.owner !== proposer) ||
@@ -1078,7 +1079,7 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
       const pendingOffer = get().cube.proposedBy
       if (pendingOffer !== null && pendingOffer !== seat.color) {
         const acceptDecision = evaluateAiAcceptDouble(board, seat.color)
-        get().respondToDouble(seat.color, acceptDecision.accept)
+        get().respondToDouble(seat.color, acceptDecision.accept, acceptDecision.reason)
         return
       }
 

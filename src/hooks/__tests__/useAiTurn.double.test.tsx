@@ -190,4 +190,32 @@ describe('AI-initiated doubles through the real runAiTurn path', () => {
       expect(mockedGetAiMove).toHaveBeenCalled()
     }
   })
+
+  it('passes acceptDecision.reason into respondToDouble in runAiTurn and blocks proposeDouble when paused (C9 regression)', async () => {
+    expect(useGameStore.getState().startNewGame(humanVsAi, personal)).toBe(true)
+
+    // 1. Pausing blocks proposeDouble.
+    useGameStore.getState().setPaused(true)
+    const stepsBeforePauseDouble = useGameStore.getState().stepHistory.length
+    expect(useGameStore.getState().proposeDouble('light')).toBe(false)
+    expect(useGameStore.getState().cube.proposedBy).toBeNull()
+    expect(useGameStore.getState().stepHistory).toHaveLength(stepsBeforePauseDouble)
+
+    // 2. Unpaused: when runAiTurn answers a pending opponent double, reasoning is recorded on the snapshot.
+    useGameStore.getState().setPaused(false)
+    useGameStore.setState({
+      board: { ...getInitialBoardState(), turn: 'dark', dice: [], phase: 'playing' },
+      cube: { value: 1, owner: 'centered', proposedBy: 'light' },
+    })
+
+    await act(async () => {
+      await useGameStore.getState().runAiTurn()
+    })
+
+    const lastSnap = useGameStore.getState().stepHistory.at(-1)
+    expect(lastSnap?.kind).toBe('double-accepted')
+    expect(lastSnap?.cubeAction?.reasoning).toEqual(expect.any(String))
+    expect(lastSnap?.cubeAction?.reasoning?.length).toBeGreaterThan(0)
+    expect(lastSnap?.aiThought).toBe(lastSnap?.cubeAction?.reasoning)
+  })
 })
