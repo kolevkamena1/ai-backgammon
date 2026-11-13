@@ -22,7 +22,7 @@ import {
   Swords,
   User,
 } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { GITHUB_README_URL } from './AboutModal'
 
 interface MenuBarProps {
@@ -42,6 +42,9 @@ interface MenuBarProps {
 }
 
 type MenuKey = 'game' | 'view' | 'options' | 'help'
+
+/** Left-to-right order of the top-level triggers, for arrow/Home/End roving focus (E2). */
+const MENU_ORDER: readonly MenuKey[] = ['game', 'view', 'options', 'help']
 
 interface MegaItemProps {
   title: string
@@ -196,6 +199,65 @@ export default function MenuBar({
     }
   }
 
+  const focusTrigger = (key: MenuKey): void => {
+    menuBarRef.current?.querySelector<HTMLButtonElement>(`[data-menu-trigger="${key}"]`)?.focus()
+  }
+
+  const panelItems = (): HTMLElement[] => {
+    const panel = menuBarRef.current?.querySelector('[data-menu-panel]')
+    if (!panel) return []
+    return Array.from(panel.querySelectorAll<HTMLElement>('button:not([disabled]), a[href]'))
+  }
+
+  // Menubar keyboard pattern (E2): Left/Right/Home/End rove the top-level triggers; Down/Enter/Space
+  // open a trigger and focus its first item; Up/Down/Home/End rove the open panel; Escape returns
+  // focus to the trigger.
+  const handleMenuBarKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    const target = event.target as HTMLElement
+    const triggerKey = target.getAttribute('data-menu-trigger') as MenuKey | null
+
+    if (triggerKey !== null) {
+      const idx = MENU_ORDER.indexOf(triggerKey)
+      let nextIdx: number | null = null
+      if (event.key === 'ArrowRight') nextIdx = (idx + 1) % MENU_ORDER.length
+      else if (event.key === 'ArrowLeft') nextIdx = (idx - 1 + MENU_ORDER.length) % MENU_ORDER.length
+      else if (event.key === 'Home') nextIdx = 0
+      else if (event.key === 'End') nextIdx = MENU_ORDER.length - 1
+      if (nextIdx !== null) {
+        event.preventDefault()
+        focusTrigger(MENU_ORDER[nextIdx])
+        return
+      }
+      if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        setOpenMenu(triggerKey)
+        requestAnimationFrame(() => panelItems()[0]?.focus())
+      }
+      return
+    }
+
+    if (openMenu === null) return
+    const items = panelItems()
+    if (items.length === 0) return
+    const i = items.indexOf(target)
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      items[(i + 1) % items.length]?.focus()
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      items[(i - 1 + items.length) % items.length]?.focus()
+    } else if (event.key === 'Home') {
+      event.preventDefault()
+      items[0]?.focus()
+    } else if (event.key === 'End') {
+      event.preventDefault()
+      items[items.length - 1]?.focus()
+    } else if (event.key === 'Escape') {
+      closeAll()
+      focusTrigger(openMenu)
+    }
+  }
+
   const triggerResetBoardSize = (): void => {
     window.dispatchEvent(new CustomEvent('ai-backgammon:reset-board-size'))
     closeAll()
@@ -214,15 +276,17 @@ export default function MenuBar({
       ref={menuBarRef}
       role="menubar"
       aria-label="Application menu"
-      className={cn('relative flex items-center gap-1.5', className)}
+      onKeyDown={handleMenuBarKeyDown}
+      className={cn('relative flex flex-wrap items-center gap-1.5', className)}
     >
       {/* 1. GAME TAB */}
       <div>
         <button
           type="button"
           role="menuitem"
-          aria-haspopup="true"
+          aria-haspopup="menu"
           aria-expanded={openMenu === 'game'}
+          data-menu-trigger="game"
           onClick={() => handleMenuHeaderClick('game')}
           onMouseEnter={() => handleMenuHeaderHover('game')}
           className={navButtonClass('game')}
@@ -236,8 +300,9 @@ export default function MenuBar({
         <button
           type="button"
           role="menuitem"
-          aria-haspopup="true"
+          aria-haspopup="menu"
           aria-expanded={openMenu === 'view'}
+          data-menu-trigger="view"
           onClick={() => handleMenuHeaderClick('view')}
           onMouseEnter={() => handleMenuHeaderHover('view')}
           className={navButtonClass('view')}
@@ -251,8 +316,9 @@ export default function MenuBar({
         <button
           type="button"
           role="menuitem"
-          aria-haspopup="true"
+          aria-haspopup="menu"
           aria-expanded={openMenu === 'options'}
+          data-menu-trigger="options"
           onClick={() => handleMenuHeaderClick('options')}
           onMouseEnter={() => handleMenuHeaderHover('options')}
           className={navButtonClass('options')}
@@ -266,8 +332,9 @@ export default function MenuBar({
         <button
           type="button"
           role="menuitem"
-          aria-haspopup="true"
+          aria-haspopup="menu"
           aria-expanded={openMenu === 'help'}
+          data-menu-trigger="help"
           onClick={() => handleMenuHeaderClick('help')}
           onMouseEnter={() => handleMenuHeaderHover('help')}
           className={navButtonClass('help')}
@@ -282,6 +349,7 @@ export default function MenuBar({
       {openMenu !== null && (
         <div
           role="menu"
+          data-menu-panel={openMenu}
           className="absolute left-0 top-[calc(100%+2px)] z-50 w-[min(92vw,860px)] rounded-b-2xl rounded-tr-2xl border border-slate-700/80 bg-slate-900/98 p-4 shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-top-1 duration-150"
         >
           {/* GAME MEGA MENU */}
