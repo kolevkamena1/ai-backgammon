@@ -327,11 +327,10 @@ const Board = ({
   } | null>(null)
 
   useEffect(() => {
-    saveStoredBoardSize(boardSize)
-  }, [boardSize])
-
-  useEffect(() => {
-    const handleResetEvent = (): void => setBoardSize(null)
+    const handleResetEvent = (): void => {
+      setBoardSize(null)
+      saveStoredBoardSize(null)
+    }
     window.addEventListener('ai-backgammon:reset-board-size', handleResetEvent)
     return () => window.removeEventListener('ai-backgammon:reset-board-size', handleResetEvent)
   }, [])
@@ -341,6 +340,9 @@ const Board = ({
       return
     }
 
+    let pendingSize: BoardDimensions | null = null
+    let rafId: number | null = null
+
     const handlePointerMove = (event: PointerEvent): void => {
       const drag = dragRef.current
       if (!drag) return
@@ -349,7 +351,7 @@ const Board = ({
       const viewportMaxW = Math.max(MIN_BOARD_WIDTH, window.innerWidth - 32)
       const viewportMaxH = Math.max(MIN_BOARD_HEIGHT, window.innerHeight - 96)
 
-      const next = computeResizedDimensions(
+      pendingSize = computeResizedDimensions(
         drag.handle,
         drag.startSize,
         deltaX,
@@ -357,10 +359,25 @@ const Board = ({
         viewportMaxW,
         viewportMaxH,
       )
-      setBoardSize(next)
+      if (rafId === null) {
+        rafId = window.requestAnimationFrame(() => {
+          rafId = null
+          if (pendingSize !== null) {
+            setBoardSize(pendingSize)
+          }
+        })
+      }
     }
 
     const handlePointerUp = (): void => {
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId)
+        rafId = null
+      }
+      if (pendingSize !== null) {
+        setBoardSize(pendingSize)
+        saveStoredBoardSize(pendingSize)
+      }
       dragRef.current = null
       setActiveHandle(null)
     }
@@ -370,6 +387,9 @@ const Board = ({
     window.addEventListener('pointercancel', handlePointerUp)
 
     return () => {
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId)
+      }
       window.removeEventListener('pointermove', handlePointerMove)
       window.removeEventListener('pointerup', handlePointerUp)
       window.removeEventListener('pointercancel', handlePointerUp)
@@ -397,6 +417,7 @@ const Board = ({
 
   const resetBoardSize = (): void => {
     setBoardSize(null)
+    saveStoredBoardSize(null)
   }
 
   const metrics = useMemo(
