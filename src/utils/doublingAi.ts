@@ -18,10 +18,13 @@ export interface AiAcceptDecision {
 }
 
 /**
- * Determines whether the AI should offer a double on its turn before rolling:
+ * Pip-race heuristic for whether the AI should offer a double on its turn before rolling:
  * - Must be allowed to double (cube owner or centered, not Crawford game, max 64)
  * - Has a significant pip count race lead (>= 8% and >= 12 pips ahead, or >= 5 pips with opponent on bar)
- * - Loser is not already at match point where doubling would grant free victory without advantage
+ *
+ * Scope (R3): match context is consulted only for the Crawford prohibition. Cube value, gammon
+ * potential and match equity are deliberately outside this heuristic — it plays a sound race,
+ * not full match-play cube theory.
  */
 export function evaluateAiShouldDouble(
   board: BoardState,
@@ -65,9 +68,12 @@ export function evaluateAiShouldDouble(
 }
 
 /**
- * Determines whether the AI should accept (Take) or decline (Drop) an opponent's double offer:
- * In backgammon match theory, a player should accept if their winning chance is >= 25%.
- * Declining loses 1 stake immediately. Accepting risks 2 stake, so if win chance > 25%, EV of accept > -1.
+ * Determines whether the AI should accept (Take) or decline (Drop) an opponent's double offer.
+ *
+ * Theory: a player should accept with winning chances >= 25% (declining loses 1 stake for sure;
+ * accepting risks 2, so EV(accept) > -1 above that threshold). This implementation does NOT compute
+ * winning chances — it uses pip deficit plus bar/bear-off shape as a proxy, and drops only clearly
+ * lost positions (R3).
  */
 export function evaluateAiAcceptDouble(
   board: BoardState,
@@ -90,6 +96,6 @@ export function evaluateAiAcceptDouble(
     return { accept: false, reason: 'Multiple checkers trapped on bar behind deep deficit' }
   }
 
-  return { accept: true, reason: 'Reasonable winning chances (>= 25%); accepting double' }
+  return { accept: true, reason: 'Pip-race deficit within taking range; accepting double' }
 }
 

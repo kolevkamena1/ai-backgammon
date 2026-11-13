@@ -174,14 +174,36 @@ describe('AI doubling heuristics', () => {
     expect(decision.accept).toBe(true)
   })
 
-  it('recommends double when AI has huge pip lead', () => {
-    const board = getInitialBoardState()
-    // Advance dark checkers far ahead
+  it('recommends double on a clear pip-race lead and passes on a balanced position (R10)', () => {
     const cube = { value: 1, owner: 'centered' as const, proposedBy: null }
-    // Light is far behind (many checkers on 24)
-    board.points[23] = 10
-    const decision = evaluateAiShouldDouble(board, 'dark', cube, null)
-    expect(typeof decision.shouldDouble).toBe('boolean')
+
+    // Balanced opening: identical pip counts, nobody on the bar -> no double.
+    const balanced = evaluateAiShouldDouble(getInitialBoardState(), 'dark', cube, null)
+    expect(balanced.shouldDouble).toBe(false)
+
+    // Light stacked far back on its 24-point: dark's lead is huge in pips and percent.
+    const leading = getInitialBoardState()
+    leading.points[23] = 10
+    const ahead = evaluateAiShouldDouble(leading, 'dark', cube, null)
+    expect(ahead.shouldDouble).toBe(true)
+    expect(ahead.reason).toContain('pip race lead')
+
+    // Opponent on the bar with a lead also doubles.
+    const barLead = getInitialBoardState()
+    barLead.points[23] = 4
+    barLead.bar.light = 1
+    expect(evaluateAiShouldDouble(barLead, 'dark', cube, null).shouldDouble).toBe(true)
+  })
+
+  it('drops a clearly lost bear-off position and takes a reasonable one (R10)', () => {
+    // Light far behind with dark already bearing off: deficit > 35 and opponent off > 6 -> drop.
+    const lost = getInitialBoardState()
+    lost.points[23] = 15
+    lost.off.dark = 8
+    expect(evaluateAiAcceptDouble(lost, 'light').accept).toBe(false)
+
+    // Balanced opening: take.
+    expect(evaluateAiAcceptDouble(getInitialBoardState(), 'light').accept).toBe(true)
   })
 })
 
