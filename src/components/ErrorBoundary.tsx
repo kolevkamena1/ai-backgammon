@@ -12,7 +12,7 @@ interface ErrorBoundaryState {
   error: Error | null
 }
 
-const PRIMARY = cn(BUTTON, 'bg-sky-600 px-3.5 py-2 text-sm text-white hover:bg-sky-500')
+const PRIMARY = cn(BUTTON, 'bg-sky-700 px-3.5 py-2 text-sm text-white hover:bg-sky-600')
 const SECONDARY = cn(BUTTON, 'border border-slate-700 bg-slate-800 px-3.5 py-2 text-sm text-slate-100 hover:bg-slate-700')
 
 /**

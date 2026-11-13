@@ -94,8 +94,10 @@ export default function AboutModal({ onClose }: AboutModalProps) {
             <span>Local & Private BYOK Architecture</span>
           </div>
           <p className="text-slate-400 leading-normal">
-            Your API keys and settings never leave your browser. Requests go directly from your machine to your
-            chosen cloud provider (OpenAI, Anthropic, Google) or your own local endpoints (Ollama, vLLM, LM Studio).
+            Your API keys and settings are stored only in your browser&apos;s <code>localStorage</code>. All BYOK
+            requests — including OpenAI, Anthropic, Google, and custom OpenAI-compatible targets — transit the
+            stateless same-origin relay (<code>/api/ai-proxy</code>); your key is forwarded to the upstream
+            target, never stored on the server, and redacted from logs.
           </p>
           <p className="text-slate-400 leading-normal">
             <span className="font-medium text-slate-300">Anonymous usage stats:</span> the site owner sees

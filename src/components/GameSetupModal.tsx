@@ -229,7 +229,11 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
               value="humanVsAi"
               checked={mode === 'humanVsAi'}
               title="Human vs AI"
-              description="You play White; BYOK 1 plays Black."
+              description={
+                humanColor === 'dark'
+                  ? 'You play Black; BYOK 1 plays White.'
+                  : 'You play White; BYOK 1 plays Black.'
+              }
               icon={User}
               onSelect={() => setLocalMode('humanVsAi')}
               autoFocus
@@ -292,7 +296,7 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
                 />
                 <span
                   aria-hidden
-                  className="size-5 rounded-full border-2 border-amber-300 bg-amber-100 shadow-sm shrink-0"
+                  className="size-5 rounded-full border-2 border-amber-500 bg-checker-light shadow-sm shrink-0"
                 />
                 <div className="flex flex-col">
                   <span className="text-xs font-bold text-amber-300">Play White</span>
@@ -318,7 +322,7 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
                 />
                 <span
                   aria-hidden
-                  className="size-5 rounded-full border-2 border-slate-600 bg-slate-950 shadow-sm shrink-0"
+                  className="size-5 rounded-full border-2 border-slate-500 bg-checker-dark shadow-sm shrink-0"
                 />
                 <div className="flex flex-col">
                   <span className="text-xs font-bold text-sky-200">Play Black</span>

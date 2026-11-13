@@ -60,6 +60,8 @@ describe('ErrorBoundary', () => {
     expect(host.querySelector('[role="alert"]')).toBeTruthy()
     expect(host.textContent).toContain('Something went wrong')
     expect(host.textContent).toContain('kaboom')
+    expect(button('Reload the app')?.className).toContain('bg-sky-700')
+    expect(button('Reload the app')?.className).toContain('text-white')
     expect(logSpy).toHaveBeenCalledWith('app crashed', expect.objectContaining({ message: 'kaboom' }))
     consoleSpy.mockRestore()
     logSpy.mockRestore()

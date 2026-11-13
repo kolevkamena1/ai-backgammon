@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import GameSetupModal from '@/components/GameSetupModal'
 import SettingsModal from '@/components/SettingsModal'
 import { DEFAULT_OPPONENT_CONFIG, useGameConfigStore } from '@/state/gameConfigStore'
 import { DEFAULT_SETTINGS, useSettingsStore } from '@/state/settingsStore'
@@ -162,6 +163,51 @@ describe('SettingsModal (side-by-side BYOK 1 & BYOK 2)', () => {
     expect(useSettingsStore.getState().theme).toBe('dark')
     useSettingsStore.getState().toggleTheme()
     expect(useSettingsStore.getState().theme).toBe('light')
+  })
+
+  it('renders color-aware system prompt previews and non-remapped active preset contrast in ByokFields (C11 regression)', () => {
+    useGameConfigStore.setState({
+      mode: 'humanVsAi',
+      humanColor: 'light',
+      aiMatchType: 'custom',
+    })
+
+    act(() => {
+      root.render(<SettingsModal onClose={() => undefined} />)
+    })
+
+    // In 2-BYOK mode, BYOK 1 plays White (light) and BYOK 2 plays Black (dark).
+    const preElements = Array.from(host.querySelectorAll('pre'))
+    expect(preElements).toHaveLength(2)
+    expect(preElements[0]?.textContent).toContain('You are a backgammon engine playing White.')
+    expect(preElements[1]?.textContent).toContain('You are a backgammon engine playing Black.')
+
+    // Active preset pill uses non-theme-remapped text-white on bg-sky-700 (not text-sky-200).
+    const defaultPresetBtn = Array.from(host.querySelectorAll('button')).find((b) =>
+      b.textContent?.startsWith('Default ('),
+    )
+    expect(defaultPresetBtn?.className).toContain('text-white')
+    expect(defaultPresetBtn?.className).not.toContain('text-sky-200')
+  })
+
+  it('updates Human vs AI description when Play Black is selected and uses non-remapped checker swatch tokens in GameSetupModal (C11 regression)', () => {
+    act(() => {
+      root.render(<GameSetupModal onClose={() => undefined} />)
+    })
+
+    expect(host.textContent).toContain('You play White; BYOK 1 plays Black.')
+
+    const blackRadio = host.querySelector<HTMLInputElement>('input[name="human-color"][value="dark"]')
+    expect(blackRadio).not.toBeNull()
+    const blackSwatch = blackRadio?.parentElement?.querySelector('span[aria-hidden]')
+    expect(blackSwatch?.className).toContain('bg-checker-dark')
+    expect(blackSwatch?.className).not.toContain('bg-slate-950')
+
+    act(() => {
+      blackRadio?.click()
+    })
+
+    expect(host.textContent).toContain('You play Black; BYOK 1 plays White.')
   })
 })
 

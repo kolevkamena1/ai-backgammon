@@ -31,6 +31,7 @@ function cloneEngineConfig(source: AiEngineConfig): AiEngineConfig {
 const SettingsModal = ({ onClose }: SettingsModalProps) => {
   const { settings, saveSettings, clearSettings, isConfigured, maskedApiKey } = useSettings()
   const {
+    config,
     mode,
     aiMatchType,
     opponent,
@@ -44,6 +45,10 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
   const byok2 = useByokDraft(opponent)
   const [useTwoByok, setUseTwoByok] = useState<boolean>(aiMatchType === 'custom')
   const [error, setError] = useState('')
+  const byok1SeatColor =
+    !useTwoByok && mode === 'humanVsAi' && (config.humanColor ?? 'light') === 'light'
+      ? 'dark'
+      : 'light'
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
@@ -198,6 +203,7 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
                 onChange={byok1.patch}
                 storedTail={isConfigured ? maskedApiKey.slice(-4) : undefined}
                 autoFocusKey
+                seatColor={byok1SeatColor}
               />
             </div>
           </section>
@@ -263,6 +269,7 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
                   onChange={byok2.patch}
                   storedTail={opponentConfigured ? maskedOpponentKey.slice(-4) : undefined}
                   disabled={!useTwoByok}
+                  seatColor="dark"
                 />
               </fieldset>
             </div>

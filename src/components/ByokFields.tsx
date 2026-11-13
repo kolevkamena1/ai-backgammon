@@ -1,5 +1,6 @@
 import { BUTTON, FIELD } from '@/components/ui/controls'
 import type { AiModelMetadata } from '@/types/ai'
+import type { PlayerColor } from '@/types/game'
 import type {
   AiDifficulty,
   AiEngineConfig,
@@ -26,6 +27,7 @@ import {
   DEFAULT_DIFFICULTY,
   DIFFICULTY_LABELS,
   parseDifficulty,
+  SEAT_LABELS,
 } from '@/utils/gameConfig'
 import { Eye, EyeOff, RefreshCw, RotateCcw, SlidersHorizontal, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -43,6 +45,8 @@ interface ByokFieldsProps {
   autoFocusKey?: boolean
   /** Disables all controls and suppresses background endpoint metadata requests. */
   disabled?: boolean
+  /** Which seat color this engine plays in the system-prompt preview (defaults to 'light'). */
+  seatColor?: PlayerColor
 }
 
 const PROVIDERS: ReadonlyArray<{ value: AiProvider; label: string }> = [
@@ -89,6 +93,7 @@ const ByokFields = ({
   keyPlaceholder = 'sk-\u2026',
   autoFocusKey = false,
   disabled = false,
+  seatColor = 'light',
 }: ByokFieldsProps) => {
   const [revealKey, setRevealKey] = useState(false)
   const [availableModels, setAvailableModels] = useState<AiModelMetadata[]>([])
@@ -576,7 +581,7 @@ const ByokFields = ({
                 'border px-2 py-0.5 text-[11px]',
                 value.params?.systemPrompt === undefined ||
                   value.params.systemPrompt.trim() === defaults.systemPrompt.trim()
-                  ? 'border-sky-500/60 bg-sky-500/15 text-sky-200'
+                  ? 'border-sky-600 bg-sky-700 text-white'
                   : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800',
               )}
               title={`Default strategy for ${DIFFICULTY_LABELS[difficulty]} difficulty`}
@@ -594,7 +599,7 @@ const ByokFields = ({
                     BUTTON,
                     'border px-2 py-0.5 text-[11px]',
                     active
-                      ? 'border-sky-500/60 bg-sky-500/15 text-sky-200'
+                      ? 'border-sky-600 bg-sky-700 text-white'
                       : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800',
                   )}
                   title={preset.prompt}
@@ -617,10 +622,10 @@ const ByokFields = ({
 
           <details className="rounded-lg border border-slate-800/80 bg-slate-900/40 px-2.5 py-1 text-[11px]">
             <summary className="cursor-pointer select-none font-medium text-slate-400 hover:text-slate-200">
-              Preview full system prompt (includes board rules &amp; JSON move contract)
+              Preview full system prompt ({SEAT_LABELS[seatColor]} seat · includes board rules &amp; JSON move contract)
             </summary>
             <pre className="mt-1.5 max-h-36 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed text-slate-300">
-              {buildSystemPrompt('light', difficulty, value.params?.systemPrompt)}
+              {buildSystemPrompt(seatColor, difficulty, value.params?.systemPrompt)}
             </pre>
           </details>
         </div>
