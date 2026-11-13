@@ -225,3 +225,156 @@ describe('SplitPane divider sizing (B4 regression)', () => {
     expect(cls).toContain('h-3')
   })
 })
+
+describe('SplitPane responsive orientation & keyboard resize (A2 regression)', () => {
+  const originalMatchMedia = window.matchMedia
+
+  function mockMatchMedia(matchesInitial: boolean) {
+    let currentMatches = matchesInitial
+    const listeners = new Set<(event: MediaQueryListEvent) => void>()
+
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: currentMatches,
+      media: query,
+      onchange: null,
+      addEventListener: (_type: string, cb: (event: MediaQueryListEvent) => void) => {
+        listeners.add(cb)
+      },
+      removeEventListener: (_type: string, cb: (event: MediaQueryListEvent) => void) => {
+        listeners.delete(cb)
+      },
+      addListener: (cb: (event: MediaQueryListEvent) => void) => listeners.add(cb),
+      removeListener: (cb: (event: MediaQueryListEvent) => void) => listeners.delete(cb),
+      dispatchEvent: () => true,
+    }))
+
+    return {
+      setMatches(next: boolean) {
+        currentMatches = next
+        for (const cb of listeners) {
+          cb({ matches: next, media: '(min-width: 1024px)' } as MediaQueryListEvent)
+        }
+      },
+    }
+  }
+
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia
+  })
+
+  it.each(['right', 'left'] as const)(
+    'at 375px (< lg) with %s dock, uses horizontal separator orientation and adjusts height (clientY) on drag',
+    (pos) => {
+      mockMatchMedia(false)
+
+      act(() => {
+        root.render(
+          <SplitPane
+            board={<div data-testid="board">Board</div>}
+            panel={<div data-testid="panel">Panel</div>}
+            panelPosition={pos}
+          />,
+        )
+      })
+
+      const container = host.firstElementChild as HTMLElement
+      vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({
+        top: 0,
+        left: 0,
+        width: 375,
+        height: 600,
+        right: 375,
+        bottom: 600,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      })
+
+      const sep = host.querySelector('[role="separator"]') as HTMLElement
+      expect(sep.getAttribute('aria-orientation')).toBe('horizontal')
+      expect(sep.className).toContain('cursor-row-resize')
+
+      act(() => {
+        sep.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 50, clientY: 300 }))
+      })
+      expect(document.body.style.cursor).toBe('row-resize')
+
+      // Drag vertically to Y = 360 (60% from top) while keeping X at 50 (13.3% from left).
+      // If horizontal math ran by mistake, X=50 would clamp to minSplitPercent; vertical math yields 60% (or 40% for left dock).
+      act(() => {
+        window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 50, clientY: 360 }))
+        window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+      })
+
+      const expectedBoardPercent = pos === 'right' ? 60 : 40
+      expect(Number(sep.getAttribute('aria-valuenow'))).toBe(expectedBoardPercent)
+      const boardContainer = host.querySelector('[data-testid="board"]')?.parentElement as HTMLElement
+      expect(boardContainer.style.flexBasis).toBe(`${expectedBoardPercent}%`)
+    },
+  )
+
+  it('reacts when matchMedia crosses the lg (1024px) breakpoint', () => {
+    const mq = mockMatchMedia(false)
+
+    act(() => {
+      root.render(
+        <SplitPane
+          board={<div data-testid="board">Board</div>}
+          panel={<div data-testid="panel">Panel</div>}
+          panelPosition="right"
+        />,
+      )
+    })
+
+    const sep = host.querySelector('[role="separator"]') as HTMLElement
+    expect(sep.getAttribute('aria-orientation')).toBe('horizontal')
+
+    act(() => {
+      mq.setMatches(true)
+    })
+
+    expect(sep.getAttribute('aria-orientation')).toBe('vertical')
+    expect(sep.className).toContain('cursor-col-resize')
+  })
+
+  it('supports ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Home, and End keyboard resizing', () => {
+    mockMatchMedia(true)
+
+    act(() => {
+      root.render(
+        <SplitPane
+          board={<div data-testid="board">Board</div>}
+          panel={<div data-testid="panel">Panel</div>}
+          panelPosition="right"
+          defaultSplitPercent={72}
+          minSplitPercent={55}
+          maxSplitPercent={85}
+        />,
+      )
+    })
+
+    const sep = host.querySelector('[role="separator"]') as HTMLElement
+    expect(Number(sep.getAttribute('aria-valuenow'))).toBe(72)
+
+    act(() => {
+      sep.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    })
+    expect(Number(sep.getAttribute('aria-valuenow'))).toBeGreaterThan(72)
+
+    act(() => {
+      sep.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
+      sep.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
+    })
+    expect(Number(sep.getAttribute('aria-valuenow'))).toBeLessThan(72)
+
+    act(() => {
+      sep.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    })
+    expect(Number(sep.getAttribute('aria-valuenow'))).toBe(55)
+
+    act(() => {
+      sep.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+    })
+    expect(Number(sep.getAttribute('aria-valuenow'))).toBe(85)
+  })
+})

@@ -20,6 +20,38 @@ interface SplitPaneProps {
   className?: string
 }
 
+const LG_MEDIA_QUERY = '(min-width: 1024px)'
+const KEYBOARD_STEP_PERCENT = 2
+
+function readIsLgUp(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return true
+  }
+  return window.matchMedia(LG_MEDIA_QUERY).matches
+}
+
+function useIsLgUp(): boolean {
+  const [isLgUp, setIsLgUp] = useState<boolean>(readIsLgUp)
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return
+    }
+    const mql = window.matchMedia(LG_MEDIA_QUERY)
+    const onChange = (event: MediaQueryListEvent): void => {
+      setIsLgUp(event.matches)
+    }
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', onChange)
+      return () => mql.removeEventListener('change', onChange)
+    }
+    mql.addListener(onChange)
+    return () => mql.removeListener(onChange)
+  }, [])
+
+  return isLgUp
+}
+
 export const SplitPane: FC<SplitPaneProps> = ({
   board,
   panel,
@@ -36,7 +68,12 @@ export const SplitPane: FC<SplitPaneProps> = ({
   maxSplitPercent = 85,
   className = '',
 }) => {
-  const isVertical = panelPosition === 'top' || panelPosition === 'bottom'
+  const isLgUp = useIsLgUp()
+  const isDockVertical = panelPosition === 'top' || panelPosition === 'bottom'
+  // Below lg (< 1024px), left/right docks stack vertically via `flex-col lg:flex-row`, so the
+  // effective orientation of the split is vertical whenever the dock is top/bottom OR below lg.
+  const isVertical = isDockVertical || !isLgUp
+  const isPanelFirst = panelPosition === 'left' || panelPosition === 'top'
   const effectiveDefault = isVertical ? 65 : defaultSplitPercent
   const effectiveMin = isVertical ? 35 : minSplitPercent
   const effectiveMax = isVertical ? 80 : maxSplitPercent
@@ -44,7 +81,24 @@ export const SplitPane: FC<SplitPaneProps> = ({
   const [splitPercent, setSplitPercent] = useState<number>(effectiveDefault)
   const [overTarget, setOverTarget] = useState<'left' | 'right' | 'top' | 'bottom' | null>(null)
   const isDraggingRef = useRef(false)
+  const dragCleanupRef = useRef<(() => void) | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const liveParamsRef = useRef({
+    panelPosition,
+    isDockVertical,
+    isPanelFirst,
+    minSplitPercent,
+    maxSplitPercent,
+  })
+  useEffect(() => {
+    liveParamsRef.current = {
+      panelPosition,
+      isDockVertical,
+      isPanelFirst,
+      minSplitPercent,
+      maxSplitPercent,
+    }
+  }, [panelPosition, isDockVertical, isPanelFirst, minSplitPercent, maxSplitPercent])
 
   // Resolve active dragging state (supports both draggingSource and legacy isDraggingPanel)
   const activeDrag = draggingSource ?? (isDraggingPanel ? 'panel' : null)
@@ -59,58 +113,94 @@ export const SplitPane: FC<SplitPaneProps> = ({
   const boardNode = board ?? left
   const panelNode = panel ?? right
 
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      e.preventDefault()
-      isDraggingRef.current = true
-      document.body.style.cursor = isVertical ? 'row-resize' : 'col-resize'
-      document.body.style.userSelect = 'none'
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    dragCleanupRef.current?.()
+    isDraggingRef.current = true
 
-      const handlePointerMove = (moveEvent: PointerEvent) => {
-        if (!isDraggingRef.current || !containerRef.current) return
-        const rect = containerRef.current.getBoundingClientRect()
+    const getEffectiveOrientation = () => {
+      const params = liveParamsRef.current
+      const verticalNow = params.isDockVertical || !readIsLgUp()
+      const minNow = verticalNow ? 35 : params.minSplitPercent
+      const maxNow = verticalNow ? 80 : params.maxSplitPercent
+      return { verticalNow, minNow, maxNow, panelFirstNow: params.isPanelFirst }
+    }
 
-        if (isVertical) {
-          if (rect.height <= 0) return
-          const offsetY = moveEvent.clientY - rect.top
-          const percentFromTop = (offsetY / rect.height) * 100
-          // When panel is on bottom, board is on top: boardPercent = percentFromTop
-          // When panel is on top, panel is on top: boardPercent = 100 - percentFromTop
-          const newBoardPercent = panelPosition === 'bottom' ? percentFromTop : 100 - percentFromTop
-          const clamped = Math.max(effectiveMin, Math.min(effectiveMax, newBoardPercent))
-          setSplitPercent(clamped)
-        } else {
-          if (rect.width <= 0) return
-          const offsetX = moveEvent.clientX - rect.left
-          const percentFromLeft = (offsetX / rect.width) * 100
-          // When panel is on right, board is on left: boardPercent = percentFromLeft
-          // When panel is on left, panel is on left: boardPercent = 100 - percentFromLeft
-          const newBoardPercent = panelPosition === 'right' ? percentFromLeft : 100 - percentFromLeft
-          const clamped = Math.max(effectiveMin, Math.min(effectiveMax, newBoardPercent))
-          setSplitPercent(clamped)
-        }
+    const { verticalNow: startVertical } = getEffectiveOrientation()
+    document.body.style.cursor = startVertical ? 'row-resize' : 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (!isDraggingRef.current || !containerRef.current) return
+      const rect = containerRef.current.getBoundingClientRect()
+      const { verticalNow, minNow, maxNow, panelFirstNow } = getEffectiveOrientation()
+      document.body.style.cursor = verticalNow ? 'row-resize' : 'col-resize'
+
+      if (verticalNow) {
+        if (rect.height <= 0) return
+        const offsetY = moveEvent.clientY - rect.top
+        const percentFromTop = (offsetY / rect.height) * 100
+        const newBoardPercent = panelFirstNow ? 100 - percentFromTop : percentFromTop
+        const clamped = Math.max(minNow, Math.min(maxNow, newBoardPercent))
+        setSplitPercent(clamped)
+      } else {
+        if (rect.width <= 0) return
+        const offsetX = moveEvent.clientX - rect.left
+        const percentFromLeft = (offsetX / rect.width) * 100
+        const newBoardPercent = panelFirstNow ? 100 - percentFromLeft : percentFromLeft
+        const clamped = Math.max(minNow, Math.min(maxNow, newBoardPercent))
+        setSplitPercent(clamped)
       }
+    }
 
-      const handlePointerUp = () => {
-        isDraggingRef.current = false
-        document.body.style.cursor = ''
-        document.body.style.userSelect = ''
-        window.removeEventListener('pointermove', handlePointerMove)
-        window.removeEventListener('pointerup', handlePointerUp)
-      }
+    const cleanup = () => {
+      isDraggingRef.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', cleanup)
+      dragCleanupRef.current = null
+    }
 
-      window.addEventListener('pointermove', handlePointerMove)
-      window.addEventListener('pointerup', handlePointerUp)
-    },
-    [isVertical, panelPosition, effectiveMin, effectiveMax],
-  )
+    dragCleanupRef.current = cleanup
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', cleanup)
+  }, [])
 
   const handleDoubleClick = useCallback(() => {
     setSplitPercent(isVertical ? 65 : defaultSplitPercent)
   }, [isVertical, defaultSplitPercent])
 
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === 'Home') {
+        e.preventDefault()
+        setSplitPercent(effectiveMin)
+        return
+      }
+      if (e.key === 'End') {
+        e.preventDefault()
+        setSplitPercent(effectiveMax)
+        return
+      }
+      if (
+        e.key === 'ArrowRight' ||
+        e.key === 'ArrowDown' ||
+        e.key === 'ArrowLeft' ||
+        e.key === 'ArrowUp'
+      ) {
+        e.preventDefault()
+        const forward = e.key === 'ArrowRight' || e.key === 'ArrowDown'
+        const delta = (forward ? 1 : -1) * (isPanelFirst ? -KEYBOARD_STEP_PERCENT : KEYBOARD_STEP_PERCENT)
+        setSplitPercent((prev) => Math.max(effectiveMin, Math.min(effectiveMax, prev + delta)))
+      }
+    },
+    [effectiveMin, effectiveMax, isPanelFirst],
+  )
+
   useEffect(() => {
     return () => {
+      dragCleanupRef.current?.()
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
@@ -144,6 +234,7 @@ export const SplitPane: FC<SplitPaneProps> = ({
       tabIndex={0}
       onPointerDown={handlePointerDown}
       onDoubleClick={handleDoubleClick}
+      onKeyDown={handleKeyDown}
       title="Drag to resize panels (Double-click to reset)"
       className={cn(
         // shrink-0 keeps the divider at its fixed 12px thickness: the two flex-1 panes (basis 0%)
@@ -151,7 +242,8 @@ export const SplitPane: FC<SplitPaneProps> = ({
         'group relative z-20 flex shrink-0 select-none items-center justify-center bg-slate-900/60 hover:bg-sky-500/20 active:bg-sky-500/40 transition-colors',
         // Below lg a left/right dock stacks as a column, so the divider is a 12px-tall bar (h-3),
         // not h-full — h-full gave it a 100% basis and collapsed both panes on phones/tablets.
-        isVertical ? 'h-3 w-full cursor-row-resize' : 'h-3 w-full cursor-col-resize lg:h-full lg:w-3',
+        isDockVertical ? 'h-3 w-full' : 'h-3 w-full lg:h-full lg:w-3',
+        isVertical ? 'cursor-row-resize' : 'cursor-col-resize',
       )}
     >
       {/* Divider line */}
@@ -176,15 +268,12 @@ export const SplitPane: FC<SplitPaneProps> = ({
     </div>
   )
 
-  // Order of panes based on panelPosition
-  const isPanelFirst = panelPosition === 'left' || panelPosition === 'top'
-
   return (
     <div
       ref={containerRef}
       className={cn(
         'relative flex h-full w-full overflow-hidden',
-        isVertical ? 'flex-col' : 'flex-col lg:flex-row',
+        isDockVertical ? 'flex-col' : 'flex-col lg:flex-row',
         className,
       )}
     >
