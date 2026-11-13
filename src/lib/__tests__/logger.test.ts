@@ -62,5 +62,17 @@ describe('logger recursive redaction', () => {
     })
     spy.mockRestore()
   })
+
+  it('strips URL userinfo credentials before logging any URL (S3)', () => {
+    const output = redact({
+      endpoint: 'https://user:super-secret-pass@gateway.example.com/v1/chat/completions',
+      detail: 'Upstream error from http://token123@localhost:11434/v1',
+    })
+
+    expect(output.endpoint).toBe('https://gateway.example.com/v1/chat/completions')
+    expect(String(output.endpoint)).not.toContain('super-secret-pass')
+    expect(output.detail).toBe('Upstream error from http://localhost:11434/v1')
+    expect(String(output.detail)).not.toContain('token123')
+  })
 })
 

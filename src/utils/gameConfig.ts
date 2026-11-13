@@ -2,7 +2,7 @@ import type { PlayerColor } from '@/types/game'
 import type { GameConfigSnapshot, SeatAssignment, SeatPlan } from '@/types/gameConfig'
 import type { AiDifficulty, AiEngineConfig, AiInferenceParams, AiProvider, AiThinkingLevel } from '@/types/settings'
 import { MAX_CUSTOM_SYSTEM_PROMPT_CHARS } from '@/utils/aiPrompt'
-import { maskSecret } from '@/utils/formatSecret'
+import { maskSecret, stripUrlUserinfo } from '@/utils/formatSecret'
 
 /**
  * Seats are `light`/`dark` throughout the domain (see `types/game.ts`); White and Black are
@@ -146,7 +146,7 @@ export function describeEngine(engine: AiEngineConfig): EngineSummary {
   return {
     providerName: PROVIDER_NAMES[engine.provider],
     model: engine.model.trim(),
-    endpoint: (engine.baseUrl ?? '').trim(),
+    endpoint: stripUrlUserinfo((engine.baseUrl ?? '').trim()),
     maskedKey: maskSecret(engine.apiKey),
     configured: validateEngine(engine).length === 0,
     difficulty: difficultyOf(engine),

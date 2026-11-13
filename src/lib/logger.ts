@@ -1,4 +1,4 @@
-import { maskSecret } from '@/utils/formatSecret'
+import { maskSecret, stripUrlUserinfo } from '@/utils/formatSecret'
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 type Context = Record<string, unknown>
@@ -22,6 +22,9 @@ function redactValue(key: string, value: unknown, seen = new WeakSet<object>()):
     }
     return redact(value as Context, seen)
   }
+  if (typeof value === 'string') {
+    return stripUrlUserinfo(value)
+  }
   return value
 }
 
@@ -36,12 +39,13 @@ export function redact(context: Context, seen = new WeakSet<object>()): Context 
 function emit(level: LogLevel, message: string, context?: Context): void {
   const prefix = '[ai-backgammon]'
   const sink = console[level]
+  const safeMessage = stripUrlUserinfo(message)
 
   if (context) {
-    sink.call(console, prefix, message, redact(context))
+    sink.call(console, prefix, safeMessage, redact(context))
     return
   }
-  sink.call(console, prefix, message)
+  sink.call(console, prefix, safeMessage)
 }
 
 /**

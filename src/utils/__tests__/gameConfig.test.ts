@@ -73,6 +73,18 @@ describe('describeEngine', () => {
     expect(summary.model).toBe('gpt-x')
     expect(summary.endpoint).toBe('http://x/v1')
   })
+
+  it('strips URL userinfo from endpoint before displaying in EngineSummary (S3)', () => {
+    const summary = describeEngine(
+      engine({
+        provider: 'custom',
+        baseUrl: 'https://myuser:mysecret@proxy.example.com/v1',
+      }),
+    )
+    expect(summary.endpoint).toBe('https://proxy.example.com/v1')
+    expect(summary.endpoint).not.toContain('myuser')
+    expect(summary.endpoint).not.toContain('mysecret')
+  })
 })
 
 describe('describeMode', () => {

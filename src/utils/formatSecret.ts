@@ -14,3 +14,11 @@ export function maskSecret(secret: string, visibleChars = 4): string {
   }
   return MASK.repeat(visibleChars) + secret.slice(-visibleChars)
 }
+
+/**
+ * Strips embedded URL userinfo (`https://user:pass@host/...` -> `https://host/...`)
+ * before logging or displaying any URL or text containing URLs.
+ */
+export function stripUrlUserinfo(input: string): string {
+  return input.replace(/\b(https?:\/\/)[^\s/@]+@(?=[^\s/]+)/gi, '$1')
+}
