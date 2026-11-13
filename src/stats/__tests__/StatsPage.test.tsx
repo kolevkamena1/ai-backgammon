@@ -109,5 +109,41 @@ describe('StatsPage and DayChart', () => {
     expect(text()).toContain('8.0 / sess')
     expect(text()).toContain('1.0 / sess')
   })
+
+  it('debounces the country filter input before firing stats API requests (D14)', async () => {
+    vi.useFakeTimers()
+    try {
+      await act(async () => {
+        root.render(<StatsPage />)
+      })
+      const fetchSpy = vi.mocked(globalThis.fetch)
+      fetchSpy.mockClear()
+
+      const countryInput = host.querySelector('input[aria-label="Country code"]') as HTMLInputElement
+      expect(countryInput).not.toBeNull()
+
+      const setNativeValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      await act(async () => {
+        setNativeValue?.call(countryInput, 'b')
+        countryInput.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      await act(async () => {
+        setNativeValue?.call(countryInput, 'bg')
+        countryInput.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+
+      expect(countryInput.value).toBe('BG')
+      expect(fetchSpy).not.toHaveBeenCalled()
+
+      await act(async () => {
+        vi.advanceTimersByTime(300)
+      })
+
+      expect(fetchSpy).toHaveBeenCalledTimes(3)
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('country=BG')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 

@@ -196,41 +196,90 @@ function gameWhere(filters: StatsFilters): Where {
 }
 
 /** `expr` is always a literal from this file, never user input. */
-async function group(db: D1Db, expr: string, from: string, where: Where, limit = 10): Promise<CountRow[]> {
-  const { results } = await db
+function groupStmt(db: D1Db, expr: string, from: string, where: Where, limit = 10): D1Prepared {
+  return db
     .prepare(`SELECT ${expr} AS key, COUNT(*) AS count ${from} WHERE ${where.sql} GROUP BY key ORDER BY count DESC LIMIT ${limit}`)
     .bind(...where.params)
-    .all<CountRow>()
-  return results
+}
+
+function extractRows<T>(batchItem: unknown): T[] {
+  return (batchItem as { results?: T[] } | null | undefined)?.results ?? []
 }
 
 export async function getSummary(db: D1Db, filters: StatsFilters): Promise<StatsSummary> {
   const sw = sessionWhere(filters)
   const gw = gameWhere(filters)
+  const fsw = sessionFirstSeenWhere(filters)
   const fromSessions = 'FROM sessions s'
   const fromGames = 'FROM games g JOIN sessions s ON s.session_id = g.session_id'
 
-  const sessionTotals = await db
-    .prepare(
-      `SELECT COUNT(*) AS sessions, COUNT(DISTINCT s.day || ':' || s.ip_hash) AS uniq ${fromSessions} WHERE ${sw.sql}`,
-    )
-    .bind(...sw.params)
-    .first<{ sessions: number; uniq: number }>()
+  const [
+    sessionTotalsItem,
+    gameTotalsItem,
+    dayRowsItem,
+    gameDayRowsItem,
+    errorRowsItem,
+    byCountryItem,
+    byAsItem,
+    byReferrerItem,
+    byDeviceItem,
+    byBrowserItem,
+    byModeItem,
+    byProviderItem,
+    byOutcomeItem,
+    byBoardStyleItem,
+  ] = await db.batch([
+    db
+      .prepare(
+        `SELECT COUNT(*) AS sessions, COUNT(DISTINCT s.day || ':' || s.ip_hash) AS uniq ${fromSessions} WHERE ${sw.sql}`,
+      )
+      .bind(...sw.params),
+    db
+      .prepare(
+        `SELECT COUNT(*) AS games,
+           COALESCE(SUM(g.outcome = 'finished'), 0) AS finished,
+           COALESCE(SUM(g.outcome = 'abandoned'), 0) AS abandoned,
+           COALESCE(SUM(g.outcome = 'in_progress'), 0) AS in_progress,
+           AVG(CASE WHEN g.outcome = 'finished' THEN g.duration_s END) AS avg_finished,
+           AVG(CASE WHEN g.outcome = 'abandoned' THEN g.duration_s END) AS avg_abandoned,
+           AVG(g.turns) AS avg_turns,
+           COUNT(DISTINCT g.session_id) AS sessions_with_game
+         ${fromGames} WHERE ${gw.sql}`,
+      )
+      .bind(...gw.params),
+    db
+      .prepare(
+        `SELECT active_day AS day, COUNT(DISTINCT session_id) AS sessions FROM (
+           SELECT s.day AS active_day, s.session_id ${fromSessions} WHERE ${fsw.sql}
+           UNION ALL
+           SELECT substr(s.last_seen, 1, 10) AS active_day, s.session_id ${fromSessions} WHERE ${sw.sql}
+           UNION ALL
+           SELECT substr(g.started_at, 1, 10) AS active_day, g.session_id AS session_id ${fromGames} WHERE ${gw.sql}
+         ) GROUP BY active_day ORDER BY active_day`,
+      )
+      .bind(...fsw.params, ...sw.params, ...gw.params),
+    db
+      .prepare(
+        `SELECT substr(g.started_at, 1, 10) AS game_day, COUNT(*) AS games ${fromGames} WHERE ${gw.sql} GROUP BY substr(g.started_at, 1, 10) ORDER BY game_day`,
+      )
+      .bind(...gw.params),
+    db
+      .prepare(`SELECT g.ai_errors AS errors ${fromGames} WHERE ${gw.sql} AND g.ai_errors IS NOT NULL`)
+      .bind(...gw.params),
+    groupStmt(db, "COALESCE(s.country, '??')", fromSessions, sw),
+    groupStmt(db, "COALESCE('AS' || s.asn || ' ' || s.as_org, 'unknown')", fromSessions, sw),
+    groupStmt(db, "COALESCE(s.referrer_host, 'direct')", fromSessions, sw),
+    groupStmt(db, "COALESCE(s.device_type, 'unknown')", fromSessions, sw),
+    groupStmt(db, "COALESCE(s.browser, 'unknown')", fromSessions, sw),
+    groupStmt(db, "g.mode || COALESCE(' / ' || g.match_type, '')", fromGames, gw),
+    groupStmt(db, "COALESCE(g.ai_provider, 'none')", fromGames, gw),
+    groupStmt(db, 'g.outcome', fromGames, gw),
+    groupStmt(db, "COALESCE(g.board_style, 'unknown')", fromGames, gw),
+  ])
 
-  const gameTotals = await db
-    .prepare(
-      `SELECT COUNT(*) AS games,
-         COALESCE(SUM(g.outcome = 'finished'), 0) AS finished,
-         COALESCE(SUM(g.outcome = 'abandoned'), 0) AS abandoned,
-         COALESCE(SUM(g.outcome = 'in_progress'), 0) AS in_progress,
-         AVG(CASE WHEN g.outcome = 'finished' THEN g.duration_s END) AS avg_finished,
-         AVG(CASE WHEN g.outcome = 'abandoned' THEN g.duration_s END) AS avg_abandoned,
-         AVG(g.turns) AS avg_turns,
-         COUNT(DISTINCT g.session_id) AS sessions_with_game
-       ${fromGames} WHERE ${gw.sql}`,
-    )
-    .bind(...gw.params)
-    .first<{
+  const sessionTotals = extractRows<{ sessions: number; uniq: number }>(sessionTotalsItem)[0] ?? null
+  const gameTotals =
+    extractRows<{
       games: number
       finished: number
       abandoned: number
@@ -239,31 +288,14 @@ export async function getSummary(db: D1Db, filters: StatsFilters): Promise<Stats
       avg_abandoned: number | null
       avg_turns: number | null
       sessions_with_game: number
-    }>()
-
-  const fsw = sessionFirstSeenWhere(filters)
-  const dayRows = await db
-    .prepare(
-      `SELECT active_day AS day, COUNT(DISTINCT session_id) AS sessions FROM (
-         SELECT s.day AS active_day, s.session_id ${fromSessions} WHERE ${fsw.sql}
-         UNION ALL
-         SELECT substr(s.last_seen, 1, 10) AS active_day, s.session_id ${fromSessions} WHERE ${sw.sql}
-         UNION ALL
-         SELECT substr(g.started_at, 1, 10) AS active_day, g.session_id AS session_id ${fromGames} WHERE ${gw.sql}
-       ) GROUP BY active_day ORDER BY active_day`,
-    )
-    .bind(...fsw.params, ...sw.params, ...gw.params)
-    .all<{ day: string; sessions: number }>()
-  const gameDayRows = await db
-    .prepare(
-      `SELECT substr(g.started_at, 1, 10) AS game_day, COUNT(*) AS games ${fromGames} WHERE ${gw.sql} GROUP BY substr(g.started_at, 1, 10) ORDER BY game_day`,
-    )
-    .bind(...gw.params)
-    .all<{ game_day: string; games: number }>()
+    }>(gameTotalsItem)[0] ?? null
+  const dayRows = extractRows<{ day: string; sessions: number }>(dayRowsItem)
+  const gameDayRows = extractRows<{ game_day: string; games: number }>(gameDayRowsItem)
+  const errorRows = extractRows<{ errors: string }>(errorRowsItem)
 
   const days = new Map<string, { day: string; sessions: number; games: number }>()
-  for (const row of dayRows.results) days.set(row.day, { day: row.day, sessions: row.sessions, games: 0 })
-  for (const row of gameDayRows.results) {
+  for (const row of dayRows) days.set(row.day, { day: row.day, sessions: row.sessions, games: 0 })
+  for (const row of gameDayRows) {
     const entry = days.get(row.game_day) ?? { day: row.game_day, sessions: 0, games: 0 }
     entry.games = row.games
     days.set(row.game_day, entry)
@@ -271,12 +303,8 @@ export async function getSummary(db: D1Db, filters: StatsFilters): Promise<Stats
 
   const finished = gameTotals?.finished ?? 0
   const abandoned = gameTotals?.abandoned ?? 0
-  const errorRows = await db
-    .prepare(`SELECT g.ai_errors AS errors ${fromGames} WHERE ${gw.sql} AND g.ai_errors IS NOT NULL`)
-    .bind(...gw.params)
-    .all<{ errors: string }>()
   const errorCounts = new Map<string, number>()
-  for (const row of errorRows.results) {
+  for (const row of errorRows) {
     try {
       for (const [code, n] of Object.entries(JSON.parse(row.errors) as Record<string, number>)) {
         errorCounts.set(code, (errorCounts.get(code) ?? 0) + n)
@@ -303,15 +331,15 @@ export async function getSummary(db: D1Db, filters: StatsFilters): Promise<Stats
       sessionsWithGame: gameTotals?.sessions_with_game ?? 0,
     },
     byDay: [...days.values()].sort((a, b) => a.day.localeCompare(b.day)),
-    byCountry: await group(db, "COALESCE(s.country, '??')", fromSessions, sw),
-    byAs: await group(db, "COALESCE('AS' || s.asn || ' ' || s.as_org, 'unknown')", fromSessions, sw),
-    byReferrer: await group(db, "COALESCE(s.referrer_host, 'direct')", fromSessions, sw),
-    byDevice: await group(db, "COALESCE(s.device_type, 'unknown')", fromSessions, sw),
-    byBrowser: await group(db, "COALESCE(s.browser, 'unknown')", fromSessions, sw),
-    byMode: await group(db, "g.mode || COALESCE(' / ' || g.match_type, '')", fromGames, gw),
-    byProvider: await group(db, "COALESCE(g.ai_provider, 'none')", fromGames, gw),
-    byOutcome: await group(db, 'g.outcome', fromGames, gw),
-    byBoardStyle: await group(db, "COALESCE(g.board_style, 'unknown')", fromGames, gw),
+    byCountry: extractRows<CountRow>(byCountryItem),
+    byAs: extractRows<CountRow>(byAsItem),
+    byReferrer: extractRows<CountRow>(byReferrerItem),
+    byDevice: extractRows<CountRow>(byDeviceItem),
+    byBrowser: extractRows<CountRow>(byBrowserItem),
+    byMode: extractRows<CountRow>(byModeItem),
+    byProvider: extractRows<CountRow>(byProviderItem),
+    byOutcome: extractRows<CountRow>(byOutcomeItem),
+    byBoardStyle: extractRows<CountRow>(byBoardStyleItem),
     aiErrors: [...errorCounts.entries()]
       .map(([key, count]) => ({ key, count }))
       .sort((a, b) => b.count - a.count)

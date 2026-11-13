@@ -359,9 +359,18 @@ interface Loaded {
 
 export default function StatsPage() {
   const [query, setQuery] = useState<Query>({ days: 30, country: '', mode: '', outcome: '', bots: false })
+  const [countryInput, setCountryInput] = useState('')
   const [tab, setTab] = useState<Tab>('games')
   const [refreshCount, setRefreshCount] = useState(0)
   const [loaded, setLoaded] = useState<Loaded | null>(null)
+
+  useEffect(() => {
+    if (countryInput === query.country) return
+    const timer = window.setTimeout(() => {
+      setQuery((prev) => (prev.country === countryInput ? prev : { ...prev, country: countryInput }))
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [countryInput, query.country])
 
   // `loading` is derived (the stored result belongs to an older request), so no state is set
   // synchronously inside the effect - only after the fetch settles.
@@ -418,7 +427,7 @@ export default function StatsPage() {
             <select aria-label="Period" className={SELECT} value={query.days} onChange={(e) => setQuery({ ...query, days: Number(e.target.value) })}>
               {[1, 7, 30, 90].map((d) => <option key={d} value={d}>Last {d} day{d === 1 ? '' : 's'}</option>)}
             </select>
-            <input aria-label="Country code" placeholder="Country (e.g. BG)" maxLength={2} className={cn(SELECT, 'w-32 uppercase')} value={query.country} onChange={(e) => setQuery({ ...query, country: e.target.value.toUpperCase() })} />
+            <input aria-label="Country code" placeholder="Country (e.g. BG)" maxLength={2} className={cn(SELECT, 'w-32 uppercase')} value={countryInput} onChange={(e) => setCountryInput(e.target.value.toUpperCase())} />
             <select aria-label="Game mode" className={SELECT} value={query.mode} onChange={(e) => setQuery({ ...query, mode: e.target.value })}>
               <option value="">All modes</option>
               <option value="humanVsAi">Human vs AI</option>

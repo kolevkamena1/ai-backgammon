@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { AnalyticsEvent } from '../../src/types/stats.ts'
 import { getSummary, listGames, listSessions, purgeOld, recordEvent, type D1Db, type D1Prepared, type RequestFacts } from '../analyticsDb.ts'
 import { parseFilters } from '../analytics.ts'
@@ -33,7 +33,7 @@ function createDb(): { db: D1Db; raw: InstanceType<SqliteModule['DatabaseSync']>
       prepare: (query) => prepare(query),
       batch: async (statements) => {
         const results: unknown[] = []
-        for (const statement of statements) results.push(await statement.run())
+        for (const statement of statements) results.push(await statement.all())
         return results
       },
     },
@@ -164,6 +164,22 @@ describe.skipIf(sqlite === null)('analytics D1 layer (real SQL on SQLite)', () =
       { day: day1, sessions: 1, games: 1 },
       { day: day2, sessions: 1, games: 1 },
     ])
+  })
+
+  it('fetches getSummary in a single db.batch round-trip (D14)', async () => {
+    const { db } = createDb()
+    await recordEvent(db, visit, facts)
+    await recordEvent(db, start('game-batch-0001'), facts)
+    await recordEvent(db, end('game-batch-0001', 'finished'), facts)
+
+    const batchSpy = vi.spyOn(db, 'batch')
+    const summary = await getSummary(db, filters)
+
+    expect(batchSpy).toHaveBeenCalledTimes(1)
+    expect(batchSpy.mock.calls[0]?.[0]).toHaveLength(14)
+    expect(summary.totals.sessions).toBe(1)
+    expect(summary.totals.games).toBe(1)
+    expect(summary.byCountry).toEqual([{ key: 'BG', count: 1 }])
   })
 })
 
