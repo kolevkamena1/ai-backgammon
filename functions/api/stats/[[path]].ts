@@ -21,6 +21,8 @@ const json = (body: unknown, status = 200): Response =>
 
 /** How long a fetched key set is trusted. Access rotates its signing keys periodically. */
 const CERT_TTL_MS = 3_600_000
+/** Upper bound on a single JWKS cert fetch so a hung Access endpoint cannot stall the worker. */
+const CERT_FETCH_TIMEOUT_MS = 5_000
 
 /**
  * Minimum spacing between forced re-fetches. Without it, anyone presenting a token with a made-up
@@ -43,7 +45,9 @@ async function loadKeys(rawTeamDomain: string, forceRefresh = false): Promise<Jw
   ) {
     return cachedKeys.keys
   }
-  const response = await fetch(`https://${teamDomain}/cdn-cgi/access/certs`)
+  const response = await fetch(`https://${teamDomain}/cdn-cgi/access/certs`, {
+    signal: AbortSignal.timeout(CERT_FETCH_TIMEOUT_MS),
+  })
   if (!response.ok) throw new Error(`certs ${response.status}`)
   const body = (await response.json()) as { keys?: Jwk[] }
   cachedKeys = { teamDomain, keys: body.keys ?? [], fetchedAt: Date.now() }

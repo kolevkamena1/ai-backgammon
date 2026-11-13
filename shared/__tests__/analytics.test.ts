@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { generateKeyPairSync, createSign } from 'node:crypto'
 import { hashIp, isSameOrigin, parseEvent, parseFilters, parseUserAgent, sanitizeLog, toCsv } from '../analytics.ts'
 import { verifyAccessJwt, verifyAccessJwtDetail, type Jwk } from '../analyticsAuth.ts'
+import { onRequestGet } from '../../functions/api/stats/[[path]].ts'
 
 const SID = 'abcdef12-3456-7890-abcd-ef1234567890'
 
@@ -139,6 +140,44 @@ describe('Access JWT verification', () => {
       ok: true,
       identity: { email: 'me@example.com' },
     })
+  })
+
+  it('passes an AbortSignal.timeout when fetching Access certs in onRequestGet (S6)', async () => {
+    const validNow = Math.floor(Date.now() / 1000)
+    const liveToken = sign({
+      aud: ['aud123'],
+      iss: 'https://s6-team.cloudflareaccess.com',
+      exp: validNow + 600,
+      email: 'admin@example.com',
+    })
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ keys: [jwk] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    try {
+      const req = new Request('https://backgammon.kamenonline.com/api/stats/summary', {
+        headers: { 'cf-access-jwt-assertion': liveToken },
+      })
+      await onRequestGet({
+        request: req,
+        env: {
+          ACCESS_TEAM_DOMAIN: 's6-team.cloudflareaccess.com',
+          ACCESS_AUD: 'aud123',
+        },
+      })
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      expect(fetchSpy.mock.calls[0]?.[0]).toBe(
+        'https://s6-team.cloudflareaccess.com/cdn-cgi/access/certs',
+      )
+      const init = fetchSpy.mock.calls[0]?.[1]
+      expect(init?.signal).toBeInstanceOf(AbortSignal)
+    } finally {
+      fetchSpy.mockRestore()
+    }
   })
 })
 
