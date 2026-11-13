@@ -22,6 +22,12 @@ dist-ssr
 .wrangler/
 coverage/
 
+# Playwright real-browser regression artifacts
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
 # Cloudflare local dev vars, including wrangler's per-environment variants (.dev.vars.production).
 # Never commit; BYOK keys belong in localStorage, not here.
 .dev.vars*

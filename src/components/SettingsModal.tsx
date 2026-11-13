@@ -5,6 +5,7 @@ import { useByokDraft } from '@/hooks/useByokDraft'
 import { useGameConfig } from '@/hooks/useGameConfig'
 import { useSettings } from '@/hooks/useSettings'
 import { logger } from '@/lib/logger'
+import { revealFirstInvalidField } from '@/utils/formValidation'
 import { DEFAULT_OPPONENT_CONFIG } from '@/state/gameConfigStore'
 import { DEFAULT_SETTINGS } from '@/state/settingsStore'
 import type { AiEngineConfig, AppSettings } from '@/types/settings'
@@ -52,6 +53,13 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
+
+    // Surface invalid controls hidden in collapsed <details> instead of a silent native refusal.
+    const invalidMessage = revealFirstInvalidField(event.currentTarget)
+    if (invalidMessage !== null) {
+      setError(invalidMessage)
+      return
+    }
 
     const nextByok1: AppSettings = byok1.commit()
     const nextByok2: AiEngineConfig = byok2.commit()
@@ -115,7 +123,7 @@ const SettingsModal = ({ onClose }: SettingsModalProps) => {
       closeLabel="Close settings"
       panelClassName="max-w-6xl"
     >
-      <form className="space-y-4" onSubmit={handleSubmit}>
+      <form className="space-y-4" onSubmit={handleSubmit} noValidate>
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-2.5">
           <label
             htmlFor="settings-use-two-byok"

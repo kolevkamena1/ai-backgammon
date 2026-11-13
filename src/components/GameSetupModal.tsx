@@ -4,6 +4,7 @@ import { useGame } from '@/hooks/useGame'
 import { useGameConfig } from '@/hooks/useGameConfig'
 import { useSettings } from '@/hooks/useSettings'
 import { logger } from '@/lib/logger'
+import { revealFirstInvalidField } from '@/utils/formValidation'
 import type { AiMatchType, DiceMode, GameConfigSnapshot, GameMode, SeatAssignment } from '@/types/gameConfig'
 import type { PlayerColor } from '@/types/game'
 import { cn } from '@/utils/cn'
@@ -174,6 +175,13 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
   const handleSave = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
 
+    // Surface invalid controls hidden in collapsed <details> instead of a silent native refusal.
+    const invalidMessage = revealFirstInvalidField(event.currentTarget)
+    if (invalidMessage !== null) {
+      setError(invalidMessage)
+      return
+    }
+
     if (!plan.ready) {
       return
     }
@@ -220,7 +228,7 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
       closeLabel="Close game setup"
       panelClassName="max-w-lg"
     >
-      <form className="space-y-4" onSubmit={handleSave}>
+      <form className="space-y-4" onSubmit={handleSave} noValidate>
         <fieldset className="space-y-2">
           <legend className="mb-1.5 text-xs font-medium text-slate-300">Mode</legend>
           <div className="grid gap-2 sm:grid-cols-2">

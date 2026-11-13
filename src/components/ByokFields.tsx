@@ -29,7 +29,7 @@ import {
   parseDifficulty,
   SEAT_LABELS,
 } from '@/utils/gameConfig'
-import { Eye, EyeOff, RefreshCw, RotateCcw, SlidersHorizontal, Sparkles } from 'lucide-react'
+import { ChevronDown, Eye, EyeOff, RefreshCw, RotateCcw, SlidersHorizontal, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 interface ByokFieldsProps {
@@ -413,9 +413,10 @@ const ByokFields = ({
       </div>
 
       {/* Inference Parameters & System Prompt */}
-      <fieldset className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/50 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <legend className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-slate-200">
+      {/* Collapsed by default; the submit helper auto-expands it if a param is invalid (E1). */}
+      <details className="group space-y-3 rounded-xl border border-slate-800 bg-slate-950/50 p-3">
+        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
+          <span className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-slate-200">
             <SlidersHorizontal className="size-3.5 text-sky-400" aria-hidden />
             Inference parameters
             <span className="font-normal text-[11px] text-slate-400">
@@ -425,7 +426,11 @@ const ByokFields = ({
                 ? ` · ${metadata.contextWindow.toLocaleString()} ctx`
                 : ''}
             </span>
-          </legend>
+            <ChevronDown
+              className="size-3.5 text-slate-400 transition-transform group-open:rotate-180"
+              aria-hidden
+            />
+          </span>
 
           {hasCustomParams ? (
             <button
@@ -437,7 +442,7 @@ const ByokFields = ({
               Reset defaults
             </button>
           ) : null}
-        </div>
+        </summary>
 
         {/* 3-column grid so every input & label has ample room */}
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
@@ -454,9 +459,12 @@ const ByokFields = ({
             <input
               id={id('context-window')}
               type="number"
+              required
               min={512}
               max={metadata.contextWindow ?? 2_000_000}
-              step={512}
+              // step=1: catalog/default values (e.g. 128000) are not all multiples of 512, and a
+              // stepMismatch here silently blocked submit inside the collapsed <details> (E1).
+              step={1}
               className={cn(FIELD, 'px-2.5 py-1.5 font-mono text-xs')}
               value={effective.contextWindow}
               onChange={(event) => {
@@ -478,9 +486,12 @@ const ByokFields = ({
             <input
               id={id('max-tokens')}
               type="number"
+              required
               min={64}
               max={metadata.maxOutputTokens ?? 65_536}
-              step={128}
+              // step=1: the shipped default (2048) and most catalog values are off a 128 grid
+              // (min 64), which made the untouched form un-submittable (E1, P0).
+              step={1}
               className={cn(FIELD, 'px-2.5 py-1.5 font-mono text-xs')}
               value={effective.maxTokens}
               onChange={(event) => {
@@ -637,7 +648,7 @@ const ByokFields = ({
             </pre>
           </details>
         </div>
-      </fieldset>
+      </details>
     </div>
   )
 }
