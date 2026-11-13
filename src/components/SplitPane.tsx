@@ -1,3 +1,4 @@
+import { useSeparatorKeyboard } from '@/hooks/useSeparatorKeyboard'
 import type { PanelPosition } from '@/types/settings'
 import { cn } from '@/utils/cn'
 import { PanelBottom, PanelLeft, PanelRight, PanelTop } from 'lucide-react'
@@ -80,6 +81,16 @@ export const SplitPane: FC<SplitPaneProps> = ({
 
   const [splitPercent, setSplitPercent] = useState<number>(effectiveDefault)
   const [overTarget, setOverTarget] = useState<'left' | 'right' | 'top' | 'bottom' | null>(null)
+  const dividerRef = useRef<HTMLDivElement>(null)
+  useSeparatorKeyboard(dividerRef, {
+    value: splitPercent,
+    min: effectiveMin,
+    max: effectiveMax,
+    step: KEYBOARD_STEP_PERCENT,
+    invert: isPanelFirst,
+    orientation: 'both',
+    onChange: setSplitPercent,
+  })
   const isDraggingRef = useRef(false)
   const dragCleanupRef = useRef<(() => void) | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -171,33 +182,6 @@ export const SplitPane: FC<SplitPaneProps> = ({
     setSplitPercent(isVertical ? 65 : defaultSplitPercent)
   }, [isVertical, defaultSplitPercent])
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if (e.key === 'Home') {
-        e.preventDefault()
-        setSplitPercent(effectiveMin)
-        return
-      }
-      if (e.key === 'End') {
-        e.preventDefault()
-        setSplitPercent(effectiveMax)
-        return
-      }
-      if (
-        e.key === 'ArrowRight' ||
-        e.key === 'ArrowDown' ||
-        e.key === 'ArrowLeft' ||
-        e.key === 'ArrowUp'
-      ) {
-        e.preventDefault()
-        const forward = e.key === 'ArrowRight' || e.key === 'ArrowDown'
-        const delta = (forward ? 1 : -1) * (isPanelFirst ? -KEYBOARD_STEP_PERCENT : KEYBOARD_STEP_PERCENT)
-        setSplitPercent((prev) => Math.max(effectiveMin, Math.min(effectiveMax, prev + delta)))
-      }
-    },
-    [effectiveMin, effectiveMax, isPanelFirst],
-  )
-
   useEffect(() => {
     return () => {
       dragCleanupRef.current?.()
@@ -226,16 +210,17 @@ export const SplitPane: FC<SplitPaneProps> = ({
 
   const divider = (
     <div
+      ref={dividerRef}
       role="separator"
       aria-orientation={isVertical ? 'horizontal' : 'vertical'}
       aria-valuenow={Math.round(splitPercent)}
       aria-valuemin={effectiveMin}
       aria-valuemax={effectiveMax}
+      aria-label="Resize board and log split"
       tabIndex={0}
       onPointerDown={handlePointerDown}
       onDoubleClick={handleDoubleClick}
-      onKeyDown={handleKeyDown}
-      title="Drag to resize panels (Double-click to reset)"
+      title="Drag or use arrow keys to resize panels (Double-click to reset)"
       className={cn(
         // shrink-0 keeps the divider at its fixed 12px thickness: the two flex-1 panes (basis 0%)
         // must split the leftover space, never be squeezed to zero by a divider that claims 100%.

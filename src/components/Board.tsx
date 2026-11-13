@@ -13,12 +13,15 @@ import {
   computeResizedDimensions,
   DEFAULT_BOARD_DIMENSIONS,
   loadStoredBoardSize,
+  MAX_BOARD_HEIGHT,
+  MAX_BOARD_WIDTH,
   MIN_BOARD_HEIGHT,
   MIN_BOARD_WIDTH,
   saveStoredBoardSize,
   type BoardDimensions,
   type ResizeHandle,
 } from '@/utils/boardResize'
+import { useSeparatorKeyboard } from '@/hooks/useSeparatorKeyboard'
 import { getInitialBoardState, toPointViews } from '@/utils/gameLogic'
 import { cn } from '@/utils/cn'
 import { RotateCcw } from 'lucide-react'
@@ -420,6 +423,52 @@ const Board = ({
     saveStoredBoardSize(null)
   }
 
+  // Keyboard resizing for the four edge handles via the shared separator hook (E3).
+  const leftHandleRef = useRef<HTMLDivElement>(null)
+  const rightHandleRef = useRef<HTMLDivElement>(null)
+  const topHandleRef = useRef<HTMLDivElement>(null)
+  const bottomHandleRef = useRef<HTMLDivElement>(null)
+  const keyboardWidth = boardSize?.width ?? DEFAULT_BOARD_DIMENSIONS.width
+  const keyboardHeight = boardSize?.height ?? DEFAULT_BOARD_DIMENSIONS.height
+  const setBoardWidth = useCallback(
+    (width: number): void => {
+      const next = { width, height: keyboardHeight }
+      setBoardSize(next)
+      saveStoredBoardSize(next)
+    },
+    [keyboardHeight],
+  )
+  const setBoardHeight = useCallback(
+    (height: number): void => {
+      const next = { width: keyboardWidth, height }
+      setBoardSize(next)
+      saveStoredBoardSize(next)
+    },
+    [keyboardWidth],
+  )
+  const widthKeyboard = {
+    value: keyboardWidth,
+    min: MIN_BOARD_WIDTH,
+    max: MAX_BOARD_WIDTH,
+    step: 16,
+    orientation: 'horizontal' as const,
+    onChange: setBoardWidth,
+  }
+  const heightKeyboard = {
+    value: keyboardHeight,
+    min: MIN_BOARD_HEIGHT,
+    max: MAX_BOARD_HEIGHT,
+    step: 16,
+    orientation: 'vertical' as const,
+    onChange: setBoardHeight,
+  }
+  // Left/bottom edges grow when moving toward the page origin (Left/Down), so they invert the
+  // default "Right/Up increases" mapping; right/top edges use the default.
+  useSeparatorKeyboard(leftHandleRef, { ...widthKeyboard, invert: true })
+  useSeparatorKeyboard(rightHandleRef, widthKeyboard)
+  useSeparatorKeyboard(topHandleRef, heightKeyboard)
+  useSeparatorKeyboard(bottomHandleRef, { ...heightKeyboard, invert: true })
+
   const metrics = useMemo(
     () =>
       boardSize
@@ -543,36 +592,60 @@ const Board = ({
     >
       {/* Edge resize handles (left/right resize width; top/bottom resize height) */}
       <div
+        ref={leftHandleRef}
         role="separator"
         aria-label="Resize board left edge"
-        title="Drag to resize width · Double-click to reset"
+        aria-orientation="vertical"
+        aria-valuenow={keyboardWidth}
+        aria-valuemin={MIN_BOARD_WIDTH}
+        aria-valuemax={MAX_BOARD_WIDTH}
+        tabIndex={0}
+        title="Drag or use arrow keys to resize width · Double-click to reset"
         onPointerDown={(e) => startResize('left', e)}
         onDoubleClick={resetBoardSize}
-        className="absolute inset-y-3 -left-1.5 z-20 w-3 cursor-ew-resize rounded-full transition hover:bg-sky-400/40"
+        className="absolute inset-y-3 -left-1.5 z-20 w-3 cursor-ew-resize rounded-full transition hover:bg-sky-400/40 focus-visible:bg-sky-400/40 outline-none"
       />
       <div
+        ref={rightHandleRef}
         role="separator"
         aria-label="Resize board right edge"
-        title="Drag to resize width · Double-click to reset"
+        aria-orientation="vertical"
+        aria-valuenow={keyboardWidth}
+        aria-valuemin={MIN_BOARD_WIDTH}
+        aria-valuemax={MAX_BOARD_WIDTH}
+        tabIndex={0}
+        title="Drag or use arrow keys to resize width · Double-click to reset"
         onPointerDown={(e) => startResize('right', e)}
         onDoubleClick={resetBoardSize}
-        className="absolute inset-y-3 -right-1.5 z-20 w-3 cursor-ew-resize rounded-full transition hover:bg-sky-400/40"
+        className="absolute inset-y-3 -right-1.5 z-20 w-3 cursor-ew-resize rounded-full transition hover:bg-sky-400/40 focus-visible:bg-sky-400/40 outline-none"
       />
       <div
+        ref={topHandleRef}
         role="separator"
         aria-label="Resize board top edge"
-        title="Drag to resize height · Double-click to reset"
+        aria-orientation="horizontal"
+        aria-valuenow={keyboardHeight}
+        aria-valuemin={MIN_BOARD_HEIGHT}
+        aria-valuemax={MAX_BOARD_HEIGHT}
+        tabIndex={0}
+        title="Drag or use arrow keys to resize height · Double-click to reset"
         onPointerDown={(e) => startResize('top', e)}
         onDoubleClick={resetBoardSize}
-        className="absolute inset-x-3 -top-1.5 z-20 h-3 cursor-ns-resize rounded-full transition hover:bg-sky-400/40"
+        className="absolute inset-x-3 -top-1.5 z-20 h-3 cursor-ns-resize rounded-full transition hover:bg-sky-400/40 focus-visible:bg-sky-400/40 outline-none"
       />
       <div
+        ref={bottomHandleRef}
         role="separator"
         aria-label="Resize board bottom edge"
-        title="Drag to resize height · Double-click to reset"
+        aria-orientation="horizontal"
+        aria-valuenow={keyboardHeight}
+        aria-valuemin={MIN_BOARD_HEIGHT}
+        aria-valuemax={MAX_BOARD_HEIGHT}
+        tabIndex={0}
+        title="Drag or use arrow keys to resize height · Double-click to reset"
         onPointerDown={(e) => startResize('bottom', e)}
         onDoubleClick={resetBoardSize}
-        className="absolute inset-x-3 -bottom-1.5 z-20 h-3 cursor-ns-resize rounded-full transition hover:bg-sky-400/40"
+        className="absolute inset-x-3 -bottom-1.5 z-20 h-3 cursor-ns-resize rounded-full transition hover:bg-sky-400/40 focus-visible:bg-sky-400/40 outline-none"
       />
 
       {/* Corner resize handles (lock aspect ratio) */}
