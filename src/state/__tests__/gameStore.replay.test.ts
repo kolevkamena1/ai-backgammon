@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useGameStore } from '@/state/gameStore'
-import { getInitialBoardState } from '@/utils/gameLogic'
+import { getInitialBoardState, getLegalMoves } from '@/utils/gameLogic'
 import { startTelemetry } from '@/utils/telemetry'
 import type { GameConfigSnapshot } from '@/types/gameConfig'
 import type { AiEngineConfig } from '@/types/settings'
@@ -273,12 +273,7 @@ describe('gameStore rewind (keep dice vs. discard dice) and pause', () => {
     }
   })
 
-  it('invariant: for every step i, restoring snapshot[i] deep-equals the full recorded state at i', () => {
-    const matchCfg: GameConfigSnapshot = {
-      ...HUMAN_VS_AI_CONFIG,
-      match: { targetPoints: 5, enableCrawford: true },
-    }
-
+  it('invariant: for every step i across multi-game replays (re-doubles, declined doubles, bear-offs), restoreToStep(i) deep-equals state[i]', () => {
     const captureLiveState = () => {
       const s = useGameStore.getState()
       return structuredClone({
@@ -295,58 +290,160 @@ describe('gameStore rewind (keep dice vs. discard dice) and pause', () => {
       })
     }
 
-    const recorded: ReturnType<typeof captureLiveState>[] = []
+    type RecordedState = ReturnType<typeof captureLiveState>
 
-    // Step 0: game-start
-    useGameStore.getState().startNewGame(matchCfg, PERSONAL_AI)
-    recorded.push(captureLiveState())
+    const playAvailableMoves = (maxPlies = 4): void => {
+      for (let ply = 0; ply < maxPlies; ply += 1) {
+        const board = useGameStore.getState().board
+        if (board === null || board.phase === 'finished' || board.dice.length === 0) {
+          break
+        }
+        const legal = getLegalMoves(board, board.turn, board.dice)
+        if (legal.length === 0) {
+          break
+        }
+        // Prefer bear-offs first, then advancing checkers farthest from home so games finish naturally
+        const sorted = [...legal].sort((a, b) => {
+          if (a.to === 'off' && b.to !== 'off') return -1
+          if (b.to === 'off' && a.to !== 'off') return 1
+          const aBar = a.from === 'bar' ? 1 : 0
+          const bBar = b.from === 'bar' ? 1 : 0
+          if (aBar !== bBar) return bBar - aBar
+          const aDist = board.turn === 'light' ? Number(a.from) : 25 - Number(a.from)
+          const bDist = board.turn === 'light' ? Number(b.from) : 25 - Number(b.from)
+          return bDist - aDist || b.die - a.die
+        })
+        expect(useGameStore.getState().makeMove(sorted[0])).toBe(true)
+      }
+    }
 
-    // Step 1: double-proposed (light proposes -> AI dark immediately responds in step 2)
-    // To capture step 1 and step 2 separately, let's testdark proposing to human light on Turn 2!
-    // Step 1: Turn 1 roll
-    useGameStore.getState().roll([4, 3])
-    recorded.push(captureLiveState())
+    const assertEveryStepAndTurnRestoresExactState = (recorded: RecordedState[]): void => {
+      const fullSteps = structuredClone(useGameStore.getState().stepHistory)
+      const fullRecordedRolls = structuredClone(useGameStore.getState().recordedRolls)
+      expect(fullSteps).toHaveLength(recorded.length)
 
-    // Step 2: Turn 1 move 1
-    expect(useGameStore.getState().makeMove({ from: 24, to: 20, die: 4 })).toBe(true)
-    recorded.push(captureLiveState())
+      // 1. Property over every recorded step i in 0 .. N-1: restoreToStep(i) === recorded[i]
+      for (let i = 0; i < fullSteps.length; i += 1) {
+        useGameStore.setState({
+          stepHistory: [...fullSteps],
+          currentStepIndex: fullSteps.length - 1,
+        })
+        expect(useGameStore.getState().restoreToStep(i)).toBe(true)
+        expect(captureLiveState()).toEqual(recorded[i])
+      }
 
-    // Step 3: Turn 1 move 2 (ends Turn 1)
-    expect(useGameStore.getState().makeMove({ from: 13, to: 10, die: 3 })).toBe(true)
-    recorded.push(captureLiveState())
+      // 2. Property over every turn T >= 1 present in the game: rewindRollsFrom(T) restores the
+      //    exact state immediately prior to Turn T's first action (including pre-roll double steps).
+      const turnFirstStep = new Map<number, number>()
+      for (let i = 1; i < fullSteps.length; i += 1) {
+        const t = fullSteps[i].turnNumber
+        if (!turnFirstStep.has(t)) {
+          turnFirstStep.set(t, i)
+        }
+      }
+      for (const [turnNum, firstIdx] of turnFirstStep.entries()) {
+        useGameStore.setState({
+          stepHistory: [...fullSteps],
+          currentStepIndex: fullSteps.length - 1,
+          recordedRolls: [...fullRecordedRolls],
+        })
+        expect(useGameStore.getState().rewindRollsFrom(turnNum)).toBe(true)
+        expect(captureLiveState()).toEqual(recorded[firstIdx - 1])
+      }
 
-    // Step 4: Turn 2 double-proposed by dark (human light is responder, so it stays pending at step 4)
-    expect(useGameStore.getState().proposeDouble('dark')).toBe(true)
-    recorded.push(captureLiveState())
+      // Restore the finished end state before continuing to the next game in the set.
+      useGameStore.setState({
+        stepHistory: [...fullSteps],
+        currentStepIndex: fullSteps.length - 1,
+        recordedRolls: [...fullRecordedRolls],
+      })
+      expect(useGameStore.getState().restoreToStep(fullSteps.length - 1)).toBe(true)
+      useGameStore.getState().setPaused(false)
+    }
 
-    // Step 5: Turn 2 double-accepted by light
-    useGameStore.getState().respondToDouble('light', true)
-    recorded.push(captureLiveState())
+    for (const seed of [11, 42, 77]) {
+      const matchCfg: GameConfigSnapshot = {
+        ...HUMAN_VS_AI_CONFIG,
+        dice: { mode: 'seeded', seed },
+        match: { targetPoints: 17, enableCrawford: true },
+      }
 
-    // Step 6: Turn 2 passTurn
-    useGameStore.getState().passTurn()
-    recorded.push(captureLiveState())
+      let recorded: RecordedState[] = []
+      const unsubscribe = useGameStore.subscribe((state, prev) => {
+        if (state.stepHistory.length > prev.stepHistory.length) {
+          recorded.push(captureLiveState())
+        }
+      })
 
-    const fullSteps = structuredClone(useGameStore.getState().stepHistory)
-    expect(fullSteps).toHaveLength(recorded.length)
+      try {
+        // --- Game 1: Double-heavy multi-turn replay (1 -> 2 -> 4 -> 8 -> 16) + pass + declined double ---
+        expect(useGameStore.getState().startNewGame(matchCfg, PERSONAL_AI)).toBe(true)
+        recorded = [captureLiveState()]
 
-    // Verify structured kind flag on every step
-    expect(fullSteps.map((s) => (s as { kind?: string }).kind)).toEqual([
-      'game-start',
-      'roll',
-      'move',
-      'move',
-      'double-proposed',
-      'double-accepted',
-      'pass',
-    ])
+        // Turn 1 (light): roll & play
+        useGameStore.getState().roll()
+        playAvailableMoves()
 
-    for (let i = 0; i < fullSteps.length; i += 1) {
-      // Restore full history first, then restore to step i
-      useGameStore.setState({ stepHistory: structuredClone(fullSteps), currentStepIndex: fullSteps.length - 1 })
-      const ok = (useGameStore.getState() as { restoreToStep?: (idx: number) => boolean }).restoreToStep?.(i)
-      expect(ok).toBe(true)
-      expect(captureLiveState()).toEqual(recorded[i])
+        // Turn 2 (dark): dark proposes 1 -> 2, light accepts (light owns 2), dark rolls & plays
+        if (useGameStore.getState().board?.turn === 'dark') {
+          expect(useGameStore.getState().proposeDouble('dark')).toBe(true)
+          useGameStore.getState().respondToDouble('light', true)
+          useGameStore.getState().roll()
+          playAvailableMoves()
+        }
+
+        // Turn 3 (light): light owns 2, re-doubles to 4 (AI dark auto-accepts -> dark owns 4), rolls & plays
+        if (useGameStore.getState().board?.turn === 'light' && useGameStore.getState().board?.phase === 'playing') {
+          expect(useGameStore.getState().proposeDouble('light')).toBe(true)
+          useGameStore.getState().roll()
+          playAvailableMoves()
+        }
+
+        // Turn 4 (dark): dark owns 4, re-doubles to 8, light accepts (light owns 8), dark rolls & manually passes
+        if (useGameStore.getState().board?.turn === 'dark' && useGameStore.getState().board?.phase === 'playing') {
+          expect(useGameStore.getState().proposeDouble('dark')).toBe(true)
+          useGameStore.getState().respondToDouble('light', true)
+          expect(useGameStore.getState().cube).toEqual({ value: 8, owner: 'light', proposedBy: null })
+          useGameStore.getState().roll()
+          useGameStore.getState().passTurn()
+        }
+
+        // Turn 5 (light): light owns 8, re-doubles to 16 (AI dark auto-accepts -> dark owns 16), rolls & plays
+        if (useGameStore.getState().board?.turn === 'light' && useGameStore.getState().board?.phase === 'playing') {
+          expect(useGameStore.getState().proposeDouble('light')).toBe(true)
+          expect(useGameStore.getState().cube).toEqual({ value: 16, owner: 'dark', proposedBy: null })
+          useGameStore.getState().roll([4, 3])
+          playAvailableMoves()
+        }
+
+        // Turn 6 (dark): dark owns 16, proposes 16 -> 32, light declines (dark wins 16 points -> 16/17)
+        expect(useGameStore.getState().board?.turn).toBe('dark')
+        expect(useGameStore.getState().proposeDouble('dark')).toBe(true)
+        useGameStore.getState().respondToDouble('light', false)
+
+        expect(useGameStore.getState().board?.phase).toBe('finished')
+        expect(useGameStore.getState().match?.dark).toBe(16)
+        expect(recorded.length).toBeGreaterThanOrEqual(12)
+        assertEveryStepAndTurnRestoresExactState(recorded)
+
+        // --- Game 2 (Crawford game: dark is 16/17): play to natural bear-off or check full multi-turn invariant ---
+        expect(useGameStore.getState().startNextGameInSet()).toBe(true)
+        recorded = [captureLiveState()]
+        expect(useGameStore.getState().match?.isCrawfordGame).toBe(true)
+        expect(useGameStore.getState().proposeDouble(useGameStore.getState().board!.turn)).toBe(false)
+
+        for (let turn = 0; turn < 120; turn += 1) {
+          const b = useGameStore.getState().board
+          if (b === null || b.phase === 'finished') break
+          useGameStore.getState().roll()
+          playAvailableMoves()
+        }
+
+        expect(useGameStore.getState().board?.phase).toBe('finished')
+        assertEveryStepAndTurnRestoresExactState(recorded)
+      } finally {
+        unsubscribe()
+      }
     }
   })
 
