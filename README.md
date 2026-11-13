@@ -132,13 +132,37 @@ Conventions worth knowing before editing either file:
 * `applyMove` returns a new board, never mutates its input, spends exactly one die, and hands the
   turn over when the last die is played.
 
-### Known rules gaps
+### Move generation
 
 Generation is **move-at-a-time**: after each `applyMove` the options are re-derived from the new
 position, which is what click-to-move needs, while `getLegalMoves()` searches the full turn so
 both sequence-level rules (playing the maximum number of dice and preferring the larger die when
-only one fits) are enforced. The opening single-die roll, undo, the doubling cube and match scoring
-are still absent.
+only one fits) are enforced.
+
+### Match play & the doubling cube
+
+A set is played to 1, 7, 11 or a custom target (up to 99 points), chosen in the setup modal and
+snapshotted into the game store when the game starts. The scoreboard above the board tracks the
+set; "Play Game N in Set" advances it after a win.
+
+* **Victory grading** — bearing off all 15 checkers scores 1 point (single), 2 if the loser has
+  borne off nothing (gammon), 3 if the loser also has a checker in the winner's home board or on
+  the bar (backgammon). The points are multiplied by the current cube value.
+* **Doubling cube** — before rolling, the seat to act may propose doubling the stake (centered or
+  owned cube, up to 64). The opponent takes (the value doubles and they own the cube) or drops
+  (the proposer wins the current stake and the game ends). AI seats decide with the pip-race
+  heuristic in `src/utils/doublingAi.ts`; a human's offer is answered from the banner in the
+  controls panel.
+* **Crawford rule** — when either seat first reaches one point from the target, the next game is
+  the Crawford game and doubling is disabled for it. It happens **once per match**
+  (`crawfordPlayed` in `MatchScoreState`); every later game allows doubling again.
+* **Rewind as undo** — picking a past **Moves** cell in the turn log replays from there with the
+  same dice sequence; picking a **Dice** cell replays with fresh dice. Both leave the game paused.
+
+Scope limits, stated plainly: there is no opening single-die roll (White always starts, both dice
+are rolled together), the Crawford rule is disabled for AI vs AI sets (the setup modal hides the
+checkbox there), and the AI's cube decisions are a pip-race heuristic rather than full
+match-equity theory.
 
 ## AI inference
 
@@ -717,8 +741,9 @@ local run use `npm run pages:local` with `STATS_DEV_BYPASS=1` in `.env` (honoure
    section used to promise are in.
 5. **Phase 5 — polish: in progress.** Shipped: spectator controls (`Pause`/`Resume` and step-by-step
    `Undo`/`Redo` replay), checker drag-and-drop, smooth checker move animations, five handcrafted board
-   designs, and a resizable 4-way dockable workspace (`SplitPane` — left, right, top, bottom). Remaining:
-   accessibility pass and persistence of games.
+   designs, a resizable 4-way dockable workspace (`SplitPane` — left, right, top, bottom), match play
+   with the doubling cube and Crawford rule, and the accessibility pass (keyboard-navigable menus,
+   separators and rewind cells, focus-trapped dialogs). Remaining: persistence of games.
 
 ## Author & Links
 
