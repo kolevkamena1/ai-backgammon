@@ -58,3 +58,38 @@ describe('saveSetup merges only provided keys (B3 regression)', () => {
     expect(useGameConfigStore.getState().isSetupOpen).toBe(false)
   })
 })
+
+describe('gameConfigStore persistence sanitization (D12 / S4 regression)', () => {
+  it('sanitizes malformed dice and match objects from localStorage with safe fallbacks', () => {
+    const merge = useGameConfigStore.persist.getOptions().merge!
+    const current = useGameConfigStore.getState()
+
+    const mergedInvalid = merge(
+      {
+        mode: 'humanVsAi',
+        humanColor: 'invalid-color',
+        dice: { mode: 'cheating', seed: -500 },
+        aiMatchType: 'mirror',
+        opponent,
+        match: { targetPoints: -10, enableCrawford: 'not-a-bool' },
+      },
+      current,
+    )
+
+    expect(mergedInvalid.humanColor).toBe('light')
+    expect(mergedInvalid.dice).toEqual({ mode: 'random' })
+    expect(mergedInvalid.match).toEqual({ targetPoints: 7, enableCrawford: true })
+
+    const mergedSeededNaN = merge(
+      {
+        mode: 'humanVsAi',
+        dice: { mode: 'seeded', seed: Number.NaN },
+        match: { targetPoints: 11.9, enableCrawford: false },
+      },
+      current,
+    )
+
+    expect(mergedSeededNaN.dice).toEqual({ mode: 'seeded', seed: 12345 })
+    expect(mergedSeededNaN.match).toEqual({ targetPoints: 11, enableCrawford: false })
+  })
+})

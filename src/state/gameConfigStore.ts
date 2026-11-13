@@ -1,9 +1,43 @@
 import { createSafeStorage } from '@/state/createSafeStorage'
-import type { AiMatchType, GameConfigSnapshot, GameMode } from '@/types/gameConfig'
+import type { AiMatchType, DiceConfig, DiceMode, GameConfigSnapshot, GameMode } from '@/types/gameConfig'
+import type { MatchConfig } from '@/types/gameMatch'
 import type { AiEngineConfig } from '@/types/settings'
 import { DEFAULT_DIFFICULTY, sanitizeEngineConfig } from '@/utils/gameConfig'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+
+function sanitizeDiceConfig(raw: unknown, fallback: DiceConfig = { mode: 'random' }): DiceConfig {
+  if (typeof raw !== 'object' || raw === null) {
+    return { ...fallback }
+  }
+  const obj = raw as Record<string, unknown>
+  const mode: DiceMode =
+    obj.mode === 'random' || obj.mode === 'seeded' || obj.mode === 'manual'
+      ? obj.mode
+      : fallback.mode
+  if (mode === 'seeded') {
+    const seed =
+      typeof obj.seed === 'number' && Number.isFinite(obj.seed) && obj.seed >= 1
+        ? Math.min(2_147_483_647, Math.floor(obj.seed))
+        : 12345
+    return { mode: 'seeded', seed }
+  }
+  return { mode }
+}
+
+function sanitizeMatchConfig(raw: unknown): MatchConfig | undefined {
+  if (typeof raw !== 'object' || raw === null) {
+    return undefined
+  }
+  const obj = raw as Record<string, unknown>
+  const rawPoints = obj.targetPoints
+  const targetPoints =
+    typeof rawPoints === 'number' && Number.isFinite(rawPoints) && rawPoints >= 1
+      ? Math.min(99, Math.floor(rawPoints))
+      : 7
+  const enableCrawford = typeof obj.enableCrawford === 'boolean' ? obj.enableCrawford : true
+  return { targetPoints, enableCrawford }
+}
 
 interface GameConfigState extends GameConfigSnapshot {
   /** Setup modal visibility — never persisted. */
@@ -105,16 +139,10 @@ export const useGameConfigStore = create<GameConfigState>()(
           ...current,
           mode,
           humanColor: record.humanColor === 'dark' ? 'dark' : 'light',
-          dice:
-            typeof record.dice === 'object' && record.dice !== null
-              ? (record.dice as GameConfigSnapshot['dice'])
-              : DEFAULT_GAME_CONFIG.dice,
+          dice: sanitizeDiceConfig(record.dice, DEFAULT_GAME_CONFIG.dice),
           aiMatchType,
           opponent: sanitizeEngineConfig(record.opponent, DEFAULT_OPPONENT_CONFIG),
-          match:
-            typeof record.match === 'object' && record.match !== null
-              ? (record.match as GameConfigSnapshot['match'])
-              : undefined,
+          match: sanitizeMatchConfig(record.match),
         }
       },
     },
