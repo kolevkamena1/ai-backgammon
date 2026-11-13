@@ -1,4 +1,5 @@
 import type { Move } from '@/types/game'
+import type { DoublingCubeState, MatchScoreState } from '@/types/gameMatch'
 import type { AiThinkingLevel } from '@/types/settings'
 
 /**
@@ -135,6 +136,10 @@ export interface AiCallOptions {
    * move plays, because the move is only ever taken from the fully parsed reply.
    */
   onDelta?: (delta: AiDelta) => void
+  /** Current doubling cube state, included in the move prompt stakes line. */
+  cube?: DoublingCubeState | null
+  /** Current match score state, included in the move prompt stakes line. */
+  match?: MatchScoreState | null
 }
 
 /** Model request-shaping class derived from catalog metadata (with `'standard'` fallback). */

@@ -273,6 +273,8 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
     const result: AiResult = await getAiMove(engine, snapshot, color, {
       signal: controller?.signal,
       onDelta,
+      cube: get().cube,
+      match: get().match,
     })
 
     // The game was abandoned or restarted while the request was in flight.

@@ -1,6 +1,7 @@
 import type { BoardState, DieFace } from '@/types/game'
 import {
   AI_JSON_CONTRACT,
+  AI_PROMPT_VERSION,
   AI_REPLY_CONTRACT,
   buildMovePrompt,
   buildSystemPrompt,
@@ -10,7 +11,7 @@ import {
   renderPosition,
   SYSTEM_PROMPT_PRESETS,
 } from '@/utils/aiPrompt'
-import { getInitialBoardState, getLegalMoves } from '@/utils/gameLogic'
+import { applyMove, createSeededRng, endTurn, expandRoll, getInitialBoardState, getLegalMoves, rollPair } from '@/utils/gameLogic'
 import { describe, expect, it } from 'vitest'
 
 const OPENING = getInitialBoardState()
@@ -194,6 +195,80 @@ describe('buildMovePrompt', () => {
       const presetSystem = buildSystemPrompt('dark', 'hard', preset.prompt)
       expect(presetSystem).toContain(preset.prompt)
       expect(presetSystem).toContain(AI_JSON_CONTRACT)
+    }
+  })
+
+  it('includes a concise stakes line with cube value/owner, match score/target, and states doubling disabled during Crawford (C8)', () => {
+    expect(AI_PROMPT_VERSION).toBe('2')
+    const withStakes = buildMovePrompt(OPENING, 'light', openingMoves, 'medium', undefined, {
+      cube: { value: 4, owner: 'dark', proposedBy: null },
+      match: {
+        light: 6,
+        dark: 4,
+        targetPoints: 7,
+        gameIndex: 5,
+        matchWinner: null,
+        enableCrawford: true,
+        isCrawfordGame: true,
+        lastVictory: null,
+      },
+    })
+
+    expect(withStakes.user).toContain('Cube 4 (owned by Black)')
+    expect(withStakes.user).toContain('White 6-4 Black')
+    expect(withStakes.user).toContain('7 pts')
+    expect(withStakes.user).toContain('doubling disabled')
+
+    const nonCrawford = buildMovePrompt(OPENING, 'dark', getLegalMoves(OPENING, 'dark', [3]), 'hard', undefined, {
+      cube: { value: 2, owner: 'light', proposedBy: null },
+      match: {
+        light: 2,
+        dark: 1,
+        targetPoints: 5,
+        gameIndex: 2,
+        matchWinner: null,
+        enableCrawford: true,
+        isCrawfordGame: false,
+        lastVictory: null,
+      },
+    })
+    expect(nonCrawford.user).toContain('Cube 2 (owned by White)')
+    expect(nonCrawford.user).toContain('White 2-1 Black (target 5 pts).')
+    expect(nonCrawford.user).not.toContain('doubling disabled')
+
+    // Sanity-play 3 complete seeded games generating the v2 move prompt on every ply
+    for (const seed of [7, 42, 99]) {
+      const rng = createSeededRng(seed)
+      let board = getInitialBoardState()
+      let plies = 0
+      while (board.phase !== 'finished' && plies < 600) {
+        if (board.dice.length === 0) {
+          board = { ...board, dice: expandRoll(rollPair(rng)), phase: 'playing' }
+        }
+        const legal = getLegalMoves(board, board.turn, board.dice)
+        if (legal.length === 0) {
+          board = endTurn(board)
+          continue
+        }
+        const p = buildMovePrompt(board, board.turn, legal, 'medium', undefined, {
+          cube: { value: 2, owner: 'light', proposedBy: null },
+          match: {
+            light: 4,
+            dark: 3,
+            targetPoints: 5,
+            gameIndex: 4,
+            matchWinner: null,
+            enableCrawford: true,
+            isCrawfordGame: true,
+            lastVictory: null,
+          },
+        })
+        expect(p.user).toContain('Stakes: Cube 2 (owned by White)')
+        expect(p.user).toContain('doubling disabled')
+        board = applyMove(board, legal[0], board.turn)
+        plies += 1
+      }
+      expect(board.phase).toBe('finished')
     }
   })
 })

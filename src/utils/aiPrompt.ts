@@ -1,6 +1,20 @@
 import type { BoardState, Move, PlayerColor } from '@/types/game'
+import type { DoublingCubeState, MatchScoreState } from '@/types/gameMatch'
 import type { AiDifficulty } from '@/types/settings'
 import { HOME_BOARD, otherPlayer } from '@/utils/gameLogic'
+
+/**
+ * Prompt schema version.
+ * v1: Board position + dice + legal moves menu.
+ * v2 (C8): Adds a concise `Stakes:` line with doubling cube value/owner and match score/target/Crawford
+ * status ("doubling disabled" during Crawford) so models factor match equity into move selection.
+ */
+export const AI_PROMPT_VERSION = '2'
+
+export interface AiStakesContext {
+  cube?: DoublingCubeState | null
+  match?: MatchScoreState | null
+}
 
 /**
  * Every word the AI sees, in one file, so the prompt can be tuned without touching transport or
@@ -124,11 +138,27 @@ export function renderPoints(board: BoardState): string {
   return rows.join('\n')
 }
 
+/** Concise stakes line describing the doubling cube and match score/target/Crawford status. */
+export function renderStakes(stakes?: AiStakesContext): string {
+  const cubeValue = stakes?.cube?.value ?? 1
+  const cubeOwner = stakes?.cube?.owner ?? 'centered'
+  const ownerText = cubeOwner === 'centered' ? 'centered' : `owned by ${SEAT_NAME[cubeOwner]}`
+  const match = stakes?.match ?? null
+
+  if (match === null) {
+    return `Stakes: Cube ${cubeValue} (${ownerText}).`
+  }
+
+  const crawfordSuffix = match.isCrawfordGame ? ', Crawford game: doubling disabled' : ''
+  return `Stakes: Cube ${cubeValue} (${ownerText}) | Match: White ${match.light}-${match.dark} Black (target ${match.targetPoints} pts${crawfordSuffix}).`
+}
+
 /** The position, the dice in hand and the numbered menu of legal moves. */
 export function renderPosition(
   board: BoardState,
   player: PlayerColor,
   legalMoves: readonly Move[],
+  stakes?: AiStakesContext,
 ): string {
   const [first, last] = HOME_BOARD[player]
   const toward =
@@ -145,6 +175,7 @@ export function renderPosition(
     `Turn: ${SEAT_NAME[player]} (${player}). Choose one move for ${SEAT_NAME[player]}.`,
     `Your direction of travel is ${toward}. Your home board is points ${first}-${last}.`,
     `Dice still to play: ${board.dice.length === 0 ? 'none' : board.dice.join(', ')}.`,
+    renderStakes(stakes),
     `On the bar - White ${board.bar.light}, Black ${board.bar.dark}.`,
     `Borne off - White ${board.off.light}, Black ${board.off.dark}.`,
     'Points (index:count, + is White, - is Black, 0 is empty):',
@@ -205,9 +236,10 @@ export function buildMovePrompt(
   legalMoves: readonly Move[],
   difficulty: AiDifficulty = 'medium',
   customSystemPrompt?: string,
+  stakes?: AiStakesContext,
 ): AiPrompt {
   return {
     system: buildSystemPrompt(player, difficulty, customSystemPrompt),
-    user: `${renderPosition(board, player, legalMoves)}\n\nChoose one now. Reply with the JSON object only.`,
+    user: `${renderPosition(board, player, legalMoves, stakes)}\n\nChoose one now. Reply with the JSON object only.`,
   }
 }

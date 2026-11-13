@@ -1209,7 +1209,10 @@ export async function getAiMove(
   // Streamed only when somebody is watching and the provider speaks this dialect: the buffered path
   // is byte-for-byte what it always was for Anthropic and Google, and for callers with no listener.
   const wantsStream = options.onDelta !== undefined && supportsStreaming(config.provider)
-  const prompt = buildMovePrompt(board, player, legal, difficulty, customParams?.systemPrompt)
+  const prompt = buildMovePrompt(board, player, legal, difficulty, customParams?.systemPrompt, {
+    cube: options.cube,
+    match: options.match,
+  })
   let timedOut = false
   let sawBytes = false
   const controller = new AbortController()
