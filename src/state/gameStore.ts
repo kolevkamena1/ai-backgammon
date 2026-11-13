@@ -988,33 +988,28 @@ export const useGameStore = create<GameStoreState>()((set, get) => {
         return
       }
 
+      // Cube decision before rolling. This MUST run before isAiThinking flips: proposeDouble rejects
+      // any offer while a chain is in flight (that guard stops a human doubling mid-AI-move), so
+      // evaluating inside the chain silently made every AI double a no-op.
+      if (board.dice.length === 0) {
+        const doubleDecision = evaluateAiShouldDouble(board, seat.color, get().cube, get().match)
+        if (doubleDecision.shouldDouble && get().proposeDouble(seat.color)) {
+          // An AI responder is answered synchronously inside proposeDouble. A decline ends the
+          // game; a human responder leaves the offer pending — park until they answer, and
+          // useAiTurn re-triggers this turn once proposedBy clears on accept.
+          if (get().board?.phase === 'finished' || get().cube.proposedBy !== null) {
+            return
+          }
+        }
+      }
+
       const token = aiToken
       controller?.abort()
       controller = new AbortController()
       set({ isAiThinking: true, lastAiError: null })
 
       try {
-        // AI double evaluation before rolling
         if (get().board?.dice.length === 0) {
-          const currentCube = get().cube
-          const currentMatch = get().match
-          const doubleDecision = evaluateAiShouldDouble(board, seat.color, currentCube, currentMatch)
-
-          if (doubleDecision.shouldDouble) {
-            get().proposeDouble(seat.color)
-            const opponentColor: PlayerColor = seat.color === 'light' ? 'dark' : 'light'
-            const opponentSeat = get().seatPlan?.[opponentColor]
-            // If opponent is also AI, resolve immediately
-            if (opponentSeat && opponentSeat.kind === 'ai') {
-              const oppAccept = evaluateAiAcceptDouble(board, opponentColor)
-              get().respondToDouble(opponentColor, oppAccept.accept)
-            }
-            // If double was declined, game finished; stop here
-            if (get().board?.phase === 'finished') {
-              return
-            }
-          }
-
           // Nobody else can roll for an AI seat, and a turn cannot start without dice.
           // In manual mode, the human inputs the dice for AI turns as well!
           if (get().config?.dice?.mode !== 'manual') {

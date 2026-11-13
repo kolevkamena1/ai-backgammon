@@ -15,6 +15,17 @@ vi.mock('@/utils/aiClient', async (importOriginal) => {
 })
 const mockedGetAiMove = vi.mocked(getAiMove)
 
+// Pass-through by default; individual tests can force the AI's cube decision.
+const cubeControl = vi.hoisted(() => ({ forceDouble: false }))
+vi.mock('@/utils/doublingAi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/doublingAi')>()
+  return {
+    ...actual,
+    evaluateAiShouldDouble: (...args: Parameters<typeof actual.evaluateAiShouldDouble>) =>
+      cubeControl.forceDouble ? { ...actual.evaluateAiShouldDouble(...args), shouldDouble: true } : actual.evaluateAiShouldDouble(...args),
+  }
+})
+
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const personal: AiEngineConfig = { provider: 'openai', apiKey: 'sk-test-1234', model: 'gpt-test', baseUrl: '' }
@@ -85,5 +96,98 @@ describe('useAiTurn double resumption (B2 regression)', () => {
 
     expect(useGameStore.getState().cube.proposedBy).toBeNull()
     expect(mockedGetAiMove).toHaveBeenCalled()
+  })
+})
+
+
+describe('AI-initiated doubles through the real runAiTurn path', () => {
+  beforeEach(() => {
+    cubeControl.forceDouble = true
+    useGameStore.setState({ aiMoveDelayMs: 0 })
+    mockedGetAiMove.mockImplementation(async (_config, board, player) => {
+      const [move] = getLegalMoves(board, player, board.dice)
+      return { success: true, move, choice: 1, explanation: null }
+    })
+  })
+
+  afterEach(() => {
+    cubeControl.forceDouble = false
+  })
+
+  it('offers, parks while the human deliberates, then plays on after the take', async () => {
+    expect(useGameStore.getState().startNewGame(humanVsAi, personal)).toBe(true)
+    useGameStore.setState({
+      aiMoveDelayMs: 0,
+      board: { ...getInitialBoardState(), turn: 'dark', dice: [], phase: 'playing' },
+      cube: { value: 1, owner: 'centered', proposedBy: null },
+    })
+
+    act(() => {
+      root.render(<Driver />)
+    })
+    await waitFor(() => useGameStore.getState().cube.proposedBy !== null)
+
+    // The offer is genuinely made by the AI — no state seeding.
+    expect(useGameStore.getState().cube.proposedBy).toBe('dark')
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+    expect(useGameStore.getState().isAiThinking).toBe(false)
+    expect(useGameStore.getState().board?.dice).toHaveLength(0)
+    expect(mockedGetAiMove).not.toHaveBeenCalled()
+
+    act(() => {
+      useGameStore.getState().respondToDouble('light', true)
+    })
+    await waitFor(() => mockedGetAiMove.mock.calls.length > 0)
+
+    expect(useGameStore.getState().cube).toEqual({ value: 2, owner: 'light', proposedBy: null })
+    expect(mockedGetAiMove).toHaveBeenCalled()
+  })
+
+  it('ends the game when the human drops the AI double', async () => {
+    expect(useGameStore.getState().startNewGame(humanVsAi, personal)).toBe(true)
+    useGameStore.setState({
+      aiMoveDelayMs: 0,
+      board: { ...getInitialBoardState(), turn: 'dark', dice: [], phase: 'playing' },
+      cube: { value: 1, owner: 'centered', proposedBy: null },
+    })
+
+    act(() => {
+      root.render(<Driver />)
+    })
+    await waitFor(() => useGameStore.getState().cube.proposedBy === 'dark')
+
+    act(() => {
+      useGameStore.getState().respondToDouble('light', false)
+    })
+
+    expect(useGameStore.getState().board?.phase).toBe('finished')
+    expect(useGameStore.getState().board?.winner).toBe('dark')
+    expect(mockedGetAiMove).not.toHaveBeenCalled()
+  })
+
+  it('resolves an AI-vs-AI double immediately and keeps playing', async () => {
+    const aiVsAi: GameConfigSnapshot = { mode: 'aiVsAi', aiMatchType: 'mirror', opponent: personal }
+    expect(useGameStore.getState().startNewGame(aiVsAi, personal)).toBe(true)
+    useGameStore.setState({
+      aiMoveDelayMs: 0,
+      board: { ...getInitialBoardState(), turn: 'dark', dice: [], phase: 'playing' },
+      cube: { value: 1, owner: 'centered', proposedBy: null },
+    })
+
+    await act(async () => {
+      await useGameStore.getState().runAiTurn()
+    })
+
+    const { cube, board } = useGameStore.getState()
+    expect(cube.proposedBy).toBeNull()
+    if (board?.phase === 'finished') {
+      // The responder dropped: the doubler wins.
+      expect(board.winner).toBe('dark')
+    } else {
+      expect(cube).toEqual({ value: 2, owner: 'light', proposedBy: null })
+      expect(mockedGetAiMove).toHaveBeenCalled()
+    }
   })
 })
