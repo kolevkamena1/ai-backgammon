@@ -216,8 +216,13 @@ export function startTelemetry(options?: { forceEnable?: boolean }): () => void 
       tracker.aiErrors[code] = (tracker.aiErrors[code] ?? 0) + 1
     }
 
+    // When a game ends (bear-off or declined double), `turnNumber` has not incremented to the next
+    // turn, so the completed turn count is `turnNumber` itself. While a game is still in progress
+    // (`phase !== 'finished'`), `turnNumber` names the active turn, so `turnNumber - 1` is the count
+    // of completed turns so far. Note: this adds +1 to `turns` on finished games compared to
+    // historical rows recorded before this fix.
     tracker.last = {
-      turns: Math.max(0, state.turnNumber - 1),
+      turns: state.board?.phase === 'finished' ? state.turnNumber : Math.max(0, state.turnNumber - 1),
       moves: state.history.length,
       winner: state.board?.winner ?? null,
     }

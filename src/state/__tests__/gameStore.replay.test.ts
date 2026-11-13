@@ -349,4 +349,65 @@ describe('gameStore rewind (keep dice vs. discard dice) and pause', () => {
       expect(captureLiveState()).toEqual(recorded[i])
     }
   })
+
+  it('telemetry turns matrix: bear-off finish, declined-double finish, and mid-game abandon (C13 regression)', () => {
+    const sentEvents: Array<{ type?: string; gameId?: string; outcome?: string; turns?: number }> = []
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      if (typeof init?.body === 'string') {
+        sentEvents.push(
+          JSON.parse(init.body) as { type?: string; gameId?: string; outcome?: string; turns?: number },
+        )
+      }
+      return new Response(null, { status: 204 })
+    })
+
+    const stopTelemetry = startTelemetry({ forceEnable: true })
+
+    try {
+      const matchCfg: GameConfigSnapshot = {
+        ...HUMAN_VS_AI_CONFIG,
+        match: { targetPoints: 5, enableCrawford: true },
+      }
+
+      // 1. Bear-off finish on Turn 1 -> turns must be 1 (not 0)
+      useGameStore.getState().startNewGame(matchCfg, PERSONAL_AI)
+      const bearOffGameId = useGameStore.getState().gameId
+      const nearlyDone = getInitialBoardState()
+      nearlyDone.points = Array<number>(24).fill(0)
+      nearlyDone.points[0] = 1
+      nearlyDone.points[23] = -15
+      nearlyDone.off = { light: 14, dark: 1 }
+      useGameStore.setState({ board: nearlyDone })
+      useGameStore.getState().roll([1, 2])
+      expect(useGameStore.getState().makeMove({ from: 1, to: 'off', die: 1 })).toBe(true)
+      const bearOffEnd = sentEvents.find((e) => e.type === 'game_end' && e.gameId === bearOffGameId)
+      expect(bearOffEnd).toMatchObject({ outcome: 'finished', turns: 1 })
+
+      // 2. Declined-double finish on Turn 2 -> turns must be 2 (not 1)
+      useGameStore.getState().startNewGame(matchCfg, PERSONAL_AI)
+      const declinedDoubleGameId = useGameStore.getState().gameId
+      useGameStore.getState().roll([4, 3])
+      expect(useGameStore.getState().makeMove({ from: 24, to: 20, die: 4 })).toBe(true)
+      expect(useGameStore.getState().makeMove({ from: 13, to: 10, die: 3 })).toBe(true)
+      expect(useGameStore.getState().turnNumber).toBe(2)
+      expect(useGameStore.getState().proposeDouble('dark')).toBe(true)
+      useGameStore.getState().respondToDouble('light', false)
+      const declinedEnd = sentEvents.find((e) => e.type === 'game_end' && e.gameId === declinedDoubleGameId)
+      expect(declinedEnd).toMatchObject({ outcome: 'finished', turns: 2 })
+
+      // 3. Mid-game abandon after completing Turn 1 (turnNumber is now 2, mid-game) -> turns must be 1
+      useGameStore.getState().startNewGame(matchCfg, PERSONAL_AI)
+      const midGameId = useGameStore.getState().gameId
+      useGameStore.getState().roll([4, 3])
+      expect(useGameStore.getState().makeMove({ from: 24, to: 20, die: 4 })).toBe(true)
+      expect(useGameStore.getState().makeMove({ from: 13, to: 10, die: 3 })).toBe(true)
+      expect(useGameStore.getState().turnNumber).toBe(2)
+      useGameStore.getState().resetGame()
+      const midGameEnd = sentEvents.find((e) => e.type === 'game_end' && e.gameId === midGameId)
+      expect(midGameEnd).toMatchObject({ outcome: 'abandoned', turns: 1 })
+    } finally {
+      stopTelemetry()
+      fetchSpy.mockRestore()
+    }
+  })
 })

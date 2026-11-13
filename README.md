@@ -650,7 +650,9 @@ only once the production CSS pipeline is stable.
 ## Admin stats (`/stats`)
 
 A private dashboard for the site owner: sessions, visitors, country/AS, referrers, devices, and per-game
-mode, AI provider/level, duration, turns, undo/pause counts and **finished vs. abandoned**.
+mode, AI provider/level, duration, turns, undo/pause counts and **finished vs. abandoned**. (Finished games
+report `turns = turnNumber` while abandoned mid-turn games report `max(0, turnNumber - 1)`; finished rows
+therefore carry a `+1` turn count relative to historical rows recorded before the C13 telemetry fix.)
 
 **Privacy by design.** Cookieless; the random session id lives in `sessionStorage` (gone with the tab).
 The IP is stored only as `HMAC(secret, day|ip)` truncated to 64 bits — it rotates daily, so unique
