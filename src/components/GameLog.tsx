@@ -433,7 +433,7 @@ export const GameLog: FC = () => {
           </div>
         </div>
       ) : isPaused && active && board?.phase !== 'finished' ? (
-        <div className="border-b border-amber-900/50 bg-amber-950/40 px-3 py-1.5 text-xs text-amber-200">
+        <div className="border-b border-amber-900/50 bg-amber-950/40 px-3 py-1.5 text-xs text-amber-300">
           Game paused. Click <strong className="font-semibold">Resume</strong> to continue.
         </div>
       ) : null}

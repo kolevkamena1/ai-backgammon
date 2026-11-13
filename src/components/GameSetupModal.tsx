@@ -278,7 +278,7 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
                 className={cn(
                   'flex items-center gap-3 rounded-xl border p-2.5 cursor-pointer transition-all',
                   humanColor === 'light'
-                    ? 'border-amber-500/80 bg-amber-500/10 ring-1 ring-amber-500/40 text-white'
+                    ? 'border-amber-500/80 bg-amber-500/10 ring-1 ring-amber-500/40 text-slate-50'
                     : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700',
                 )}
               >
@@ -295,7 +295,7 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
                   className="size-5 rounded-full border-2 border-amber-300 bg-amber-100 shadow-sm shrink-0"
                 />
                 <div className="flex flex-col">
-                  <span className="text-xs font-bold text-amber-200">Play White</span>
+                  <span className="text-xs font-bold text-amber-300">Play White</span>
                   <span className="text-[10px] text-slate-400">Moves 1st · Bottom</span>
                 </div>
               </label>
@@ -304,7 +304,7 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
                 className={cn(
                   'flex items-center gap-3 rounded-xl border p-2.5 cursor-pointer transition-all',
                   humanColor === 'dark'
-                    ? 'border-sky-500/80 bg-sky-500/10 ring-1 ring-sky-500/40 text-white'
+                    ? 'border-sky-500/80 bg-sky-500/10 ring-1 ring-sky-500/40 text-slate-50'
                     : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700',
                 )}
               >
@@ -339,7 +339,7 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
               className={cn(
                 'flex flex-col items-center justify-center rounded-lg border p-2 text-center transition-all',
                 diceMode === 'random'
-                  ? 'border-sky-500 bg-sky-500/15 text-white font-semibold ring-1 ring-sky-500/50'
+                  ? 'border-sky-500 bg-sky-500/15 text-slate-50 font-semibold ring-1 ring-sky-500/50'
                   : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700',
               )}
             >
@@ -354,7 +354,7 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
               className={cn(
                 'flex flex-col items-center justify-center rounded-lg border p-2 text-center transition-all',
                 diceMode === 'seeded'
-                  ? 'border-sky-500 bg-sky-500/15 text-white font-semibold ring-1 ring-sky-500/50'
+                  ? 'border-sky-500 bg-sky-500/15 text-slate-50 font-semibold ring-1 ring-sky-500/50'
                   : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700',
               )}
             >
@@ -369,7 +369,7 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
               className={cn(
                 'flex flex-col items-center justify-center rounded-lg border p-2 text-center transition-all',
                 diceMode === 'manual'
-                  ? 'border-sky-500 bg-sky-500/15 text-white font-semibold ring-1 ring-sky-500/50'
+                  ? 'border-sky-500 bg-sky-500/15 text-slate-50 font-semibold ring-1 ring-sky-500/50'
                   : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700',
               )}
             >
@@ -382,7 +382,7 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
           {diceMode === 'seeded' && (
             <div className="flex flex-col gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5">
               <div className="flex items-center justify-between gap-2">
-                <label htmlFor="seed-input" className="text-xs font-medium text-amber-200">
+                <label htmlFor="seed-input" className="text-xs font-medium text-amber-300">
                   Seed Number (reproducible dice rolls):
                 </label>
                 <button
@@ -401,7 +401,7 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
                 value={seedInput}
                 onChange={(e) => setSeedInput(e.target.value)}
                 placeholder="e.g. 12345"
-                className="w-full rounded border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs font-mono text-white focus:border-amber-400 focus:outline-hidden"
+                className="w-full rounded border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs font-mono text-slate-50 focus:border-amber-400 focus:outline-hidden"
               />
               <p className="text-[10px] text-slate-400 leading-tight">
                 Entering this same seed produces the exact same dice series. Ideal for replaying the game with the opposite checker color!
@@ -426,7 +426,7 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
               className={cn(
                 'flex flex-col items-center justify-center rounded-lg border p-2.5 text-center transition-all',
                 matchLength === 1
-                  ? 'border-sky-500 bg-sky-500/15 text-white font-semibold ring-1 ring-sky-500/50'
+                  ? 'border-sky-500 bg-sky-500/15 text-slate-50 font-semibold ring-1 ring-sky-500/50'
                   : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700 hover:bg-slate-800',
               )}
             >
@@ -440,7 +440,7 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
               className={cn(
                 'flex flex-col items-center justify-center rounded-lg border p-2.5 text-center transition-all',
                 matchLength === 7
-                  ? 'border-sky-500 bg-sky-500/15 text-white font-semibold ring-1 ring-sky-500/50'
+                  ? 'border-sky-500 bg-sky-500/15 text-slate-50 font-semibold ring-1 ring-sky-500/50'
                   : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700 hover:bg-slate-800',
               )}
             >
@@ -454,7 +454,7 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
               className={cn(
                 'flex flex-col items-center justify-center rounded-lg border p-2.5 text-center transition-all',
                 matchLength === 11
-                  ? 'border-sky-500 bg-sky-500/15 text-white font-semibold ring-1 ring-sky-500/50'
+                  ? 'border-sky-500 bg-sky-500/15 text-slate-50 font-semibold ring-1 ring-sky-500/50'
                   : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700 hover:bg-slate-800',
               )}
             >
@@ -468,7 +468,7 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
               className={cn(
                 'flex flex-col items-center justify-center rounded-lg border p-2.5 text-center transition-all',
                 matchLength === -1
-                  ? 'border-sky-500 bg-sky-500/15 text-white font-semibold ring-1 ring-sky-500/50'
+                  ? 'border-sky-500 bg-sky-500/15 text-slate-50 font-semibold ring-1 ring-sky-500/50'
                   : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700 hover:bg-slate-800',
               )}
             >
@@ -489,7 +489,7 @@ const GameSetupModal = ({ onClose, initialMode }: GameSetupModalProps) => {
                 max="99"
                 value={customPointsInput}
                 onChange={(e) => setCustomPointsInput(e.target.value)}
-                className="w-20 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-mono text-white focus:border-sky-500 focus:outline-hidden"
+                className="w-20 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-mono text-slate-50 focus:border-sky-500 focus:outline-hidden"
               />
             </div>
           )}

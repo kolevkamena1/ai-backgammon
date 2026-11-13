@@ -208,7 +208,7 @@ export const SplitPane: FC<SplitPaneProps> = ({
               className={cn(
                 'absolute inset-y-4 left-4 z-50 w-[min(320px,28%)] rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-2.5 p-4 transition-all shadow-2xl backdrop-blur-md',
                 overTarget === 'left'
-                  ? 'border-sky-400 bg-sky-500/30 text-white scale-[1.02]'
+                  ? 'border-sky-400 bg-sky-500/30 text-slate-50 scale-[1.02]'
                   : 'border-sky-500/60 bg-slate-900/90 text-sky-200 animate-pulse',
               )}
             >
@@ -240,7 +240,7 @@ export const SplitPane: FC<SplitPaneProps> = ({
               className={cn(
                 'absolute inset-y-4 right-4 z-50 w-[min(320px,28%)] rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-2.5 p-4 transition-all shadow-2xl backdrop-blur-md',
                 overTarget === 'right'
-                  ? 'border-sky-400 bg-sky-500/30 text-white scale-[1.02]'
+                  ? 'border-sky-400 bg-sky-500/30 text-slate-50 scale-[1.02]'
                   : 'border-sky-500/60 bg-slate-900/90 text-sky-200 animate-pulse',
               )}
             >
@@ -272,7 +272,7 @@ export const SplitPane: FC<SplitPaneProps> = ({
               className={cn(
                 'absolute inset-x-8 top-4 z-50 h-[min(180px,28%)] rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-2.5 p-4 transition-all shadow-2xl backdrop-blur-md',
                 overTarget === 'top'
-                  ? 'border-sky-400 bg-sky-500/30 text-white scale-[1.02]'
+                  ? 'border-sky-400 bg-sky-500/30 text-slate-50 scale-[1.02]'
                   : 'border-sky-500/60 bg-slate-900/90 text-sky-200 animate-pulse',
               )}
             >
@@ -304,7 +304,7 @@ export const SplitPane: FC<SplitPaneProps> = ({
               className={cn(
                 'absolute inset-x-8 bottom-4 z-50 h-[min(180px,28%)] rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-2.5 p-4 transition-all shadow-2xl backdrop-blur-md',
                 overTarget === 'bottom'
-                  ? 'border-sky-400 bg-sky-500/30 text-white scale-[1.02]'
+                  ? 'border-sky-400 bg-sky-500/30 text-slate-50 scale-[1.02]'
                   : 'border-sky-500/60 bg-slate-900/90 text-sky-200 animate-pulse',
               )}
             >

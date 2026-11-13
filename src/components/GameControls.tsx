@@ -119,7 +119,7 @@ const GameControls = () => {
         <div
           role="alertdialog"
           aria-label="Doubling stake proposal"
-          className="flex flex-col gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-xs text-amber-100"
+          className="flex flex-col gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-xs text-amber-300"
         >
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -290,9 +290,9 @@ const GameControls = () => {
           </p>
           {game.match?.lastVictory && (
             <p className="text-slate-300">
-              Victory: <strong className="capitalize text-emerald-200">{game.match.lastVictory.grade}</strong> (
+              Victory: <strong className="capitalize text-emerald-300">{game.match.lastVictory.grade}</strong> (
               {game.match.lastVictory.basePoints} pt{game.match.lastVictory.basePoints > 1 ? 's' : ''} × cube{' '}
-              {game.match.lastVictory.cubeMultiplier} = <strong className="text-white">{game.match.lastVictory.totalPoints} pts</strong>)
+              {game.match.lastVictory.cubeMultiplier} = <strong className="text-slate-50">{game.match.lastVictory.totalPoints} pts</strong>)
             </p>
           )}
           {game.match && game.match.targetPoints > 1 && (

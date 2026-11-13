@@ -50,6 +50,12 @@ html[data-theme='light'] {
   --color-red-200: #991b1b;
   --color-red-300: #b91c1c;
   --color-red-400: #dc2626;
+  /* Pastels used only as text/ring accents; darkened so they stay legible on cream. */
+  --color-emerald-200: #065f46;
+  --color-emerald-400: #059669;
+  --color-rose-200: #9f1239;
+  --color-rose-300: #be123c;
+  --color-rose-400: #e11d48;
 }
 
 /*
@@ -83,6 +89,11 @@ html[data-theme='dark'] {
   --color-red-200: #fecaca;
   --color-red-300: #fca5a5;
   --color-red-400: #f87171;
+  --color-emerald-200: #a7f3d0;
+  --color-emerald-400: #34d399;
+  --color-rose-200: #fecdd3;
+  --color-rose-300: #fda4af;
+  --color-rose-400: #fb7185;
 }
 
 /*
@@ -95,6 +106,7 @@ html[data-theme='dark'] {
   --color-slate-950: #020617;
   --color-sky-300: #7dd3fc;
   --color-emerald-300: #6ee7b7;
+  --color-emerald-400: #34d399;
 }
 
 span.bg-checker-light {

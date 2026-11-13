@@ -46,7 +46,7 @@ export const MatchScoreboard: FC<MatchScoreboardProps> = ({
             className="inline-block size-4 shrink-0 rounded-full border-2 border-amber-300 bg-amber-100 shadow-sm"
           />
           <div className="flex flex-col text-left">
-            <span className="text-xs font-bold uppercase tracking-wider text-amber-200">
+            <span className="text-xs font-bold uppercase tracking-wider text-amber-300">
               {whiteLabel}
             </span>
             {whiteSub && <span className="text-[10px] text-slate-400 leading-none">{whiteSub}</span>}
@@ -95,7 +95,7 @@ export const MatchScoreboard: FC<MatchScoreboardProps> = ({
       <div className="mt-2 flex w-full flex-col items-center gap-1.5 border-t border-slate-800/80 pt-1.5">
         <div className="flex flex-wrap items-center justify-center gap-2 text-xs font-medium text-slate-300">
           <span>
-            First to <strong className="text-white font-bold">{match.targetPoints} points</strong> wins the match
+            First to <strong className="font-bold text-slate-50">{match.targetPoints} points</strong> wins the match
           </span>
 
           {match.isCrawfordGame && (

@@ -180,7 +180,7 @@ const DayChart = ({ rows }: { rows: StatsSummary['byDay'] }) => {
         </div>
 
         {totalSessions > 0 && (
-          <div className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-200">
+          <div className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-300">
             <span className="text-amber-300/80">Avg. Games / Session:</span>
             <strong className="font-mono text-sm font-bold text-amber-300">{overallRatio}</strong>
           </div>
